@@ -21,3 +21,6 @@ logs/
 
 # Environment
 .env
+
+# Local planning and private workspace files
+/.local/

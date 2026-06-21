@@ -464,16 +464,21 @@ La base `C:/YT-Pipeline/state/orchestrator.db` conserva capturas, tareas, intent
 ### Ingestión robusta y fuentes genéricas
 
 1. Vigilar por defecto `%USERPROFILE%/Downloads/YT-Knowledge-Inbox`; la ruta es editable.
-2. Ante creación o cambio, comprobar tamaño y `mtime` cada segundo hasta obtener dos lecturas iguales.
-3. Analizar frontmatter y cuerpo según el contrato v1. Los ficheros sin transcripción pasan a `failed` con `TRANSCRIPTION_MISSING`.
-4. Insertar la captura y moverla a `processing` en una operación lógica de reclamación. Si `capture_id` ya existe, mover el duplicado a `failed/duplicates` sin reenviarlo.
-5. Los campos de YouTube solo son obligatorios cuando `source_type: youtube`.
+2. Ante creación o cambio, comprobar tamaño y `mtime` cada segundo hasta obtener tres lecturas consecutivas iguales.
+3. Si la apertura falla por bloqueo, reintentar tres veces con esperas de 1, 2 y 4 segundos. Tras el tercer fallo, registrar `FILE_LOCKED`, mantener el original en inbox y ofrecer reintento manual desde la UI.
+4. Analizar frontmatter y cuerpo según el contrato v1 antes de cualquier procesamiento. Un contrato inválido pasa a `failed/contracts` con sidecar JSON que contiene código, campo y mensaje; nunca se envía al Broker.
+5. Los ficheros sin transcripción pasan a `failed` con `TRANSCRIPTION_MISSING`.
+6. Copiar a `staging/*.part`, sincronizar a disco, calcular hash y revalidar la copia.
+7. Insertar la captura `STAGED` en SQLite y confirmar. Solo entonces mover la copia a `processing` mediante `os.replace`, actualizarla a `PENDING` y retirar el original de inbox.
+8. Si `capture_id` ya existe, mover el duplicado a `failed/duplicates` sin reenviarlo.
+9. Los campos de YouTube solo son obligatorios cuando `source_type: youtube`.
 
 ### Estados y recuperación
 
-Estados persistidos: `PENDING`, `SUBMITTING`, `QUEUED`, `PROCESSING`, `COMPLETED`, `FAILED`, `REJECTED` y `CANCELLED`.
+Estados persistidos: `STAGED`, `PENDING`, `SUBMITTING`, `QUEUED`, `PROCESSING`, `COMPLETED`, `FAILED`, `REJECTED` y `CANCELLED`.
 
 - Al arrancar, reconciliar SQLite con las carpetas. `SUBMITTING`, `QUEUED` y `PROCESSING` se consultan por `task_id`; no se crean tareas nuevas sin comprobar primero la existente.
+- Los registros `STAGED` se reconcilian primero: si existe staging válido se completa el movimiento; si ya está en processing se actualiza a `PENDING`; si falta en ambos lugares se conserva inbox o se marca `STAGING_FILE_MISSING`.
 - Reintentar únicamente desconexión, `429`, `502`, `503`, `504` y timeout, con backoff 30/60/120 segundos y máximo tres intentos.
 - Errores de contrato, transcripción ausente, presupuesto agotado o cancelación son terminales.
 
@@ -487,6 +492,7 @@ Estados persistidos: `PENDING`, `SUBMITTING`, `QUEUED`, `PROCESSING`, `COMPLETED
 ### Broker y publicación
 
 - Crear tareas mediante `POST /api/v1/tasks` y consultar `GET /api/v1/tasks/{task_id}` cada dos segundos mientras sean activas.
+- Validar el payload completo contra el esquema Broker v1 inmediatamente antes del POST y validar cada respuesta del Broker antes de actualizar SQLite. Un incumplimiento produce `CONTRACT_VALIDATION_FAILED`, sin reintento automático.
 - El bucle de envío no espera el resultado de una tarea para enviar la siguiente. Tras persistir la respuesta `202`, el seguimiento pasa al poller y el dispatcher continúa con el siguiente fichero.
 - El Orchestrator no interpreta `queued` como bloqueo o error: el Broker ejecuta globalmente una sola tarea LLM y las restantes esperan de forma normal.
 - En éxito, validar que `result_markdown` no contiene frontmatter y construir el frontmatter final de forma segura con un serializador YAML.
@@ -502,3 +508,13 @@ Estados persistidos: `PENDING`, `SUBMITTING`, `QUEUED`, `PROCESSING`, `COMPLETED
 - La publicación, rechazo y reprocesado son reversibles y quedan auditados.
 - El Broker offline acumula trabajo y se recupera automáticamente.
 - Una tarea LLM lenta no bloquea la ingestión ni el envío de las siguientes; todas quedan registradas y visibles mientras el Broker las ejecuta una a una.
+
+### Feedback visual obligatorio
+
+La cola visual es un requisito funcional de UX porque los trabajos pueden durar minutos:
+
+- Mostrar siempre estado persistido, posición en cola, modelo elegido, fase actual, tiempo transcurrido, chunks completados y estado del Broker.
+- Actualizar como máximo cada dos segundos sin bloquear el hilo de Tk.
+- Usar animación continua solo para una tarea `PROCESSING`; las tareas `QUEUED` muestran orden y espera estimada cuando existan datos suficientes.
+- No mostrar porcentajes inventados. Para trabajo sin progreso cuantificable usar fase, spinner y tiempo transcurrido.
+- Los estados degradados, reintentos y espera por Broker offline deben ser visibles con texto accionable, no únicamente mediante color.

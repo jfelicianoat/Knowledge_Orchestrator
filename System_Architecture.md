@@ -82,6 +82,8 @@ Sistema distribuido de 3 aplicaciones independientes que transforman contenido d
 
 C:/YT-Pipeline/
 
+├── staging/        # Copias temporales antes del commit y movimiento atómico
+
 ├── state/          # SQLite y estado durable del Orchestrator
 
 ├── processing/     # Archivos siendo procesados
@@ -199,11 +201,12 @@ Esta sección consolida las decisiones del hilo original y prevalece sobre ejemp
 ### Flujo de datos definitivo
 
 1. El plugin o una fuente externa escribe un Markdown completo en `%USERPROFILE%/Downloads/YT-Knowledge-Inbox`.
-2. El Orchestrator espera a que el fichero sea estable, valida el contrato v1 y lo reclama moviéndolo a `C:/YT-Pipeline/processing`.
-3. El Orchestrator crea una tarea idempotente en el Broker y consulta su estado hasta obtener resultado o error terminal.
-4. En éxito, escribe inmediatamente la nota en la carpeta temática de Obsidian, o en `_inbox` si no hay tema; después mueve el origen a `completed`.
-5. La pantalla de revisión permite rechazar una nota ya publicada. Rechazarla la retira del vault, conserva nota y origen bajo `rejected` y permite reprocesar el original.
-6. Si el Broker está desconectado, la tarea permanece pendiente y la UI muestra el incidente sin notificaciones del sistema.
+2. El Orchestrator espera a que el fichero sea estable y accesible, valida el contrato v1 y crea una copia sincronizada en `C:/YT-Pipeline/staging`.
+3. Registra en SQLite el hash y las rutas con estado `STAGED`; solo después del commit mueve la copia mediante `os.replace` a `processing` y elimina el original de inbox.
+4. El Orchestrator crea una tarea idempotente en el Broker y consulta su estado hasta obtener resultado o error terminal.
+5. En éxito, escribe inmediatamente la nota en la carpeta temática de Obsidian, o en `_inbox` si no hay tema; después mueve el origen a `completed`.
+6. La pantalla de revisión permite rechazar una nota ya publicada. Rechazarla la retira del vault, conserva nota y origen bajo `rejected` y permite reprocesar el original.
+7. Si el Broker está desconectado, la tarea permanece pendiente y la UI muestra el incidente sin notificaciones del sistema.
 
 ### Persistencia y ejecución
 
@@ -216,6 +219,20 @@ Esta sección consolida las decisiones del hilo original y prevalece sobre ejemp
 ### Fuentes soportadas
 
 `source_type` es extensible. YouTube añade sus campos específicos, pero cualquier fuente puede entrar si aporta `capture_id`, `source_type`, `title`, `captured_at`, `has_transcript` y una sección `## Transcripción`. Los metadatos ausentes permanecen nulos; nunca se inventan.
+
+### Integridad transaccional entre archivos y SQLite
+
+No existe una transacción única que abarque SQLite y NTFS. La integridad se consigue mediante estados durables y operaciones idempotentes:
+
+1. Esperar tres comprobaciones consecutivas sin cambios y hasta tres intentos de apertura si el sistema mantiene el archivo bloqueado.
+2. Validar el fichero de inbox contra el contrato v1 antes de copiarlo.
+3. Copiarlo a `staging/<capture_id>.md.part`, ejecutar `flush` y `fsync`, calcular SHA-256 y volver a validar la copia.
+4. Ejecutar `BEGIN IMMEDIATE`, insertar la captura en estado `STAGED` con hash y rutas, y confirmar la transacción.
+5. Tras el commit, usar `os.replace` desde staging a `processing`; ambas carpetas deben estar en el mismo volumen.
+6. Actualizar SQLite a `PENDING` y eliminar el original de inbox. Si la eliminación falla, `capture_id` impide un procesamiento duplicado.
+7. Al arrancar, reconciliar registros `STAGED` con staging/processing y completar o revertir la operación sin perder el fichero.
+
+Un error de contrato se rechaza antes de staging y se conserva bajo `failed/contracts` con un sidecar de error legible.
 
 ### Espera asíncrona y ejecución serial
 

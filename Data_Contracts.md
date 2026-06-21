@@ -931,12 +931,14 @@ En éxito, `result` contiene `result_markdown`, tokens, duración, coste, modelo
 - `PATCH /api/v1/queue`: `{ "pending_order": ["task_2", "task_1"] }`; debe contener exactamente todas las tareas pendientes actuales o devuelve `409`.
 - `GET /api/v1/models`: modelos Ollama y proveedores externos configurados, con `name`, `provider`, `status`, `context_window` cuando se conozca y capacidades declaradas.
 - `GET /api/v1/usage`: consumo por proveedor y mes, coste confirmado y reservado.
-- `GET /health`: `200` si el Broker puede aceptar tareas, aunque un proveedor esté degradado; `503` si la cola o persistencia no están disponibles.
+- `GET /health/live`: `200` si proceso y event loop están vivos.
+- `GET /health/ready`: `200` si SQLite y dispatcher pueden aceptar tareas; `503` en caso contrario.
+- `GET /health`: estado `healthy | degraded | unavailable` y detalle de SQLite, Ollama, VRAM, disco y proveedores con `checked_at`, latencia y error sanitizado.
 
 ### 8.5 Códigos HTTP y errores
 
 - `400 INVALID_REQUEST`, `404 TASK_NOT_FOUND`, `409 IDEMPOTENCY_CONFLICT` o `QUEUE_CONFLICT`.
-- `413 CONTENT_TOO_LARGE`, `422 TEMPLATE_ERROR`, `429 QUEUE_FULL`.
+- `413 CONTENT_TOO_LARGE`, `422 CONTRACT_VALIDATION_FAILED` o `TEMPLATE_ERROR`, `429 QUEUE_FULL`.
 - Errores de modelo/proveedor ocurridos después de aceptar una tarea se consultan en el recurso de tarea, no cambian retroactivamente el `202`.
 - `MODEL_UNAVAILABLE`, `BUDGET_EXCEEDED`, `TIMEOUT`, `PROVIDER_UNAVAILABLE`, `VRAM_INSUFFICIENT`, `CANCELLED` y `INTERNAL_ERROR` son códigos terminales del worker.
 
@@ -945,7 +947,7 @@ En éxito, `result` contiene `result_markdown`, tokens, duración, coste, modelo
 - Orchestrator y Broker usan SQLite separado, modo WAL, claves foráneas y transacciones para cada transición.
 - El Orchestrator conserva `capture_id`, `revision`, rutas de origen/nota, `task_id`, estado, timestamps y último error.
 - El Broker conserva request normalizado, hash, posición, intento, estado, proveedor/modelo, uso y eventos. Las API keys nunca se persisten en estas tablas.
-- Todas las escrituras de Markdown usan temporal + rename atómico.
+- La ingestión usa `staging`, hash SHA-256, commit SQLite y `os.replace` según el protocolo write-then-move. Las publicaciones Markdown usan igualmente temporal + rename atómico y estado recuperable.
 
 ### 8.7 Semántica de despacho serial
 
@@ -957,3 +959,19 @@ En éxito, `result` contiene `result_markdown`, tokens, duración, coste, modelo
 6. El slot se libera únicamente al persistir `success`, `error` o `cancelled`, o al agotar `task_timeout_seconds`.
 7. Una tarea lenta mantiene el slot y las posteriores continúan en `queued`; no se saltan ni se ejecutan en paralelo.
 8. El dashboard, las consultas de estado, la aceptación de nuevas tareas y las cancelaciones permanecen operativos mientras el slot está ocupado.
+
+### 8.8 Validación inmediata en fronteras
+
+- **Plugin → Orchestrator:** el Plugin valida antes de descargar y el Orchestrator vuelve a validar antes de staging. La doble validación es deliberada.
+- **Orchestrator → Broker:** el Orchestrator valida el request antes del POST y el Broker lo valida de nuevo en el endpoint antes de SQLite.
+- **Broker → Orchestrator:** el Orchestrator valida las respuestas `202`, estados, resultados y errores antes de cambiar el estado local.
+- La validación debe comprobar versión, campos obligatorios, tipos, enums, límites, formatos de fecha, placeholders y relaciones condicionales.
+- Un objeto inválido no se corrige implícitamente ni se procesa parcialmente. Se devuelve o registra `CONTRACT_VALIDATION_FAILED` con `boundary`, `field`, `reason` y `contract_version`.
+- Los ficheros inválidos se conservan en `failed/contracts`; los requests inválidos no crean filas ni consumen posiciones de cola.
+
+### 8.9 Estados de staging de archivos
+
+- `STAGED`: copia temporal sincronizada y fila SQLite confirmada; movimiento a processing pendiente.
+- `PENDING`: fichero confirmado en processing y preparado para construir la tarea.
+- Cada fila conserva `source_path`, `staging_path`, `processing_path`, `sha256` y `contract_version`.
+- La recuperación debe aceptar tanto “SQLite confirmado, fichero aún en staging” como “fichero ya en processing, estado aún STAGED”. Ambas situaciones se completan idempotentemente.

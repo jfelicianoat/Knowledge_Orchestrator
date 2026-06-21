@@ -37,8 +37,9 @@ Aplicación de escritorio que orquesta el pipeline de captura → procesamiento 
 
 ## Funcionalidades clave
 
-- **File Watcher inteligente**: monitoriza la carpeta inbox, valida frontmatter YAML y reclama archivos estables
-- **Pipeline visual animado**: cola con estados Pendiente → Procesando → Completado/Error con indicadores visuales
+- **File Watcher inteligente**: espera tres comprobaciones estables, reintenta locks y valida el contrato v1 antes de staging
+- **Ingestión recuperable**: staging, hash SHA-256, commit SQLite y movimiento atómico a processing
+- **Pipeline visual animado**: cola con posición, fase, tiempo, chunks y salud del Broker para mantener feedback durante procesos largos
 - **Dashboard en tiempo real**: métricas diarias, gráficos de actividad, monitorización de modelos del Broker
 - **Gestión de temas**: auto-detección por keywords, carpetas dinámicas en Obsidian, perfiles por tema
 - **Sistema de revisión**: aceptar/rechazar notas, reprocesar desde fuente original, historial completo
@@ -64,17 +65,18 @@ Aplicación de escritorio que orquesta el pipeline de captura → procesamiento 
 ## Flujo de datos
 
 1. El **YT Capture Agent** descarga archivos `.md` con frontmatter y transcripción en `Downloads/YT-Knowledge-Inbox`
-2. El **Knowledge Orchestrator** detecta el archivo via watchdog, valida el contrato v1 y lo reclama
-3. Determina el tema por keywords y construye el payload con el perfil correspondiente
-4. Envía la tarea al **AI Broker** via `POST /api/v1/tasks` (recibe `202 Accepted`)
-5. Consulta periódicamente el estado hasta obtener el resultado
-6. En éxito, escribe la nota procesada en la carpeta temática del vault de Obsidian
-7. El origen se mueve a `completed`; los errores van a `failed` con logs detallados
+2. El **Knowledge Orchestrator** espera estabilidad/acceso, valida el contrato v1, copia a staging y confirma el registro SQLite
+3. Solo tras el commit mueve la copia atómicamente a processing
+4. Determina el tema por keywords y construye el payload con el perfil correspondiente
+5. Valida el payload y lo envía al **AI Broker** via `POST /api/v1/tasks` (recibe `202 Accepted`)
+6. Valida cada respuesta y consulta periódicamente el estado hasta obtener el resultado
+7. En éxito, escribe la nota procesada en la carpeta temática del vault de Obsidian
+8. El origen se mueve a `completed`; los errores van a `failed` con logs detallados
 
 ## Estados de procesamiento
 
 ```
-PENDING → SUBMITTING → QUEUED → PROCESSING → COMPLETED → (publicado en Obsidian)
+STAGED → PENDING → SUBMITTING → QUEUED → PROCESSING → COMPLETED → (publicado en Obsidian)
                                     ↓
                               FAILED / REJECTED / CANCELLED
 ```
