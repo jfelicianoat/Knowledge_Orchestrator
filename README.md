@@ -1,19 +1,20 @@
 # Knowledge Orchestrator — Desktop Pipeline
 
-Aplicación de escritorio que orquesta el pipeline de captura → procesamiento → publicación de contenido de YouTube (y fuentes genéricas) hacia Obsidian, utilizando LLMs locales y externos.
+Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows completos de inferencia — chunking, síntesis, extracción de afirmaciones y comparación semántica — mientras que el AI Broker se limita a ejecutar inferencias individuales.
 
 ## Arquitectura del Ecosistema
 
 ```
 [YT Capture Agent] ──► Knowledge Orchestrator ──► [AI Broker] ──► Ollama (local)
-  (Chrome Extension)           │                      │              ├── llama3.1:70b
-        ↵                      │                     HTTP            ├── llama3.1:8b
-  Archivos .md                 │                     REST             └── qwen2.5:72b
-        ↵                      │                      │
-  Downloads/                   ▼                      ├──► DeepSeek API
-  YT-Knowledge-Inbox     [Obsidian Vault]             │
-                                                  └──► Dashboard Web
-                                                      (FastAPI + HTMX)
+  (Chrome Extension)                │                    │            ├── llama3.1:70b
+         ↵                          │                  HTTP           ├── llama3.1:8b
+   Archivos .md              Workflow completo        REST            └── qwen2.5:72b
+         ↵                   (chunks, síntesis,         │
+   Downloads/                 claims, diffs)            ├──► DeepSeek API
+   YT-Knowledge-Inbox               ▼                   │
+                            [Obsidian Vault]         Inferencias
+                            + knowledge_claims      individuales
+                            + versiones previas
 ```
 
 ### Proyectos Relacionados
@@ -21,8 +22,8 @@ Aplicación de escritorio que orquesta el pipeline de captura → procesamiento 
 | Proyecto | Descripción | Repositorio |
 |----------|-------------|-------------|
 | **YT Capture Agent** | Extensión Chrome que captura metadata y transcripciones de YouTube, generando archivos `.md` estructurados | [jfelicianoat/YT_Capture_Agent](https://github.com/jfelicianoat/YT_Capture_Agent) |
-| **AI Broker** | Gateway de procesamiento LLM con cola serial, enrutamiento inteligente y dashboard web | [jfelicianoat/AI_Broker](https://github.com/jfelicianoat/AI_Broker) |
-| **Knowledge Orchestrator** | Orquestador de escritorio que conecta la captura con el procesamiento y la publicación en Obsidian **(este proyecto)** | [jfelicianoat/Knowledge_Orchestrator](https://github.com/jfelicianoat/Knowledge_Orchestrator) |
+| **AI Broker** | Gateway de inferencia LLM con cola serial, enrutamiento de modelos y dashboard web. No contiene lógica de conocimiento ni orquesta workflows. | [jfelicianoat/AI_Broker](https://github.com/jfelicianoat/AI_Broker) |
+| **Knowledge Orchestrator** | Orquestador que valida entradas, decide temas, construye y encadena inferencias, interpreta respuestas, mantiene claims/diffs/versiones y publica en Obsidian **(este proyecto)** | [jfelicianoat/Knowledge_Orchestrator](https://github.com/jfelicianoat/Knowledge_Orchestrator) |
 
 ## Stack
 
@@ -33,18 +34,19 @@ Aplicación de escritorio que orquesta el pipeline de captura → procesamiento 
 | HTTP Client | httpx (asíncrono) |
 | Gráficos | matplotlib |
 | Configuración | PyYAML |
-| Persistencia | SQLite + WAL |
+| Persistencia | SQLite + WAL + FTS5 |
 
 ## Funcionalidades clave
 
-- **File Watcher inteligente**: espera tres comprobaciones estables, reintenta locks y valida el contrato v1 antes de staging
-- **Ingestión recuperable**: staging, hash SHA-256, commit SQLite y movimiento atómico a processing
-- **Pipeline visual animado**: cola con posición, fase, tiempo, chunks y salud del Broker para mantener feedback durante procesos largos
-- **Dashboard en tiempo real**: métricas diarias, gráficos de actividad, monitorización de modelos del Broker
-- **Gestión de temas**: auto-detección por keywords, carpetas dinámicas en Obsidian, perfiles por tema
-- **Sistema de revisión**: aceptar/rechazar notas, reprocesar desde fuente original, historial completo
-- **Mantenimiento semántico**: afirmaciones con evidencia, comparación contextual, diff, aprobación humana y versiones recuperables
-- **Comunicación resiliente**: reintentos con backoff exponencial, recuperación automática tras reinicio
+- **File Watcher inteligente**: verifica estabilidad, reintenta locks y valida contrato v1 antes de staging
+- **Ingestión recuperable**: staging, SHA-256, commit SQLite y movimiento atómico a processing
+- **Orquestación completa de inferencias**: el Orchestrator renderiza prompts, resuelve placeholders, divide en chunks por límites naturales, encadena tareas Broker para cada chunk + síntesis, y valida cada respuesta
+- **Mantenimiento semántico**: indexa afirmaciones (`knowledge_claims`) con entidades, volatilidad y fuentes; compara nuevas evidencias contra notas existentes (supports/contradicts/supersedes); genera diff y propuestas con confianza e impacto; requiere aprobación humana antes de sobrescribir
+- **Pipeline visual animado**: cola con posición, fase, tiempo y salud del Broker
+- **Dashboard en tiempo real**: métricas diarias, gráficos de actividad, monitorización de modelos
+- **Gestión de temas**: auto-detección por keywords, carpetas dinámicas en Obsidian, perfiles editables por tema
+- **Sistema de revisión**: aceptar/rechazar notas, reprocesar desde original, revisión de candidatos de actualización semántica
+- **Recuperación al arranque**: reconcilia SQLite con filesystem, reanuda tareas sin duplicar
 
 ## UI (Ventana Única con Menú Lateral)
 
@@ -54,7 +56,7 @@ Aplicación de escritorio que orquesta el pipeline de captura → procesamiento 
 ├──────────────┬───────────────────────────────────────────────┤
 │  📊 Dashboard│  [Contenido de la pestaña activa]             │
 │  🔄 Cola     │                                               │
-│  📝 Revisión │                                               │
+│  📝 Revisión │  (notas + candidatos de actualización)        │
 │  🗂️ Temas    │                                               │
 │  ⚙️ Config   │                                               │
 ├──────────────┤                                               │
@@ -65,14 +67,15 @@ Aplicación de escritorio que orquesta el pipeline de captura → procesamiento 
 
 ## Flujo de datos
 
-1. El **YT Capture Agent** descarga archivos `.md` con frontmatter y transcripción en `Downloads/YT-Knowledge-Inbox`
-2. El **Knowledge Orchestrator** espera estabilidad/acceso, valida el contrato v1, copia a staging y confirma el registro SQLite
-3. Solo tras el commit mueve la copia atómicamente a processing
-4. Determina el tema por keywords y construye el payload con el perfil correspondiente
-5. Valida el payload y lo envía al **AI Broker** via `POST /api/v1/tasks` (recibe `202 Accepted`)
-6. Valida cada respuesta y consulta periódicamente el estado hasta obtener el resultado
-7. En éxito, escribe la nota procesada en la carpeta temática del vault de Obsidian
-8. El origen se mueve a `completed`; los errores van a `failed` con logs detallados
+1. El **YT Capture Agent** (o fuente externa) deposita un `.md` con frontmatter v1 y transcripción en `Downloads/YT-Knowledge-Inbox`
+2. El **Orchestrator** espera estabilidad (tamaño/mtime sin cambios por 1s), valida el contrato v1, copia a staging con SHA-256 y registra en SQLite
+3. Tras el commit, mueve atómicamente a `processing`
+4. Determina tema por keywords y construye prompts con el perfil correspondiente
+5. Si el contenido excede el contexto, divide en chunks por límites naturales; envía una tarea Broker por chunk
+6. Valida cada respuesta parcial y, si corresponde, envía una tarea de síntesis al Broker
+7. Para mantenimiento semántico: extrae afirmaciones de la fuente, las compara contra claims existentes (vía FTS5 + embeddings opcionales), genera propuestas de actualización con evidencia y diff
+8. En éxito de publicación, escribe la nota en la carpeta temática de Obsidian y mueve el origen a `completed`
+9. Las propuestas semánticas requieren aprobación explícita del usuario antes de modificar notas existentes
 
 ## Estados de procesamiento
 
@@ -85,13 +88,16 @@ STAGED → PENDING → SUBMITTING → QUEUED → PROCESSING → COMPLETED → (p
 ## Contrato normativo del MVP
 
 - UI renderiza estado y envía comandos; no accede directamente a HTTP, SQLite ni filesystem
-- Servicios coordinan ingestión, clasificación, envío, publicación, rechazo y reprocesado
-- Repositorios encapsulan SQLite y movimientos de archivos
-- Worker posee el bucle `asyncio`, reintentos, polling y cancelación
+- El Orchestrator es el único responsable de construir prompts, resolver placeholders, decidir chunking, encadenar inferencias, interpretar respuestas y proponer actualizaciones semánticas
+- El Broker recibe inferencias completas, las encola, selecciona modelo/proveedor y devuelve la respuesta técnica. No conoce el dominio ni el workflow
+- Cada tarea Broker representa exactamente una inferencia (chat o embedding). Workflows multi-paso usan tareas independientes encadenadas por el Orchestrator
+- `client_context` opaco para correlación: el Broker lo devuelve sin interpretarlo
+- Solo se usan fuentes introducidas por el usuario (videos capturados, documentos depositados, notas existentes). Sin RSS, vigilancia de documentación ni búsqueda web autónoma
+- Toda propuesta de actualización semántica debe citar evidencia local con `source_id` y span. El conocimiento interno del LLM no es evidencia
+- `manual_lock: true` en un claim impide su sustitución automática
 - Comunicación con Broker via HTTP en LAN privada, sin autenticación (MVP)
 - Base SQLite en `C:/YT-Pipeline/state/orchestrator.db` con modo WAL
-- Todo chunking, síntesis, comparación e interpretación de respuestas pertenece al Orchestrator; el Broker solo ejecuta inferencias preparadas
-- Solo se usan fuentes introducidas por el usuario y notas locales; no existen RSS, conectores de vigilancia ni búsqueda web autónoma
+- Integridad mediante estados durables y operaciones idempotentes; no existe transacción única SQLite+NTFS
 
 ## Licencia
 
