@@ -198,6 +198,8 @@
 
 **Objetivo:** Revisar notas generadas, rechazar/aceptar, reprocesar desde fuente
 
+La misma pestaña incorpora candidatos de actualización semántica con evidencia, comparación lado a lado, diff, confianza, impacto y acciones aprobar/rechazar/mantener vigente. La aprobación es obligatoria antes de sobrescribir una nota existente.
+
 
 
 ### Layout Split
@@ -489,16 +491,39 @@ Estados persistidos: `STAGED`, `PENDING`, `SUBMITTING`, `QUEUED`, `PROCESSING`, 
 - `obsolescence_days: null` significa que nunca caduca. El Revisor de Vigencia lista notas vencidas y ofrece reprocesar, archivar, mantener vigente o eliminar.
 - Los perfiles editables contienen `system_prompt`, `user_prompt`, `chunk_prompt`, `synthesis_prompt`, `preferred_model`, `fallback_allowed`, temperatura y límites de salida.
 
+### Orquestación completa de inferencias
+
+- El Orchestrator renderiza los prompts, resuelve placeholders y calcula si el contenido cabe antes de crear una tarea Broker.
+- Si necesita chunking, divide localmente por límites naturales, crea una inferencia Broker por chunk, valida cada respuesta y finalmente crea otra inferencia para síntesis.
+- Una tarea Broker contiene mensajes finales o una entrada de embedding; nunca contiene instrucciones para que el Broker construya un workflow.
+- El Orchestrator conserva `workflow_id`, pasos, dependencias, resultados parciales y reanudación. El Broker solo conserva y devuelve el `client_context` opaco.
+- Si el Broker devuelve `CONTEXT_LIMIT_EXCEEDED`, el Orchestrator recalcula chunks; no espera que el Broker trunque o divida.
+
 ### Broker y publicación
 
 - Crear tareas mediante `POST /api/v1/tasks` y consultar `GET /api/v1/tasks/{task_id}` cada dos segundos mientras sean activas.
 - Validar el payload completo contra el esquema Broker v1 inmediatamente antes del POST y validar cada respuesta del Broker antes de actualizar SQLite. Un incumplimiento produce `CONTRACT_VALIDATION_FAILED`, sin reintento automático.
 - El bucle de envío no espera el resultado de una tarea para enviar la siguiente. Tras persistir la respuesta `202`, el seguimiento pasa al poller y el dispatcher continúa con el siguiente fichero.
 - El Orchestrator no interpreta `queued` como bloqueo o error: el Broker ejecuta globalmente una sola tarea LLM y las restantes esperan de forma normal.
-- En éxito, validar que `result_markdown` no contiene frontmatter y construir el frontmatter final de forma segura con un serializador YAML.
+- En éxito, validar `assistant_content` contra el esquema esperado por el paso. Para publicación, comprobar que el Markdown no contiene frontmatter y construirlo de forma segura con un serializador YAML.
 - Escribir primero a un fichero temporal en la carpeta destino y renombrarlo atómicamente.
 - Mover el origen a `completed` solo después de publicar la nota y persistir su ruta.
 - Rechazar desde la UI mueve la nota a `C:/YT-Pipeline/rejected/notes`, mueve el origen a `rejected/sources` y conserva ambos paths. Reprocesar devuelve una copia del origen a `processing` con un nuevo `task_id`, conservando el mismo `capture_id` y aumentando `revision`.
+
+### Mantenimiento semántico de Obsidian
+
+El Orchestrator es el único responsable de decidir, proponer y aplicar actualizaciones:
+
+1. Indexar notas en `knowledge_claims` con afirmación, entidades, tipo, volatilidad, fecha de validez, fuentes, spans y `manual_lock`.
+2. Cuando entra una fuente nueva, extraer sus afirmaciones mediante un prompt construido por el Orchestrator y ejecutado como inferencia genérica por el Broker.
+3. Recuperar candidatos mediante tema, entidades, SQLite FTS5 y, cuando se configure, embeddings solicitados al Broker y almacenados localmente.
+4. Construir una inferencia de comparación con la afirmación existente y evidencia nueva; interpretar relaciones `supports`, `extends`, `contradicts`, `supersedes`, `unrelated` o `uncertain`.
+5. Exigir evidencia local con `source_id` y span para toda propuesta. La memoria interna del LLM no constituye evidencia.
+6. Generar operaciones de parche, diff legible, confianza e impacto. No sustituir contenido con `manual_lock`.
+7. Mostrar la propuesta al usuario. Ninguna actualización semántica sobrescribe automáticamente una nota.
+8. Tras aprobación, guardar la revisión anterior, aplicar el cambio atómicamente, actualizar fuentes y `last_verified_at`, y registrar auditoría completa.
+
+La revisión por fechas solo crea candidatos. Sin una fuente nueva introducida explícitamente no puede producir una actualización factual. Quedan fuera del proyecto RSS, documentación vigilada, conectores automáticos a APIs y búsqueda autónoma en Internet.
 
 ### Criterios de aceptación
 

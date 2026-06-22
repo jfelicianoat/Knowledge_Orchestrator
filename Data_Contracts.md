@@ -24,6 +24,16 @@ url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
 title: "Cómo Configurar Ollama para Modelos Locales de IA"
 
+knowledge_id: "ollama-configuration"
+
+revision: 1
+
+knowledge_status: "current"
+
+last_verified_at: "2024-06-20T14:35:45Z"
+
+source_versions: ["yt_20240620_143022_dQw4w9WgXcQ"]
+
 channel: "TechChannel Pro"
 
 channel_url: "https://www.youtube.com/@techchannelpro"
@@ -855,37 +865,32 @@ Reglas:
   "contract_version": "1.0",
   "task_id": "proc_20260620_143022_dQw4w9WgXcQ_r1",
   "idempotency_key": "yt_20260620_143022_dQw4w9WgXcQ:1",
-  "execution": {
-    "system_prompt": "Eres un analista...",
-    "user_prompt": "Analiza {transcript}",
-    "chunk_prompt": "Analiza el fragmento {chunk_current}/{chunk_total}: {chunk}",
-    "synthesis_prompt": "Combina sin perder información: {partial_results}",
+  "routing": {
     "preferred_model": "llama3.1:70b",
     "fallback_allowed": true,
     "quality_priority": "high",
-    "temperature": 0.3,
-    "max_output_tokens": 4000,
     "max_cost_usd": 0.05
   },
-  "content": {
-    "text": "Transcripción completa...",
-    "language": "es",
-    "metadata": {
-      "title": "Título",
-      "source_type": "youtube",
-      "published_date": "2026-05-10"
-    }
+  "inference": {
+    "kind": "chat",
+    "messages": [
+      {"role": "system", "content": "Eres un analista..."},
+      {"role": "user", "content": "Analiza el texto ya preparado..."}
+    ],
+    "temperature": 0.3,
+    "max_output_tokens": 4000,
+    "response_format": "text"
+  },
+  "client_context": {
+    "workflow_id": "knowledge_update_123",
+    "step_id": "compare_claims_2"
   }
 }
 ```
 
-Placeholders permitidos:
+El Orchestrator debe renderizar todos los prompts y resolver todos los placeholders antes del POST. El Broker no conoce `{transcript}`, metadata de fuentes, chunks, afirmaciones, Obsidian ni el objetivo del workflow. `client_context` es opaco: se devuelve sin interpretarlo para correlación.
 
-- `user_prompt`: `{transcript}` y cualquier clave allowlisted de `content.metadata`.
-- `chunk_prompt`: `{chunk}`, `{chunk_current}`, `{chunk_total}` y metadata.
-- `synthesis_prompt`: `{partial_results}` y metadata.
-
-Un placeholder desconocido produce `INVALID_REQUEST`. Los saltos de línea se almacenan como saltos reales en YAML y como `\n` en JSON; no se aplica una segunda decodificación.
+Para embeddings, `inference.kind` puede ser `embedding`, en cuyo caso se envían `input` y `model`/preferencia de routing en lugar de `messages`; la respuesta contiene exclusivamente el vector y metadata técnica. El Broker sigue limitándose a enrutar y devolver.
 
 Respuesta `202 Accepted`:
 
@@ -910,8 +915,6 @@ La misma `idempotency_key` devuelve la tarea existente con `200`; el mismo `task
   "status": "processing",
   "phase": "generating",
   "model_used": "llama3.1:70b",
-  "chunk_current": 2,
-  "chunk_total": 4,
   "queued_at": "2026-06-20T14:30:22Z",
   "started_at": "2026-06-20T14:30:25Z",
   "completed_at": null,
@@ -922,7 +925,7 @@ La misma `idempotency_key` devuelve la tarea existente con `200`; el mismo `task
 
 Estados: `queued`, `processing`, `success`, `error`, `cancel_requested` y `cancelled`.
 
-En éxito, `result` contiene `result_markdown`, tokens, duración, coste, modelo real y datos de fallback. En error, `error` contiene `code`, `message`, `retryable` y `details` opcional. `DELETE` es idempotente y devuelve `202` mientras cancela o `200` si ya era terminal.
+En éxito de chat, `result` contiene `assistant_content`, tokens, duración, coste, modelo real y datos de fallback. En éxito de embedding contiene `embedding` y dimensiones. El Broker no valida el significado de `assistant_content`; esa responsabilidad corresponde al Orchestrator. En error, `error` contiene `code`, `message`, `retryable` y `details` opcional. `DELETE` es idempotente y devuelve `202` mientras cancela o `200` si ya era terminal.
 
 ### 8.4 Cola, modelos y salud
 
@@ -955,7 +958,7 @@ En éxito, `result` contiene `result_markdown`, tokens, duración, coste, modelo
 2. Cada `POST` válido devuelve rápidamente `202` y la tarea queda durablemente `queued`.
 3. El Broker posee un único slot global de ejecución LLM. Ese slot cubre Ollama, DeepSeek y cualquier proveedor futuro.
 4. El dispatcher toma la primera tarea pendiente solo cuando el slot está libre y cambia su estado a `processing` dentro de una transacción.
-5. Todos los chunks y la síntesis de una tarea se ejecutan secuencialmente dentro del mismo slot.
+5. Cada tarea del Broker representa exactamente una inferencia. Si un workflow necesita chunks o síntesis, el Orchestrator crea y encadena tareas independientes.
 6. El slot se libera únicamente al persistir `success`, `error` o `cancelled`, o al agotar `task_timeout_seconds`.
 7. Una tarea lenta mantiene el slot y las posteriores continúan en `queued`; no se saltan ni se ejecutan en paralelo.
 8. El dashboard, las consultas de estado, la aceptación de nuevas tareas y las cancelaciones permanecen operativos mientras el slot está ocupado.
@@ -975,3 +978,38 @@ En éxito, `result` contiene `result_markdown`, tokens, duración, coste, modelo
 - `PENDING`: fichero confirmado en processing y preparado para construir la tarea.
 - Cada fila conserva `source_path`, `staging_path`, `processing_path`, `sha256` y `contract_version`.
 - La recuperación debe aceptar tanto “SQLite confirmado, fichero aún en staging” como “fichero ya en processing, estado aún STAGED”. Ambas situaciones se completan idempotentemente.
+
+### 8.10 Contratos internos de mantenimiento semántico
+
+Estos objetos pertenecen exclusivamente al Orchestrator y nunca forman parte del dominio del Broker.
+
+```yaml
+knowledge_claim:
+  claim_id: "ollama-context-window"
+  knowledge_id: "ollama-configuration"
+  note_path: "IA-y-LLMs/Ollama.md"
+  statement: "El modelo X admite 8192 tokens"
+  claim_type: "technical_limit"
+  entities: ["Ollama", "modelo X"]
+  volatility: "high"
+  valid_as_of: "2026-01-10"
+  source_ids: ["video_123"]
+  source_spans: ["00:12:10-00:12:42"]
+  manual_lock: false
+  status: "verified"
+```
+
+```yaml
+update_candidate:
+  candidate_id: "upd_123"
+  claim_id: "ollama-context-window"
+  new_source_ids: ["video_456"]
+  relationship: "supersedes"  # supports | extends | contradicts | supersedes | unrelated | uncertain
+  confidence: 0.94
+  impact: "high"
+  evidence_spans: ["video_456:00:03:10-00:03:44"]
+  proposed_operations: []
+  status: "awaiting_user_review"
+```
+
+Toda propuesta debe citar fuentes y spans existentes en el repositorio local. El conocimiento interno del LLM no es evidencia. `manual_lock: true` impide sustitución automática y obliga a conservar el texto o solicitar una decisión explícita.

@@ -195,8 +195,8 @@ Esta sección consolida las decisiones del hilo original y prevalece sobre ejemp
 ### Límites de cada aplicación
 
 - **YT Capture Agent:** captura metadata y transcripción sin procesarlas y descarga un Markdown v1 en la bandeja de entrada del navegador.
-- **Knowledge Orchestrator:** valida entradas de cualquier fuente, decide tema y perfil, construye prompts, envía tareas, escribe el resultado en Obsidian y mantiene historial/revisión.
-- **AI Broker:** no conoce YouTube ni Obsidian. Descubre modelos, mantiene una cola durable, ejecuta prompts en Ollama o proveedores configurados y controla ejecución serial, cancelación y coste.
+- **Knowledge Orchestrator:** valida entradas, indexa Obsidian, decide tema y perfil, construye y encadena todas las inferencias, interpreta sus respuestas, mantiene evidencias/diffs/versiones y escribe el resultado.
+- **AI Broker:** recibe inferencias completas, las encola, selecciona proveedor/modelo y devuelve la respuesta técnica. No contiene lógica de conocimiento ni de workflows.
 
 ### Flujo de datos definitivo
 
@@ -220,6 +220,8 @@ Esta sección consolida las decisiones del hilo original y prevalece sobre ejemp
 
 `source_type` es extensible. YouTube añade sus campos específicos, pero cualquier fuente puede entrar si aporta `capture_id`, `source_type`, `title`, `captured_at`, `has_transcript` y una sección `## Transcripción`. Los metadatos ausentes permanecen nulos; nunca se inventan.
 
+Solo se consideran fuentes los vídeos capturados por el Plugin, documentos o transcripciones depositados explícitamente por el usuario y notas ya existentes en Obsidian. No se implementarán RSS, vigilancia de documentación, conectores automáticos a APIs ni búsquedas autónomas en Internet. Sin evidencia nueva local, una nota puede marcarse para revisión pero no actualizarse factual o semánticamente.
+
 ### Integridad transaccional entre archivos y SQLite
 
 No existe una transacción única que abarque SQLite y NTFS. La integridad se consigue mediante estados durables y operaciones idempotentes:
@@ -239,6 +241,6 @@ Un error de contrato se rechaza antes de staging y se conserva bajo `failed/cont
 - El Orchestrator continúa enviando nuevas tareas aunque una anterior permanezca mucho tiempo esperando la respuesta del LLM.
 - `POST /api/v1/tasks` solo acepta y persiste la tarea; no espera a que termine el modelo.
 - El Broker puede mantener cualquier número de tareas `queued` hasta el límite de cola, pero solo una tarea puede estar `processing`.
-- Mientras una tarea está `routing`, `chunking`, `generating` o `synthesizing`, ninguna otra tarea puede iniciar una llamada a ningún LLM, sea Ollama o un proveedor externo.
+- Mientras una tarea está `routing` o `generating`, ninguna otra tarea puede iniciar una llamada a ningún LLM, sea Ollama o un proveedor externo.
 - Las tareas posteriores permanecen en `queued` y conservan su orden. Solo avanzan cuando la activa termina con éxito, error, cancelación o timeout.
 - “Continuar lanzando tareas” significa continuar entregándolas y aceptándolas en la cola del Broker; no significa ejecutarlas en paralelo.

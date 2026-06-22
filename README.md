@@ -43,6 +43,7 @@ Aplicación de escritorio que orquesta el pipeline de captura → procesamiento 
 - **Dashboard en tiempo real**: métricas diarias, gráficos de actividad, monitorización de modelos del Broker
 - **Gestión de temas**: auto-detección por keywords, carpetas dinámicas en Obsidian, perfiles por tema
 - **Sistema de revisión**: aceptar/rechazar notas, reprocesar desde fuente original, historial completo
+- **Mantenimiento semántico**: afirmaciones con evidencia, comparación contextual, diff, aprobación humana y versiones recuperables
 - **Comunicación resiliente**: reintentos con backoff exponencial, recuperación automática tras reinicio
 
 ## UI (Ventana Única con Menú Lateral)
@@ -89,6 +90,8 @@ STAGED → PENDING → SUBMITTING → QUEUED → PROCESSING → COMPLETED → (p
 - Worker posee el bucle `asyncio`, reintentos, polling y cancelación
 - Comunicación con Broker via HTTP en LAN privada, sin autenticación (MVP)
 - Base SQLite en `C:/YT-Pipeline/state/orchestrator.db` con modo WAL
+- Todo chunking, síntesis, comparación e interpretación de respuestas pertenece al Orchestrator; el Broker solo ejecuta inferencias preparadas
+- Solo se usan fuentes introducidas por el usuario y notas locales; no existen RSS, conectores de vigilancia ni búsqueda web autónoma
 
 ## Licencia
 
