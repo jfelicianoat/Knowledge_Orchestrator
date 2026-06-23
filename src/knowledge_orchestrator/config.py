@@ -78,3 +78,15 @@ class PipelinePaths:
             self.obsidian_vault,
         ):
             directory.mkdir(parents=True, exist_ok=True)
+
+
+@dataclass(frozen=True, slots=True)
+class BrokerSettings:
+    base_url: str = "http://broker-machine.local:8080"
+    request_timeout_seconds: float = 10.0
+    poll_interval_seconds: float = 2.0
+    discovery_interval_seconds: float = 300.0
+    health_interval_seconds: float = 10.0
+    dispatcher_interval_seconds: float = 0.5
+    max_context_tokens: int = 16_000
+    submission_backoff_seconds: tuple[float, ...] = (30.0, 60.0, 120.0)

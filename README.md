@@ -179,6 +179,14 @@ src/knowledge_orchestrator/
 tests/
 ```
 
+### Fase 3 — Frontera con el Broker
+
+La fase 3 implementa el cliente HTTP asíncrono, validación v1 inmediata, workflows durables simples o por chunks, síntesis con dependencias, aceptación durable `202`, dispatcher y poller independientes, reintentos transitorios, recuperación idempotente y descubrimiento periódico de modelos.
+
+El dispatcher envía todos los chunks disponibles sin esperar a que termine la primera inferencia. Las llamadas de envío se realizan secuencialmente; el Broker mantiene la responsabilidad de ejecutar una sola tarea LLM a la vez. El worker de red está separado del watcher de archivos y del hilo principal.
+
+Véase [`docs/Phase_3_Broker.md`](docs/Phase_3_Broker.md). Las pruebas usan un Broker simulado; la prueba contra el Broker real requiere que dicho servicio esté desplegado y accesible.
+
 ## Licencia
 
 MIT

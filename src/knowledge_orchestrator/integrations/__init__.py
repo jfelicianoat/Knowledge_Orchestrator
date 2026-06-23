@@ -1,0 +1,1 @@
+"""Fronteras HTTP externas."""
