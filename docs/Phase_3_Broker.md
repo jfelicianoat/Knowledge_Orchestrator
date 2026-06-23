@@ -2,14 +2,14 @@
 
 ## Responsabilidades
 
-El Orchestrator construye prompts, divide entradas, crea workflows, persiste dependencias, reintenta envíos y valida resultados. El Broker se limita a recibir una inferencia completa, encolarla, elegir el LLM y devolver su resultado.
+El Orchestrator construye prompts, divide entradas, crea workflows, persiste dependencias, reintenta envíos y valida resultados. Esta fase implementa el baseline `single`: el Broker recibe una inferencia completa, la encola, elige el LLM y devuelve su resultado.
 
-Cada tarea Broker representa exactamente una inferencia. El Orchestrator puede enviar rápidamente todos los chunks independientes: un `202 queued` es una aceptación normal y no bloquea los siguientes envíos. El Broker debe consumir su cola de forma estrictamente serial, con una sola inferencia LLM activa globalmente.
+En `single`, cada tarea Broker representa exactamente una inferencia. El Orchestrator puede enviar rápidamente todos los chunks independientes: un `202 queued` es una aceptación normal y no bloquea los siguientes envíos. El contrato v2 ya admite declarar estrategia; la fase 5 habilitará la política opcional `mixture_of_agents`, manteniendo un solo workflow Broker activo.
 
 ## Flujo durable
 
 1. Una captura enriquecida genera un workflow `single` o `chunked`.
-2. Los prompts se renderizan localmente y se validan contra el contrato v1 antes de persistirse y antes del POST.
+2. Los prompts se renderizan localmente y se validan contra el contrato Broker v2 antes de persistirse y antes del POST.
 3. El dispatcher reclama tareas `READY` de una en una y persiste la aceptación `202` como `QUEUED`.
 4. El poller consulta independientemente las tareas activas. Una tarea lenta puede seguir `queued` o `processing` mientras se envían y consultan las demás.
 5. Cuando todos los chunks terminan, se crea una inferencia de síntesis dependiente de ellos.
@@ -28,3 +28,5 @@ Valores predeterminados de `BrokerSettings`: Broker `http://broker-machine.local
 ## Verificación
 
 Las pruebas cubren contratos, `202`, polling prolongado, errores transitorios, prompts, workflows simples, chunking, síntesis, envío sin esperar resultados, llamadas secuenciales al Broker, recuperación idempotente y catálogo de modelos. La integración real requiere que AI Broker esté desplegado y accesible.
+
+El contrato v2 real quedó alineado después de esta fase: creación idempotente, IDs separados, estados detallados y `result_markdown`. El estudio de Multitasking_LLM está en [`Study_Multitasking_LLM.md`](Study_Multitasking_LLM.md); este cliente seguirá enviando `single` hasta completar la fase 5.

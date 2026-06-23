@@ -24,13 +24,16 @@ class FakeAcceptingBroker:
     async def create_task(self, payload: dict) -> dict:
         self.active_calls += 1
         self.maximum_parallel_calls = max(self.maximum_parallel_calls, self.active_calls)
-        self.calls.append(payload["task_id"])
+        self.calls.append(payload["request_id"])
         self.active_calls -= 1
         return {
-            "task_id": payload["task_id"],
+            "task_id": f"broker_{payload['request_id']}",
             "status": "queued",
-            "status_url": f"/api/v1/tasks/{payload['task_id']}",
-            "cancel_url": f"/api/v1/tasks/{payload['task_id']}",
+            "execution_strategy": "single",
+            "execution_preset": "fast",
+            "selection_mode": "auto",
+            "status_url": f"/api/v1/tasks/broker_{payload['request_id']}",
+            "cancel_url": f"/api/v1/tasks/broker_{payload['request_id']}",
         }
 
 
@@ -86,6 +89,7 @@ class PhaseThreeWorkflowTests(unittest.IsolatedAsyncioTestCase):
             queued = runtime.workflow_repository.list_workflow_tasks(workflow_id)
             self.assertEqual(accepted, len(tasks))
             self.assertTrue(all(task.status is TaskStatus.QUEUED for task in queued))
+            self.assertTrue(all(task.broker_task_id and task.broker_task_id.startswith("broker_") for task in queued))
             self.assertEqual(broker.maximum_parallel_calls, 1)
 
     async def test_synthesis_is_created_only_after_all_chunks_succeed(self) -> None:
@@ -126,6 +130,68 @@ class PhaseThreeWorkflowTests(unittest.IsolatedAsyncioTestCase):
             recovered = runtime.workflow_repository.get_task(original.task_id)
             self.assertEqual(recovered.status, TaskStatus.READY)
             self.assertEqual(recovered.idempotency_key, original.idempotency_key)
+
+    async def test_v2_terminal_result_maps_to_internal_success_and_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = self.make_runtime(Path(temporary), capture_id="document_v2_result", transcript="Texto breve.")
+            workflow_id = runtime.workflow_planner.plan_capture("document_v2_result")
+            task = runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
+            runtime.workflow_repository.claim_submission(task.task_id)
+            runtime.workflow_repository.mark_accepted(task.task_id, {
+                "task_id": "broker_v2_result", "status": "queued", "execution_strategy": "single",
+                "execution_preset": "fast", "selection_mode": "auto",
+                "status_url": "/api/v1/tasks/broker_v2_result",
+                "cancel_url": "/api/v1/tasks/broker_v2_result",
+            })
+            runtime.workflow_repository.apply_status(task.task_id, {
+                "task_id": "broker_v2_result", "status": "completed", "request_id": task.task_id,
+                "created_at": "2026-06-23T10:00:00Z", "updated_at": "2026-06-23T10:01:00Z",
+                "execution_strategy": "single", "execution_preset": "fast", "selection_mode": "auto",
+                "progress": {"phase": "completed", "invocations_completed": 1, "invocations_total": 1},
+                "result": {
+                    "result_markdown": "# Resultado v2",
+                    "usage": {"invocations": 1, "cost_usd": 0.0},
+                    "models_used": [{"model": "llama3.1:8b"}],
+                },
+                "error": None,
+            })
+            mapped = runtime.workflow_repository.get_task(task.task_id)
+            self.assertEqual(mapped.status, TaskStatus.SUCCESS)
+            self.assertEqual(json.loads(mapped.result_json)["assistant_content"], "# Resultado v2")
+            self.assertEqual(json.loads(mapped.progress_json)["invocations_completed"], 1)
+
+    async def test_startup_upgrades_unsent_v1_chat_request_to_v2(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = self.make_runtime(Path(temporary), capture_id="document_legacy_request", transcript="Texto breve.")
+            workflow_id = runtime.workflow_planner.plan_capture("document_legacy_request")
+            task = runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
+            legacy = {
+                "contract_version": "1.0", "task_id": task.task_id,
+                "idempotency_key": task.idempotency_key,
+                "routing": {
+                    "preferred_model": "llama3.1:8b", "fallback_allowed": True,
+                    "quality_priority": "high", "max_cost_usd": 0.05,
+                },
+                "inference": {
+                    "kind": "chat",
+                    "messages": [
+                        {"role": "system", "content": "Analiza"},
+                        {"role": "user", "content": "Texto"},
+                    ],
+                    "temperature": 0.3, "max_output_tokens": 1000, "response_format": "text",
+                },
+                "client_context": {"workflow_id": workflow_id, "step_id": "single"},
+            }
+            with runtime.database.transaction(immediate=True) as connection:
+                connection.execute(
+                    "UPDATE tasks SET request_json = ?, broker_contract_version = '1.0' WHERE task_id = ?",
+                    (json.dumps(legacy), task.task_id),
+                )
+            self.assertEqual(runtime.workflow_repository.upgrade_legacy_ready_requests(), 1)
+            upgraded = runtime.workflow_repository.get_task(task.task_id)
+            payload = json.loads(upgraded.request_json)
+            self.assertEqual(payload["execution"]["strategy"], "single")
+            self.assertEqual(payload["request_id"], task.task_id)
 
 
 if __name__ == "__main__":

@@ -69,9 +69,8 @@ class BrokerPoller:
         for task in self.repository.list_active_tasks():
             try:
                 payload = await self.client.get_task(
-                    task.task_id,
+                    task.broker_task_id or task.task_id,
                     status_url=task.status_url,
-                    expected_kind="embedding" if task.step_kind.value == "EMBEDDING" else "chat",
                 )
             except TransientBrokerError:
                 continue

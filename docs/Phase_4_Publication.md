@@ -2,7 +2,7 @@
 
 ## Alcance
 
-Esta fase transforma el resultado final validado de un workflow en una nota de Obsidian y conserva la fuente original. También implementa el rechazo reversible y el reprocesado versionado. La interfaz visual para invocar estas operaciones pertenece a la fase 6.
+Esta fase transforma el resultado final validado de un workflow en una nota de Obsidian y conserva la fuente original. También implementa el rechazo reversible y el reprocesado versionado. La interfaz visual para invocar estas operaciones pertenece a la fase 7.
 
 ## Publicación durable
 

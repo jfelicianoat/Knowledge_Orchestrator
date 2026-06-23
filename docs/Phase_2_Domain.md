@@ -37,7 +37,7 @@ Campos principales:
 
 Solo se aceptan placeholders simples incluidos en la allowlist. No se permite acceso a atributos, índices, conversiones ni formatos de Python.
 
-La migración crea el perfil inicial `Técnico Profundo`. La edición visual llegará en la fase 6; la capa de servicio y persistencia ya está operativa.
+La migración crea el perfil inicial `Técnico Profundo`. La edición visual llegará en la fase 7; la capa de servicio y persistencia ya está operativa.
 
 ## Vigencia
 

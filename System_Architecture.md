@@ -38,11 +38,11 @@ Sistema distribuido de 3 aplicaciones independientes que transforman contenido d
 
 ### 3. AI Broker (Neural Gateway)
 
-**Responsabilidad:** Enrutamiento óptimo a LLMs, gestión de VRAM, control de presupuesto
+**Responsabilidad:** Enrutamiento óptimo a LLMs, ejecución técnica `single` o de consenso interno, gestión de VRAM y control de presupuesto
 
 **Tecnología:** FastAPI + HTMX + Tailwind CSS  
 
-**Características:** Dashboard web, autodescubrimiento de modelos, cancelación de tareas
+**Características:** Dashboard web, autodescubrimiento de modelos, cancelación de tareas y scheduling interno `parallel/waves/sequential`
 
 
 
@@ -196,7 +196,7 @@ Esta sección consolida las decisiones del hilo original y prevalece sobre ejemp
 
 - **YT Capture Agent:** captura metadata y transcripción sin procesarlas y descarga un Markdown v1 en la bandeja de entrada del navegador.
 - **Knowledge Orchestrator:** valida entradas, indexa Obsidian, decide tema y perfil, construye y encadena todas las inferencias, interpreta sus respuestas, mantiene evidencias/diffs/versiones y escribe el resultado.
-- **AI Broker:** recibe inferencias completas, las encola, selecciona proveedor/modelo y devuelve la respuesta técnica. No contiene lógica de conocimiento ni de workflows.
+- **AI Broker:** recibe prompts finales, los encola y devuelve una respuesta técnica. Puede ejecutar `single` o coordinar internamente `mixture_of_agents`, pero no contiene lógica de fuentes, conocimiento, Obsidian ni workflows del Orchestrator.
 
 ### Flujo de datos definitivo
 
@@ -212,7 +212,7 @@ Esta sección consolida las decisiones del hilo original y prevalece sobre ejemp
 
 - Cada aplicación mantiene su propia base SQLite; no se comparte base de datos entre máquinas.
 - El Orchestrator usa un único proceso: Tk en el hilo principal y un worker con bucle `asyncio` para red, filesystem y reintentos.
-- El Broker usa un proceso Uvicorn y un único ejecutor LLM. HTTP, dashboard y polling siguen siendo asíncronos, pero nunca hay más de una tarea realizando llamadas a LLMs.
+- El Broker usa un proceso Uvicorn y mantiene inicialmente un solo workflow activo. En `single` realiza una llamada; en `mixture_of_agents` puede ejecutar invocaciones internas en paralelo, por oleadas o secuencialmente según VRAM. Esa planificación nunca pertenece al Orchestrator.
 - Todas las transiciones de estado se persisten antes de ejecutar efectos externos y se reanudan de forma segura tras un reinicio.
 - La comunicación Orchestrator-Broker usa hostname/mDNS, HTTP en la red privada y, por decisión explícita del usuario, no usa autenticación en el MVP. No debe exponerse el puerto a Internet.
 
@@ -240,7 +240,7 @@ Un error de contrato se rechaza antes de staging y se conserva bajo `failed/cont
 
 - El Orchestrator continúa enviando nuevas tareas aunque una anterior permanezca mucho tiempo esperando la respuesta del LLM.
 - `POST /api/v1/tasks` solo acepta y persiste la tarea; no espera a que termine el modelo.
-- El Broker puede mantener cualquier número de tareas `queued` hasta el límite de cola, pero solo una tarea puede estar `processing`.
+- El Broker puede mantener cualquier número de tareas `queued` hasta el límite de cola, pero inicialmente solo un workflow puede estar activo. Ese workflow puede contener varias invocaciones internas si usa Multitasking_LLM.
 - Mientras una tarea está `routing` o `generating`, ninguna otra tarea puede iniciar una llamada a ningún LLM, sea Ollama o un proveedor externo.
 - Las tareas posteriores permanecen en `queued` y conservan su orden. Solo avanzan cuando la activa termina con éxito, error, cancelación o timeout.
-- “Continuar lanzando tareas” significa continuar entregándolas y aceptándolas en la cola del Broker; no significa ejecutarlas en paralelo.
+- “Continuar lanzando tareas” significa continuar entregándolas y aceptándolas en la cola del Broker. No autoriza varios workflows simultáneos; el paralelismo interno de un único workflow es una decisión acotada del Broker.

@@ -862,48 +862,57 @@ Reglas:
 
 ```json
 {
-  "contract_version": "1.0",
-  "task_id": "proc_20260620_143022_dQw4w9WgXcQ_r1",
-  "idempotency_key": "yt_20260620_143022_dQw4w9WgXcQ:1",
-  "routing": {
+  "idempotency_key": "yt_20260620_143022_dQw4w9WgXcQ:1:single",
+  "request_id": "proc_20260620_143022_dQw4w9WgXcQ_r1_single",
+  "content": {
+    "prompt": "<system_instructions>Eres un analista...</system_instructions>\n<user_request>Analiza el texto ya preparado...</user_request>",
+    "attachments": [],
+    "metadata": {"workflow_id": "wf_...", "step_id": "single"}
+  },
+  "output": {"format": "markdown", "json_schema": null, "language": "es"},
+  "generation": {"temperature": 0.3, "max_output_tokens": 4000},
+  "model_requirements": {
     "preferred_model": "llama3.1:70b",
     "fallback_allowed": true,
-    "quality_priority": "high",
+    "cloud_allowed": false,
+    "allowed_providers": ["ollama"],
     "max_cost_usd": 0.05
   },
-  "inference": {
-    "kind": "chat",
-    "messages": [
-      {"role": "system", "content": "Eres un analista..."},
-      {"role": "user", "content": "Analiza el texto ya preparado..."}
-    ],
-    "temperature": 0.3,
-    "max_output_tokens": 4000,
-    "response_format": "text"
+  "execution": {
+    "strategy": "single",
+    "preset": "fast",
+    "scheduling": "adaptive",
+    "max_proposers": 1,
+    "max_judges": 0,
+    "max_rounds": 1,
+    "timeout_seconds": 600,
+    "early_stop": true,
+    "selection": {"mode": "auto", "proposer_count": 1, "allow_substitution": true}
   },
-  "client_context": {
-    "workflow_id": "knowledge_update_123",
-    "step_id": "compare_claims_2"
-  }
+  "risk": {"data_classification": "local_only", "human_review_required": false},
+  "priority": 100
 }
 ```
 
-El Orchestrator debe renderizar todos los prompts y resolver todos los placeholders antes del POST. El Broker no conoce `{transcript}`, metadata de fuentes, chunks, afirmaciones, Obsidian ni el objetivo del workflow. `client_context` es opaco: se devuelve sin interpretarlo para correlación.
+El Orchestrator renderiza el prompt final antes del POST. El Broker no conoce placeholders, fuentes, chunks, afirmaciones, Obsidian ni el objetivo del workflow. `content.metadata` solo contiene correlación allowlist y se trata como opaca.
 
-Para embeddings, `inference.kind` puede ser `embedding`, en cuyo caso se envían `input` y `model`/preferencia de routing en lugar de `messages`; la respuesta contiene exclusivamente el vector y metadata técnica. El Broker sigue limitándose a enrutar y devolver.
+El contrato de embeddings se congelará antes de la fase que los utilice; no se simula mediante el formato Markdown.
 
 Respuesta `202 Accepted`:
 
 ```json
 {
-  "task_id": "proc_20260620_143022_dQw4w9WgXcQ_r1",
+  "task_id": "task_72b7196358d74343b92033a98a19eb8a",
   "status": "queued",
-  "status_url": "/api/v1/tasks/proc_20260620_143022_dQw4w9WgXcQ_r1",
-  "cancel_url": "/api/v1/tasks/proc_20260620_143022_dQw4w9WgXcQ_r1"
+  "execution_strategy": "single",
+  "execution_preset": "fast",
+  "selection_mode": "auto",
+  "status_url": "/api/v1/tasks/task_72b7196358d74343b92033a98a19eb8a",
+  "cancel_url": "/api/v1/tasks/task_72b7196358d74343b92033a98a19eb8a"
 }
 ```
 
-La misma `idempotency_key` devuelve la tarea existente con `200`; el mismo `task_id` con contenido diferente devuelve `409`.
+La misma `idempotency_key` y hash devuelve la tarea existente con `200`, incluso tras reinicio; la misma clave con contenido diferente devuelve `409`.
 
 ### 8.3 Consultar y cancelar tareas
 
@@ -911,27 +920,29 @@ La misma `idempotency_key` devuelve la tarea existente con `200`; el mismo `task
 
 ```json
 {
-  "task_id": "proc_...",
-  "status": "processing",
-  "phase": "generating",
-  "model_used": "llama3.1:70b",
-  "queued_at": "2026-06-20T14:30:22Z",
-  "started_at": "2026-06-20T14:30:25Z",
-  "completed_at": null,
+  "task_id": "task_...",
+  "request_id": "proc_...",
+  "status": "generating",
+  "created_at": "2026-06-20T14:30:22Z",
+  "updated_at": "2026-06-20T14:30:25Z",
+  "execution_strategy": "single",
+  "execution_preset": "fast",
+  "selection_mode": "auto",
+  "progress": {"phase": "generating", "invocations_completed": 0, "invocations_total": 1},
   "result": null,
   "error": null
 }
 ```
 
-Estados: `queued`, `processing`, `success`, `error`, `cancel_requested` y `cancelled`.
+Estados: `queued`, fases activas `routing/planning/resource_planning/chunking/generating/proposing/evaluating/debating/synthesizing/verifying`, y terminales `completed/failed/cancelled`.
 
-En éxito de chat, `result` contiene `assistant_content`, tokens, duración, coste, modelo real y datos de fallback. En éxito de embedding contiene `embedding` y dimensiones. El Broker no valida el significado de `assistant_content`; esa responsabilidad corresponde al Orchestrator. En error, `error` contiene `code`, `message`, `retryable` y `details` opcional. `DELETE` es idempotente y devuelve `202` mientras cancela o `200` si ya era terminal.
+En `completed`, `result.result_markdown` contiene la salida y puede incluir uso, modelos, consenso y scheduling. El Orchestrator la normaliza internamente como `assistant_content` y valida el Markdown antes de publicar. En `failed`, `error` contiene al menos `code` y, cuando proceda, `message` y `retryable`. `DELETE` es idempotente.
 
 ### 8.4 Cola, modelos y salud
 
-- `GET /api/v1/queue`: listas ordenadas `pending` y `processing`, más contadores terminales.
-- Invariante del MVP: `processing` contiene cero o una tarea. Nunca puede contener dos elementos, aunque usen modelos o proveedores diferentes.
-- `PATCH /api/v1/queue`: `{ "pending_order": ["task_2", "task_1"] }`; debe contener exactamente todas las tareas pendientes actuales o devuelve `409`.
+- `GET /api/v1/queue`: listas ordenadas `pending`, `active` y `terminal`.
+- Invariante inicial: `active` contiene cero o un workflow Broker; una estrategia de consenso puede tener invocaciones internas.
+- `PATCH /api/v1/queue`: `{ "task_ids": ["task_2", "task_1"] }`; debe contener exactamente todas las tareas pendientes actuales o devuelve `409`.
 - `GET /api/v1/models`: modelos Ollama y proveedores externos configurados, con `name`, `provider`, `status`, `context_window` cuando se conozca y capacidades declaradas.
 - `GET /api/v1/usage`: consumo por proveedor y mes, coste confirmado y reservado.
 - `GET /health/live`: `200` si proceso y event loop están vivos.
@@ -956,11 +967,11 @@ En éxito de chat, `result` contiene `assistant_content`, tokens, duración, cos
 
 1. El Orchestrator puede realizar varios `POST /api/v1/tasks` sin esperar a que las tareas anteriores terminen.
 2. Cada `POST` válido devuelve rápidamente `202` y la tarea queda durablemente `queued`.
-3. El Broker posee un único slot global de ejecución LLM. Ese slot cubre Ollama, DeepSeek y cualquier proveedor futuro.
-4. El dispatcher toma la primera tarea pendiente solo cuando el slot está libre y cambia su estado a `processing` dentro de una transacción.
-5. Cada tarea del Broker representa exactamente una inferencia. Si un workflow necesita chunks o síntesis, el Orchestrator crea y encadena tareas independientes.
-6. El slot se libera únicamente al persistir `success`, `error` o `cancelled`, o al agotar `task_timeout_seconds`.
-7. Una tarea lenta mantiene el slot y las posteriores continúan en `queued`; no se saltan ni se ejecutan en paralelo.
+3. En el contrato v1/baseline `single`, el Broker posee un único slot global. La fase 5 prevista mantendrá un solo workflow activo, pero permitirá invocaciones internas adaptativas dentro de una tarea `mixture_of_agents`.
+4. El dispatcher toma la primera tarea pendiente solo cuando no existe otro workflow activo y cambia su estado dentro de una transacción.
+5. En `single`, cada tarea representa exactamente una inferencia. En la futura estrategia `mixture_of_agents`, una tarea podrá representar un consenso técnico interno. En ambos casos, chunks, dependencias, pasos y síntesis del workflow de conocimiento pertenecen al Orchestrator.
+6. El workflow activo se libera únicamente al persistir su estado terminal o al agotar el timeout aplicable.
+7. Una tarea lenta mantiene ocupado el workflow global y las posteriores continúan en `queued`. Solo sus invocaciones internas pueden solaparse cuando el planificador del Broker lo autoriza.
 8. El dashboard, las consultas de estado, la aceptación de nuevas tareas y las cancelaciones permanecen operativos mientras el slot está ocupado.
 
 ### 8.8 Validación inmediata en fronteras
@@ -1013,3 +1024,22 @@ update_candidate:
 ```
 
 Toda propuesta debe citar fuentes y spans existentes en el repositorio local. El conocimiento interno del LLM no es evidencia. `manual_lock: true` impide sustitución automática y obliga a conservar el texto o solicitar una decisión explícita.
+
+### 8.11 Contrato Broker v2 y base futura para Multitasking_LLM
+
+El contrato v2 está implementado para `single` y constituye la base de la futura fase 5.
+
+AI Broker usa `idempotency_key`, `request_id`, `content`, `output`, `generation`, `model_requirements`, `execution`, `risk` y `priority`; genera su propio `task_id`; publica fases detalladas; termina en `completed`, `failed` o `cancelled`; y entrega `result_markdown` con metadata técnica. El Orchestrator adapta y valida este esquema y conserva por separado el ID local y el ID Broker.
+
+El contrato incluye:
+
+- clave idempotente y hash canónico con semántica `200 existente`/`409 conflicto`;
+- correlación separada entre ID local, `request_id` y `task_id` del Broker;
+- política `single | mixture_of_agents`, preset, selección y límites;
+- clasificación de datos, autorización cloud, allowlist de proveedores y coste máximo;
+- fases, progreso por unidades y estados terminales;
+- resultado `result_markdown` o JSON/embedding según el paso;
+- consenso, scheduling, uso, modelos, advertencias y desacuerdos;
+- errores tipados de quórum, presupuesto, contexto, privacidad y capacidad.
+
+`single` seguirá siendo el valor predeterminado. Los chunks y embeddings no usarán consenso inicialmente. La confianza de consenso nunca se tratará como evidencia factual. El análisis completo está en `docs/Study_Multitasking_LLM.md`.

@@ -1,6 +1,6 @@
 # Knowledge Orchestrator — Desktop Pipeline
 
-Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows completos de inferencia — chunking, síntesis, extracción de afirmaciones y comparación semántica — mientras que el AI Broker se limita a ejecutar inferencias individuales.
+Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows de conocimiento — chunking, síntesis, extracción de afirmaciones y comparación semántica — mientras que el AI Broker ejecuta una estrategia técnica `single` o, en una fase futura, `mixture_of_agents`/Multitasking_LLM.
 
 ## Arquitectura del Ecosistema
 
@@ -22,7 +22,7 @@ Orquestador de escritorio que conecta la captura de contenido con el procesamien
 | Proyecto | Descripción | Repositorio |
 |----------|-------------|-------------|
 | **YT Capture Agent** | Extensión Chrome que captura metadata y transcripciones de YouTube, generando archivos `.md` estructurados | [jfelicianoat/YT_Capture_Agent](https://github.com/jfelicianoat/YT_Capture_Agent) |
-| **AI Broker** | Gateway de inferencia LLM con cola serial, enrutamiento de modelos y dashboard web. No contiene lógica de conocimiento ni orquesta workflows. | [jfelicianoat/AI_Broker](https://github.com/jfelicianoat/AI_Broker) |
+| **AI Broker** | Gateway con cola durable, enrutamiento y ejecución opcional de consenso multi-LLM. Puede coordinar invocaciones técnicas internas, pero no contiene lógica de conocimiento ni workflows de Obsidian. | [jfelicianoat/AI_Broker](https://github.com/jfelicianoat/AI_Broker) |
 | **Knowledge Orchestrator** | Orquestador que valida entradas, decide temas, construye y encadena inferencias, interpreta respuestas, mantiene claims/diffs/versiones y publica en Obsidian **(este proyecto)** | [jfelicianoat/Knowledge_Orchestrator](https://github.com/jfelicianoat/Knowledge_Orchestrator) |
 
 ## Stack
@@ -89,9 +89,9 @@ STAGED → PENDING → SUBMITTING → QUEUED → PROCESSING → COMPLETED → (p
 
 - UI renderiza estado y envía comandos; no accede directamente a HTTP, SQLite ni filesystem
 - El Orchestrator es el único responsable de construir prompts, resolver placeholders, decidir chunking, encadenar inferencias, interpretar respuestas y proponer actualizaciones semánticas
-- El Broker recibe inferencias completas, las encola, selecciona modelo/proveedor y devuelve la respuesta técnica. No conoce el dominio ni el workflow
-- Cada tarea Broker representa exactamente una inferencia (chat o embedding). Workflows multi-paso usan tareas independientes encadenadas por el Orchestrator
-- `client_context` opaco para correlación: el Broker lo devuelve sin interpretarlo
+- El Broker recibe prompts finales, los encola, selecciona modelos/proveedores y devuelve una respuesta técnica. No conoce fuentes, chunks, Obsidian ni el workflow de conocimiento
+- En el modo actual `single`, una tarea equivale a una inferencia. La fase 5 añadirá `mixture_of_agents`, donde una tarea sigue siendo una unidad opaca para el Orchestrator pero puede contener invocaciones internas acotadas
+- `content.metadata` contiene únicamente correlación allowlist; el Broker no la interpreta
 - Solo se usan fuentes introducidas por el usuario (videos capturados, documentos depositados, notas existentes). Sin RSS, vigilancia de documentación ni búsqueda web autónoma
 - Toda propuesta de actualización semántica debe citar evidencia local con `source_id` y span. El conocimiento interno del LLM no es evidencia
 - `manual_lock: true` en un claim impide su sustitución automática
@@ -127,7 +127,7 @@ La fase 2 añade:
 - perfiles editables y versionados con prompts normal, chunk y síntesis;
 - enriquecimiento recuperable de capturas `PENDING` tras reinicio.
 
-La especificación operativa está en [`docs/Phase_2_Domain.md`](docs/Phase_2_Domain.md). La edición visual de temas y perfiles sigue reservada para la fase 6; Broker y renderizado efectivo de prompts comienzan en la fase 3.
+La especificación operativa está en [`docs/Phase_2_Domain.md`](docs/Phase_2_Domain.md). La edición visual de temas y perfiles queda reservada para la fase 7; Broker y renderizado efectivo de prompts comienzan en la fase 3.
 
 ### Preparación
 
@@ -174,7 +174,7 @@ src/knowledge_orchestrator/
   repositories/    # SQLite y transiciones durables
   services/        # estabilidad, ingesta y recuperación
   worker/          # ejecución fuera del hilo de UI
-  ui/              # puente thread-safe; widgets en fase 6
+  ui/              # puente thread-safe; widgets en fase 7
   migrations/      # esquema versionado
 tests/
 ```
@@ -183,15 +183,21 @@ tests/
 
 La fase 3 implementa el cliente HTTP asíncrono, validación v1 inmediata, workflows durables simples o por chunks, síntesis con dependencias, aceptación durable `202`, dispatcher y poller independientes, reintentos transitorios, recuperación idempotente y descubrimiento periódico de modelos.
 
-El dispatcher envía todos los chunks disponibles sin esperar a que termine la primera inferencia. Las llamadas de envío se realizan secuencialmente; el Broker mantiene la responsabilidad de ejecutar una sola tarea LLM a la vez. El worker de red está separado del watcher de archivos y del hilo principal.
+El dispatcher envía todos los chunks disponibles sin esperar resultados. En el baseline `single`, el Broker procesa una inferencia a la vez. La futura opción Multitasking_LLM mantendrá un solo workflow Broker activo, aunque podrá ejecutar invocaciones internas mediante planificación adaptativa. El worker de red está separado del watcher y del hilo principal.
 
-Véase [`docs/Phase_3_Broker.md`](docs/Phase_3_Broker.md). Las pruebas usan un Broker simulado; la prueba contra el Broker real requiere que dicho servicio esté desplegado y accesible.
+Véase [`docs/Phase_3_Broker.md`](docs/Phase_3_Broker.md). Además de los dobles de prueba, se verificó el proceso FastAPI real del AI Broker desde alta y replay idempotente hasta publicación final.
 
 ### Fase 4 — Publicación y revisión
 
 La fase 4 publica el resultado final en Obsidian mediante intención SQLite, temporal sincronizado, `os.replace` y verificación SHA-256. La captura solo pasa a `COMPLETED` después de guardar la nota y archivar la fuente. El arranque recupera publicaciones incompletas.
 
 El rechazo retira nota y fuente a `rejected` sin destruirlas. El reprocesado copia la evidencia conservada a `processing` y crea una revisión nueva con identificadores idempotentes distintos. Véase [`docs/Phase_4_Publication.md`](docs/Phase_4_Publication.md).
+
+### Fase futura — Multitasking_LLM
+
+La integración opcional con el modo `mixture_of_agents` del AI Broker se desarrollará en la fase 5. `single` seguirá siendo el valor predeterminado; los chunks permanecerán inicialmente en `single` y el consenso se reservará para síntesis o pasos de alto impacto definidos por política.
+
+El contrato v2 ya está alineado en modo `single`: creación idempotente, ID local separado del ID Broker, estados detallados, `result_markdown` y despacho autónomo. Multitasking_LLM continúa en fase 5 hasta disponer de providers reales, catálogo de modelos y evaluación específica. Véase [`docs/Study_Multitasking_LLM.md`](docs/Study_Multitasking_LLM.md).
 
 ## Licencia
 

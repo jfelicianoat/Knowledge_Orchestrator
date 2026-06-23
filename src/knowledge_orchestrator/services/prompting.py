@@ -93,25 +93,52 @@ def build_chat_request(
     user_content: str,
     max_cost_usd: float = 0.05,
 ) -> dict[str, Any]:
+    prompt = (
+        "<system_instructions>\n"
+        + system_content
+        + "\n</system_instructions>\n\n<user_request>\n"
+        + user_content
+        + "\n</user_request>"
+    )
     return {
-        "contract_version": "1.0",
-        "task_id": task_id,
         "idempotency_key": idempotency_key,
-        "routing": {
-            "preferred_model": profile.preferred_model,
-            "fallback_allowed": profile.fallback_allowed,
-            "quality_priority": "high",
-            "max_cost_usd": max_cost_usd,
+        "request_id": task_id,
+        "content": {
+            "prompt": prompt,
+            "attachments": [],
+            "metadata": {"workflow_id": workflow_id, "step_id": step_id},
         },
-        "inference": {
-            "kind": "chat",
-            "messages": [
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": user_content},
-            ],
+        "output": {"format": "markdown", "json_schema": None, "language": "es"},
+        "generation": {
             "temperature": profile.temperature,
             "max_output_tokens": profile.max_output_tokens,
-            "response_format": "text",
         },
-        "client_context": {"workflow_id": workflow_id, "step_id": step_id},
+        "model_requirements": {
+            "preferred_model": profile.preferred_model,
+            "fallback_allowed": profile.fallback_allowed,
+            "cloud_allowed": False,
+            "allowed_providers": ["ollama"],
+            "max_cost_usd": max_cost_usd,
+        },
+        "execution": {
+            "strategy": "single",
+            "preset": "fast",
+            "scheduling": "adaptive",
+            "max_proposers": 1,
+            "max_judges": 0,
+            "max_rounds": 1,
+            "timeout_seconds": 600,
+            "early_stop": True,
+            "selection": {
+                "mode": "auto",
+                "diversity_policy": "different_families",
+                "arbiter_policy": "strongest_available",
+                "allow_substitution": profile.fallback_allowed,
+                "proposers": [],
+                "required_proposers": [],
+                "proposer_count": 1,
+            },
+        },
+        "risk": {"data_classification": "local_only", "human_review_required": False},
+        "priority": 100,
     }

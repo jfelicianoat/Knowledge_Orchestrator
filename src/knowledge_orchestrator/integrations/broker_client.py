@@ -58,20 +58,19 @@ class BrokerClient:
         if response.status_code not in {200, 202}:
             self._raise_for_status(response)
         data = self._json(response)
-        return dict(validate_accepted_response(data, payload["task_id"]))
+        return dict(validate_accepted_response(data))
 
     async def get_task(
         self,
         task_id: str,
         *,
         status_url: str | None = None,
-        expected_kind: str = "chat",
     ) -> dict[str, Any]:
         response = await self._request("GET", status_url or f"/api/v1/tasks/{task_id}")
         if response.status_code != 200:
             self._raise_for_status(response)
         data = self._json(response)
-        return dict(validate_task_status_response(data, task_id, expected_kind=expected_kind))
+        return dict(validate_task_status_response(data, task_id))
 
     async def cancel_task(self, task_id: str, *, cancel_url: str | None = None) -> dict[str, Any]:
         response = await self._request("DELETE", cancel_url or f"/api/v1/tasks/{task_id}")

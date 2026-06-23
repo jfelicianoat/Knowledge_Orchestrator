@@ -51,6 +51,7 @@ class OrchestratorRuntime:
         self.topics.ensure_all_folders()
         self.domain_enrichment.enrich_unassigned_pending()
         self.workflow_repository.recover_interrupted_submissions()
+        self.workflow_repository.upgrade_legacy_ready_requests()
         self.publication.recover()
         self.workflow_planner.plan_unplanned()
         return report

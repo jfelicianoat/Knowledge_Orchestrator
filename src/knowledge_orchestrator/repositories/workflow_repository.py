@@ -15,6 +15,7 @@ from knowledge_orchestrator.domain.broker_models import (
     WorkflowRecord,
     WorkflowStatus,
 )
+from knowledge_orchestrator.domain.broker_contracts import validate_create_task_request
 
 from .database import Database
 
@@ -38,6 +39,11 @@ def _task(row: sqlite3.Row) -> BrokerTaskRecord:
         error_code=row["error_code"],
         error_message=row["error_message"],
         error_retryable=bool(row["error_retryable"]) if row["error_retryable"] is not None else None,
+        broker_task_id=row["broker_task_id"],
+        execution_strategy=row["execution_strategy"],
+        execution_preset=row["execution_preset"],
+        selection_mode=row["selection_mode"],
+        progress_json=row["progress_json"],
     )
 
 
@@ -88,6 +94,86 @@ class WorkflowRepository:
                 "WHERE status = 'SUBMITTING'"
             )
             return cursor.rowcount
+
+    def upgrade_legacy_ready_requests(self) -> int:
+        """Convierte tareas locales nunca finalizadas del contrato Broker v1 al v2."""
+        upgraded = 0
+        with self.database.transaction(immediate=True) as connection:
+            rows = connection.execute(
+                "SELECT * FROM tasks WHERE broker_contract_version = '1.0' AND status IN ('READY', 'SUBMITTING')"
+            ).fetchall()
+            for row in rows:
+                try:
+                    legacy = json.loads(row["request_json"])
+                    inference = legacy["inference"]
+                    if inference.get("kind") != "chat":
+                        raise ValueError("solo se migra chat")
+                    messages = inference["messages"]
+                    system = "\n\n".join(item["content"] for item in messages if item.get("role") == "system")
+                    conversation = "\n\n".join(
+                        f"[{item.get('role', 'user')}]\n{item['content']}"
+                        for item in messages if item.get("role") != "system"
+                    )
+                    routing = legacy["routing"]
+                    context = legacy["client_context"]
+                    payload = {
+                        "idempotency_key": legacy["idempotency_key"],
+                        "request_id": legacy["task_id"],
+                        "content": {
+                            "prompt": f"<system_instructions>\n{system}\n</system_instructions>\n\n"
+                                      f"<user_request>\n{conversation}\n</user_request>",
+                            "attachments": [],
+                            "metadata": {
+                                "workflow_id": context["workflow_id"],
+                                "step_id": context["step_id"],
+                            },
+                        },
+                        "output": {"format": "markdown", "json_schema": None, "language": "es"},
+                        "generation": {
+                            "temperature": inference["temperature"],
+                            "max_output_tokens": inference["max_output_tokens"],
+                        },
+                        "model_requirements": {
+                            "preferred_model": routing["preferred_model"],
+                            "fallback_allowed": routing["fallback_allowed"],
+                            "cloud_allowed": False,
+                            "allowed_providers": ["ollama"],
+                            "max_cost_usd": routing.get("max_cost_usd"),
+                        },
+                        "execution": {
+                            "strategy": "single", "preset": "fast", "scheduling": "adaptive",
+                            "max_proposers": 1, "max_judges": 0, "max_rounds": 1,
+                            "timeout_seconds": 600, "early_stop": True,
+                            "selection": {
+                                "mode": "auto", "diversity_policy": "different_families",
+                                "arbiter_policy": "strongest_available",
+                                "allow_substitution": routing["fallback_allowed"],
+                                "proposers": [], "required_proposers": [], "proposer_count": 1,
+                            },
+                        },
+                        "risk": {"data_classification": "local_only", "human_review_required": False},
+                        "priority": 100,
+                    }
+                    validate_create_task_request(payload)
+                except (KeyError, TypeError, ValueError) as error:
+                    connection.execute(
+                        "UPDATE tasks SET status = 'ERROR', error_code = 'CONTRACT_MIGRATION_FAILED', "
+                        "error_message = ?, error_retryable = 0 WHERE task_id = ?",
+                        (str(error), row["task_id"]),
+                    )
+                    self._fail_workflow(
+                        connection, row["workflow_id"], row["capture_id"],
+                        "CONTRACT_MIGRATION_FAILED", str(error),
+                    )
+                    continue
+                encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                connection.execute(
+                    "UPDATE tasks SET request_json = ?, request_hash = ?, broker_contract_version = '2.0', "
+                    "status = 'READY', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?",
+                    (encoded, hashlib.sha256(encoded.encode("utf-8")).hexdigest(), row["task_id"]),
+                )
+                upgraded += 1
+        return upgraded
 
     def create_workflow(
         self,
@@ -150,8 +236,8 @@ class WorkflowRepository:
         encoded = json.dumps(dict(task.request), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         connection.execute(
             "INSERT INTO tasks (task_id, capture_id, workflow_id, step_id, status, request_json, "
-            "step_kind, sequence_index, idempotency_key, request_hash, input_text) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "step_kind, sequence_index, idempotency_key, request_hash, input_text, broker_contract_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '2.0')",
             (
                 task.task_id,
                 task.capture_id,
@@ -188,7 +274,7 @@ class WorkflowRepository:
         now = datetime.now(timezone.utc).isoformat()
         with closing(self.database.connect()) as connection:
             rows = connection.execute(
-                "SELECT t.* FROM tasks t WHERE t.status = 'READY' "
+                "SELECT t.* FROM tasks t WHERE t.status = 'READY' AND t.broker_contract_version = '2.0' "
                 "AND (t.next_retry_at IS NULL OR t.next_retry_at <= ?) "
                 "AND NOT EXISTS (SELECT 1 FROM task_dependencies d JOIN tasks parent "
                 "ON parent.task_id = d.depends_on_task_id WHERE d.task_id = t.task_id "
@@ -215,9 +301,11 @@ class WorkflowRepository:
                 raise RuntimeError("La tarea no está SUBMITTING")
             connection.execute(
                 "UPDATE tasks SET status = 'QUEUED', status_url = ?, cancel_url = ?, response_json = ?, "
+                "broker_task_id = ?, execution_strategy = ?, execution_preset = ?, selection_mode = ?, "
                 "queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), next_retry_at = NULL, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?",
-                (response["status_url"], response["cancel_url"], json.dumps(response), task_id),
+                (response["status_url"], response["cancel_url"], json.dumps(response), response["task_id"],
+                 response["execution_strategy"], response["execution_preset"], response["selection_mode"], task_id),
             )
             connection.execute(
                 "UPDATE workflows SET status = 'RUNNING', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
@@ -264,7 +352,19 @@ class WorkflowRepository:
         status_map = {
             "queued": TaskStatus.QUEUED,
             "processing": TaskStatus.PROCESSING,
+            "routing": TaskStatus.PROCESSING,
+            "planning": TaskStatus.PROCESSING,
+            "resource_planning": TaskStatus.PROCESSING,
+            "chunking": TaskStatus.PROCESSING,
+            "generating": TaskStatus.PROCESSING,
+            "proposing": TaskStatus.PROCESSING,
+            "evaluating": TaskStatus.PROCESSING,
+            "debating": TaskStatus.PROCESSING,
+            "synthesizing": TaskStatus.PROCESSING,
+            "verifying": TaskStatus.PROCESSING,
+            "completed": TaskStatus.SUCCESS,
             "success": TaskStatus.SUCCESS,
+            "failed": TaskStatus.ERROR,
             "error": TaskStatus.ERROR,
             "cancel_requested": TaskStatus.CANCEL_REQUESTED,
             "cancelled": TaskStatus.CANCELLED,
@@ -276,12 +376,29 @@ class WorkflowRepository:
                 raise ValueError("Tarea inexistente")
             if current["status"] in {"SUCCESS", "ERROR", "CANCELLED"}:
                 return False
-            result = payload.get("result")
-            error = payload.get("error") or {}
+            broker_result = payload.get("result")
+            models_used = (broker_result or {}).get("models_used") or []
+            model_used = models_used[-1].get("model") if models_used and isinstance(models_used[-1], dict) else None
+            result = None
+            if target is TaskStatus.SUCCESS:
+                if "assistant_content" in (broker_result or {}):
+                    result = broker_result
+                else:
+                    result = {
+                        "assistant_content": broker_result["result_markdown"],
+                        "broker_result": broker_result,
+                    }
+            broker_error = payload.get("error") or {}
+            error = {
+                "code": broker_error.get("code", "BROKER_TASK_FAILED"),
+                "message": broker_error.get("message", broker_error.get("code", "Broker task failed")),
+                "retryable": bool(broker_error.get("retryable", False)),
+            } if target is TaskStatus.ERROR else {}
             connection.execute(
                 "UPDATE tasks SET status = ?, response_json = ?, result_json = ?, error_code = ?, "
                 "error_message = ?, error_retryable = ?, model_used = ?, started_at = COALESCE(?, started_at), "
-                "completed_at = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?",
+                "completed_at = ?, progress_json = ?, broker_metadata_json = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?",
                 (
                     target.value,
                     json.dumps(payload, ensure_ascii=False),
@@ -289,9 +406,15 @@ class WorkflowRepository:
                     error.get("code"),
                     error.get("message"),
                     int(error["retryable"]) if "retryable" in error else None,
-                    payload.get("model_used"),
-                    payload.get("started_at"),
-                    payload.get("completed_at") if target in {TaskStatus.SUCCESS, TaskStatus.ERROR, TaskStatus.CANCELLED} else None,
+                    model_used,
+                    payload.get("created_at") if target is TaskStatus.PROCESSING else None,
+                    payload.get("updated_at") if target in {TaskStatus.SUCCESS, TaskStatus.ERROR, TaskStatus.CANCELLED} else None,
+                    json.dumps(payload.get("progress") or {}, ensure_ascii=False),
+                    json.dumps({
+                        key: (broker_result or {}).get(key)
+                        for key in ("consensus", "scheduling", "usage", "models_used")
+                        if key in (broker_result or {})
+                    }, ensure_ascii=False),
                     task_id,
                 ),
             )

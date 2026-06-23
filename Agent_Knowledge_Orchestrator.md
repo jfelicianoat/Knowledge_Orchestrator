@@ -396,6 +396,8 @@ class FileWatcher:
 
 ## Comunicación con el Broker IA
 
+> Los payloads históricos quedan sustituidos por el contrato v2 descrito en `Data_Contracts.md` y las fixtures de `docs/contracts`. La fase 5 extenderá esta base para Multitasking_LLM; véase `docs/Study_Multitasking_LLM.md`.
+
 
 
 ### Payload de Request
@@ -495,17 +497,17 @@ Estados persistidos: `STAGED`, `PENDING`, `SUBMITTING`, `QUEUED`, `PROCESSING`, 
 
 - El Orchestrator renderiza los prompts, resuelve placeholders y calcula si el contenido cabe antes de crear una tarea Broker.
 - Si necesita chunking, divide localmente por límites naturales, crea una inferencia Broker por chunk, valida cada respuesta y finalmente crea otra inferencia para síntesis.
-- Una tarea Broker contiene mensajes finales o una entrada de embedding; nunca contiene instrucciones para que el Broker construya un workflow.
-- El Orchestrator conserva `workflow_id`, pasos, dependencias, resultados parciales y reanudación. El Broker solo conserva y devuelve el `client_context` opaco.
+- Una tarea Broker contiene el prompt final o una entrada de embedding. Puede solicitar estrategia técnica `single` o, tras la fase 5, `mixture_of_agents`; nunca delega al Broker el workflow de conocimiento, el chunking ni decisiones sobre Obsidian.
+- El Orchestrator conserva `workflow_id`, pasos, dependencias, resultados parciales y reanudación. El Broker recibe correlación opaca en `content.metadata` y genera su propio `task_id`.
 - Si el Broker devuelve `CONTEXT_LIMIT_EXCEEDED`, el Orchestrator recalcula chunks; no espera que el Broker trunque o divida.
 
 ### Broker y publicación
 
 - Crear tareas mediante `POST /api/v1/tasks` y consultar `GET /api/v1/tasks/{task_id}` cada dos segundos mientras sean activas.
-- Validar el payload completo contra el esquema Broker v1 inmediatamente antes del POST y validar cada respuesta del Broker antes de actualizar SQLite. Un incumplimiento produce `CONTRACT_VALIDATION_FAILED`, sin reintento automático.
+- Validar el payload completo contra el esquema Broker v2 inmediatamente antes del POST y validar cada respuesta antes de actualizar SQLite. Un incumplimiento produce `CONTRACT_VALIDATION_FAILED`, sin reintento automático.
 - El bucle de envío no espera el resultado de una tarea para enviar la siguiente. Tras persistir la respuesta `202`, el seguimiento pasa al poller y el dispatcher continúa con el siguiente fichero.
-- El Orchestrator no interpreta `queued` como bloqueo o error: el Broker ejecuta globalmente una sola tarea LLM y las restantes esperan de forma normal.
-- En éxito, validar `assistant_content` contra el esquema esperado por el paso. Para publicación, comprobar que el Markdown no contiene frontmatter y construirlo de forma segura con un serializador YAML.
+- El Orchestrator no interpreta `queued` como bloqueo o error: el Broker mantiene inicialmente un solo workflow activo y las restantes tareas esperan. Multitasking_LLM puede introducir concurrencia interna dentro de ese workflow sin autorizar varios workflows simultáneos.
+- En éxito, validar `result.result_markdown`, normalizarlo internamente y comprobar que no contiene frontmatter antes de construirlo con un serializador YAML seguro.
 - Escribir primero a un fichero temporal en la carpeta destino y renombrarlo atómicamente.
 - Mover el origen a `completed` solo después de publicar la nota y persistir su ruta.
 - Rechazar desde la UI mueve la nota a `C:/YT-Pipeline/rejected/notes`, mueve el origen a `rejected/sources` y conserva ambos paths. Reprocesar devuelve una copia del origen a `processing` con un nuevo `task_id`, conservando el mismo `capture_id` y aumentando `revision`.
@@ -532,7 +534,16 @@ La revisión por fechas solo crea candidatos. Sin una fuente nueva introducida e
 - Se procesan fuentes YouTube y no YouTube con metadata parcial.
 - La publicación, rechazo y reprocesado son reversibles y quedan auditados.
 - El Broker offline acumula trabajo y se recupera automáticamente.
-- Una tarea LLM lenta no bloquea la ingestión ni el envío de las siguientes; todas quedan registradas y visibles mientras el Broker las ejecuta una a una.
+- Una tarea Broker lenta no bloquea la ingestión ni el envío de las siguientes; todas quedan registradas y visibles mientras esperan. El Broker decide si el workflow activo usa una invocación o un consenso interno acotado.
+
+### Integración futura Multitasking_LLM
+
+- Se desarrollará en la fase 5. Contrato compartido, idempotencia y consumo autónomo ya están resueltos; permanece desactivada hasta disponer de providers reales, catálogo y evaluación de consenso.
+- `single` será el valor predeterminado. La estrategia se elegirá mediante política versionada del perfil/paso, no por instrucciones incluidas en el contenido.
+- Los chunks y embeddings usarán inicialmente `single`; solo síntesis finales o pasos de alto impacto podrán solicitar `mixture_of_agents`.
+- El Orchestrator persistirá estrategia, progreso, consenso, scheduling, uso, modelos y advertencias, pero no calculará VRAM ni coordinará proponentes.
+- Consenso y confianza no constituyen evidencia. La publicación y el mantenimiento semántico seguirán requiriendo evidencia local.
+- El análisis y los prerrequisitos están definidos en `docs/Study_Multitasking_LLM.md`.
 
 ### Feedback visual obligatorio
 

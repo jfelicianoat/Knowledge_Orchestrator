@@ -64,6 +64,11 @@ class BrokerTaskRecord:
     error_code: str | None
     error_message: str | None
     error_retryable: bool | None
+    broker_task_id: str | None = None
+    execution_strategy: str = "single"
+    execution_preset: str = "fast"
+    selection_mode: str = "auto"
+    progress_json: str = "{}"
 
 
 @dataclass(frozen=True, slots=True)
