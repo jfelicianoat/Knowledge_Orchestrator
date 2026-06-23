@@ -36,6 +36,8 @@ def _record(row: sqlite3.Row) -> CaptureRecord:
         profile_id=row["profile_id"],
         obsolescence_date=row["obsolescence_date"],
         domain_enriched_at=row["domain_enriched_at"],
+        archive_path=_path(row["archive_path"]),
+        rejected_source_path=_path(row["rejected_source_path"]),
     )
 
 

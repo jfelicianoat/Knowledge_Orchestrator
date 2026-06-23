@@ -115,7 +115,7 @@ La fase 1 implementa la frontera de ingesta y persistencia. Incluye:
 - apagado cancelable sin borrar ficheros que aún estén esperando estabilidad;
 - cuarentena recuperable mediante intención durable, movimiento y sidecar.
 
-Broker, publicación, mantenimiento semántico y UI completa pertenecen a fases posteriores.
+El mantenimiento semántico y la UI completa pertenecen a fases posteriores.
 
 La fase 2 añade:
 
@@ -186,6 +186,12 @@ La fase 3 implementa el cliente HTTP asíncrono, validación v1 inmediata, workf
 El dispatcher envía todos los chunks disponibles sin esperar a que termine la primera inferencia. Las llamadas de envío se realizan secuencialmente; el Broker mantiene la responsabilidad de ejecutar una sola tarea LLM a la vez. El worker de red está separado del watcher de archivos y del hilo principal.
 
 Véase [`docs/Phase_3_Broker.md`](docs/Phase_3_Broker.md). Las pruebas usan un Broker simulado; la prueba contra el Broker real requiere que dicho servicio esté desplegado y accesible.
+
+### Fase 4 — Publicación y revisión
+
+La fase 4 publica el resultado final en Obsidian mediante intención SQLite, temporal sincronizado, `os.replace` y verificación SHA-256. La captura solo pasa a `COMPLETED` después de guardar la nota y archivar la fuente. El arranque recupera publicaciones incompletas.
+
+El rechazo retira nota y fuente a `rejected` sin destruirlas. El reprocesado copia la evidencia conservada a `processing` y crea una revisión nueva con identificadores idempotentes distintos. Véase [`docs/Phase_4_Publication.md`](docs/Phase_4_Publication.md).
 
 ## Licencia
 

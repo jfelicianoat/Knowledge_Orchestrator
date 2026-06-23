@@ -71,6 +71,12 @@ class WorkflowRepository:
             ).fetchall()
             return [row["capture_id"] for row in rows]
 
+    def next_revision(self, capture_id: str) -> int:
+        with closing(self.database.connect()) as connection:
+            return int(connection.execute(
+                "SELECT COALESCE(MAX(revision), 0) + 1 FROM workflows WHERE capture_id = ?", (capture_id,)
+            ).fetchone()[0])
+
     def recover_interrupted_submissions(self) -> int:
         """Reabre envíos interrumpidos; la clave idempotente evita duplicarlos en el Broker."""
         with self.database.transaction(immediate=True) as connection:

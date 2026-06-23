@@ -72,6 +72,8 @@ class CaptureRecord:
     profile_id: int | None = None
     obsolescence_date: str | None = None
     domain_enriched_at: str | None = None
+    archive_path: Path | None = None
+    rejected_source_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)

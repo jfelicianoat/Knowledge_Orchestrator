@@ -9,11 +9,13 @@ from knowledge_orchestrator.repositories.capture_repository import CaptureReposi
 from knowledge_orchestrator.repositories.database import Database
 from knowledge_orchestrator.repositories.domain_repository import DomainRepository
 from knowledge_orchestrator.repositories.workflow_repository import WorkflowRepository
+from knowledge_orchestrator.repositories.publication_repository import PublicationRepository
 from knowledge_orchestrator.services.broker_dispatch import BrokerDispatcher, BrokerPoller
 from knowledge_orchestrator.services.classification import TopicClassifier
 from knowledge_orchestrator.services.domain_enrichment import DomainEnrichmentService
 from knowledge_orchestrator.services.ingestion import IngestionService
 from knowledge_orchestrator.services.model_discovery import ModelDiscoveryService
+from knowledge_orchestrator.services.publication import PublicationService
 from knowledge_orchestrator.services.profile_service import ProfileService
 from knowledge_orchestrator.services.recovery import RecoveryReport, RecoveryService
 from knowledge_orchestrator.services.topic_service import TopicService
@@ -31,6 +33,7 @@ class OrchestratorRuntime:
     repository: CaptureRepository
     domain_repository: DomainRepository
     workflow_repository: WorkflowRepository
+    publication_repository: PublicationRepository
     profiles: ProfileService
     topics: TopicService
     domain_enrichment: DomainEnrichmentService
@@ -41,12 +44,14 @@ class OrchestratorRuntime:
     watcher: InboxWatcher
     workflow_planner: WorkflowPlanner
     broker_worker: BrokerWorker
+    publication: PublicationService
 
     def recover_once(self, *, ingest_inbox: bool = True) -> RecoveryReport:
         report = self.recovery.recover(ingest_inbox=ingest_inbox)
         self.topics.ensure_all_folders()
         self.domain_enrichment.enrich_unassigned_pending()
         self.workflow_repository.recover_interrupted_submissions()
+        self.publication.recover()
         self.workflow_planner.plan_unplanned()
         return report
 
@@ -88,6 +93,7 @@ def build_runtime(
     repository = CaptureRepository(database)
     domain_repository = DomainRepository(database)
     workflow_repository = WorkflowRepository(database)
+    publication_repository = PublicationRepository(database)
     profiles = ProfileService(domain_repository)
     topics = TopicService(pipeline_paths, domain_repository)
     domain_enrichment = DomainEnrichmentService(
@@ -125,6 +131,13 @@ def build_runtime(
     )
     poller = BrokerPoller(workflow_repository, broker_client, workflow_planner)
     discovery = ModelDiscoveryService(workflow_repository, broker_client)
+    publication = PublicationService(
+        pipeline_paths,
+        repository,
+        domain_repository,
+        publication_repository,
+        workflow_planner,
+    )
     broker_worker = BrokerWorker(
         workflow_planner,
         dispatcher,
@@ -132,6 +145,7 @@ def build_runtime(
         discovery,
         bridge.queue,
         settings,
+        publication,
     )
     return OrchestratorRuntime(
         paths=pipeline_paths,
@@ -139,6 +153,7 @@ def build_runtime(
         repository=repository,
         domain_repository=domain_repository,
         workflow_repository=workflow_repository,
+        publication_repository=publication_repository,
         profiles=profiles,
         topics=topics,
         domain_enrichment=domain_enrichment,
@@ -149,4 +164,5 @@ def build_runtime(
         watcher=watcher,
         workflow_planner=workflow_planner,
         broker_worker=broker_worker,
+        publication=publication,
     )

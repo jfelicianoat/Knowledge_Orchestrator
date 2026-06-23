@@ -10,6 +10,7 @@ from knowledge_orchestrator.domain.models import ApplicationEvent
 from knowledge_orchestrator.integrations.broker_client import BrokerClientError
 from knowledge_orchestrator.services.broker_dispatch import BrokerDispatcher, BrokerPoller
 from knowledge_orchestrator.services.model_discovery import ModelDiscoveryService
+from knowledge_orchestrator.services.publication import PublicationService
 from knowledge_orchestrator.services.workflow_planner import WorkflowPlanner
 
 
@@ -24,6 +25,7 @@ class BrokerWorker:
         discovery: ModelDiscoveryService,
         events: "queue.Queue[ApplicationEvent]",
         settings: BrokerSettings,
+        publisher: PublicationService | None = None,
     ) -> None:
         self.planner = planner
         self.dispatcher = dispatcher
@@ -31,6 +33,7 @@ class BrokerWorker:
         self.discovery = discovery
         self.events = events
         self.settings = settings
+        self.publisher = publisher
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._broker_online: bool | None = None
@@ -76,6 +79,10 @@ class BrokerWorker:
                     if updated:
                         self._emit("BROKER_TASKS_UPDATED", f"Tareas actualizadas: {updated}", {"updated": updated})
                     next_poll = now + self.settings.poll_interval_seconds
+                if self.publisher is not None:
+                    published = self.publisher.publish_ready()
+                    if published:
+                        self._emit("NOTES_PUBLISHED", f"Notas publicadas: {published}", {"published": published})
                 if now >= next_discovery:
                     try:
                         count = await self.discovery.refresh()

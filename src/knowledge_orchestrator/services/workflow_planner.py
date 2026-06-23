@@ -43,7 +43,7 @@ class WorkflowPlanner:
             planned.append(self.plan_capture(capture_id))
         return planned
 
-    def plan_capture(self, capture_id: str) -> str:
+    def plan_capture(self, capture_id: str, *, revision: int | None = None) -> str:
         capture = self.captures.get(capture_id)
         if capture is None or capture.profile_id is None:
             raise ValueError("La captura no está enriquecida con un perfil")
@@ -58,13 +58,15 @@ class WorkflowPlanner:
         if input_budget < 500:
             raise ValueError("El perfil no deja espacio de contexto para la entrada")
 
-        workflow_id = f"wf_{capture_id}_r1"
+        workflow_revision = revision or self.workflows.next_revision(capture_id)
+        workflow_id = f"wf_{capture_id}_r{workflow_revision}"
         tasks: list[PlannedTask] = []
         if estimate_tokens(system + user) <= input_budget:
             strategy = "single"
             task = self._task(
                 capture_id=capture_id,
                 workflow_id=workflow_id,
+                revision=workflow_revision,
                 profile=profile,
                 step_id="single",
                 step_kind=StepKind.SINGLE,
@@ -97,6 +99,7 @@ class WorkflowPlanner:
                 tasks.append(self._task(
                     capture_id=capture_id,
                     workflow_id=workflow_id,
+                    revision=workflow_revision,
                     profile=profile,
                     step_id=f"chunk_{index}",
                     step_kind=StepKind.CHUNK,
@@ -110,7 +113,7 @@ class WorkflowPlanner:
         self.workflows.create_workflow(
             workflow_id=workflow_id,
             capture_id=capture_id,
-            revision=1,
+            revision=workflow_revision,
             profile_id=profile.profile_id or 0,
             profile_revision=profile.revision,
             strategy=strategy,
@@ -161,6 +164,7 @@ class WorkflowPlanner:
         task = self._task(
             capture_id=capture.capture_id,
             workflow_id=workflow_id,
+            revision=workflow.revision,
             profile=profile,
             step_id="synthesis",
             step_kind=StepKind.SYNTHESIS,
@@ -176,6 +180,7 @@ class WorkflowPlanner:
         *,
         capture_id: str,
         workflow_id: str,
+        revision: int,
         profile,
         step_id: str,
         step_kind: StepKind,
@@ -184,10 +189,10 @@ class WorkflowPlanner:
         user: str,
         input_text: str,
     ) -> PlannedTask:
-        task_id = f"proc_{capture_id}_r1_{step_id}"
+        task_id = f"proc_{capture_id}_r{revision}_{step_id}"
         request = build_chat_request(
             task_id=task_id,
-            idempotency_key=f"{capture_id}:1:{step_id}",
+            idempotency_key=f"{capture_id}:{revision}:{step_id}",
             workflow_id=workflow_id,
             step_id=step_id,
             profile=profile,
