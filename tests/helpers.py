@@ -45,6 +45,31 @@ status: "pending"
 '''.encode("utf-8")
 
 
+def generic_markdown(
+    *,
+    capture_id: str = "document_20260623_python",
+    title: str = "Curso práctico de Python",
+    source_type: str = "document",
+) -> bytes:
+    return f'''---
+contract_version: "1.0"
+capture_id: "{capture_id}"
+source_type: "{source_type}"
+title: "{title}"
+captured_at: "2026-06-23T10:00:00Z"
+has_transcript: true
+status: "pending"
+tags: [programación, python]
+---
+
+# {title}
+
+## Transcripción
+
+Contenido aportado manualmente por el usuario.
+'''.encode("utf-8")
+
+
 def runtime(root: Path, *, checkpoint=None) -> tuple[PipelinePaths, Database, CaptureRepository, IngestionService]:
     paths = PipelinePaths.under(root)
     paths.ensure_directories()

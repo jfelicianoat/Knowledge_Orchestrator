@@ -9,6 +9,7 @@ import yaml
 
 from .errors import CaptureContractError, ContractIssue
 from .models import CaptureDocument
+from .sources import is_prohibited_source_type
 
 MAX_CAPTURE_BYTES = 20 * 1024 * 1024
 CAPTURE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
@@ -96,6 +97,10 @@ def _validate_metadata(metadata: dict[str, Any], transcript: str) -> None:
         _raise("capture_id", "solo admite A-Z, a-z, 0-9, punto, guion y guion bajo; máximo 128", version)
 
     source_type = _require_type(metadata, "source_type", str, version)
+    if not source_type.strip() or len(source_type) > 100:
+        _raise("source_type", "debe contener entre 1 y 100 caracteres", version)
+    if is_prohibited_source_type(source_type):
+        _raise("source_type", "las fuentes autónomas RSS, APIs vigiladas y búsqueda web están fuera del MVP", version)
     title = _require_type(metadata, "title", str, version)
     if not title.strip() or len(title) > 500:
         _raise("title", "debe contener entre 1 y 500 caracteres", version)

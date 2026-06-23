@@ -115,7 +115,19 @@ La fase 1 implementa la frontera de ingesta y persistencia. Incluye:
 - apagado cancelable sin borrar ficheros que aún estén esperando estabilidad;
 - cuarentena recuperable mediante intención durable, movimiento y sidecar.
 
-Temas, perfiles funcionales, Broker, publicación, mantenimiento semántico y UI completa pertenecen a fases posteriores.
+Broker, publicación, mantenimiento semántico y UI completa pertenecen a fases posteriores.
+
+La fase 2 añade:
+
+- fuentes genéricas con origen durable `PLUGIN_CAPTURE`, `USER_FILE` u `OBSIDIAN_NOTE`;
+- exclusión contractual de RSS, documentación vigilada, conectores automáticos y búsqueda web autónoma;
+- clasificación ordenada por keywords y fallback reservado `_inbox`;
+- carpetas seguras creadas automáticamente bajo el vault;
+- vigencia por tema sin actualización factual automática;
+- perfiles editables y versionados con prompts normal, chunk y síntesis;
+- enriquecimiento recuperable de capturas `PENDING` tras reinicio.
+
+La especificación operativa está en [`docs/Phase_2_Domain.md`](docs/Phase_2_Domain.md). La edición visual de temas y perfiles sigue reservada para la fase 6; Broker y renderizado efectivo de prompts comienzan en la fase 3.
 
 ### Preparación
 

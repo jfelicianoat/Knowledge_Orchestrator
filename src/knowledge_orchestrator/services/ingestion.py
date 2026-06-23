@@ -34,6 +34,7 @@ class IngestionService:
         stability_checker: FileStabilityChecker | None = None,
         checkpoint: Checkpoint | None = None,
         read_file: Callable[[Path], bytes] | None = None,
+        on_accepted: Callable[[str], object] | None = None,
     ) -> None:
         self.paths = paths
         self.repository = repository
@@ -44,6 +45,7 @@ class IngestionService:
             lambda path: read_bytes_with_lock_retries(path, cancel_event=self._cancel_event)
         )
         self.quarantine = QuarantineService(paths, repository, checkpoint=self.checkpoint)
+        self.on_accepted = on_accepted
 
     def request_cancel(self) -> None:
         self._cancel_event.set()
@@ -148,6 +150,16 @@ class IngestionService:
                 raise RuntimeError("El original cambió después del staging; no se elimina")
             source.unlink()
         self.checkpoint("AFTER_SOURCE_REMOVAL")
+        if self.on_accepted is not None:
+            try:
+                self.on_accepted(capture_id)
+            except Exception as error:
+                self.repository.record_event(
+                    "DOMAIN_ENRICHMENT_FAILED",
+                    str(error),
+                    capture_id=capture_id,
+                    details={"capture_id": capture_id},
+                )
         return IngestionResult(True, capture_id, CaptureStatus.PENDING)
 
     def _reject(

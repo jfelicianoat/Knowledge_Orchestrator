@@ -5,7 +5,7 @@ import unittest
 from knowledge_orchestrator.domain.contracts import parse_capture_bytes
 from knowledge_orchestrator.domain.errors import CaptureContractError
 
-from tests.helpers import valid_markdown
+from tests.helpers import generic_markdown, valid_markdown
 
 
 class CaptureContractTests(unittest.TestCase):
@@ -48,6 +48,16 @@ class CaptureContractTests(unittest.TestCase):
         with self.assertRaises(CaptureContractError) as raised:
             parse_capture_bytes(content)
         self.assertEqual(raised.exception.issue.field, "published_date")
+
+    def test_accepts_generic_user_document_without_youtube_fields(self) -> None:
+        document = parse_capture_bytes(generic_markdown())
+        self.assertEqual(document.source_type, "document")
+        self.assertNotIn("video_id", document.metadata)
+
+    def test_rejects_explicit_autonomous_source_types(self) -> None:
+        with self.assertRaises(CaptureContractError) as raised:
+            parse_capture_bytes(generic_markdown(source_type="rss"))
+        self.assertEqual(raised.exception.issue.field, "source_type")
 
 
 if __name__ == "__main__":

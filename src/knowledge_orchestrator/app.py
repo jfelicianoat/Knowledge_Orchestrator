@@ -21,7 +21,7 @@ def main() -> None:
     runtime = build_runtime(paths, scan_interval_seconds=arguments.scan_interval)
     if arguments.once:
         report = runtime.recover_once(ingest_inbox=True)
-        print(f"Recuperación de fase 1 completada: {report}")
+        print(f"Recuperación e ingesta completadas: {report}")
     else:
         runtime.run_forever()
 

@@ -19,6 +19,12 @@ class CaptureStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+class SourceOrigin(str, Enum):
+    PLUGIN_CAPTURE = "PLUGIN_CAPTURE"
+    USER_FILE = "USER_FILE"
+    OBSIDIAN_NOTE = "OBSIDIAN_NOTE"
+
+
 @dataclass(frozen=True, slots=True)
 class CaptureDocument:
     metadata: Mapping[str, Any]
@@ -61,6 +67,11 @@ class CaptureRecord:
     transcript_content: str
     last_error_code: str | None = None
     last_error_message: str | None = None
+    source_origin: SourceOrigin = SourceOrigin.USER_FILE
+    topic_id: int | None = None
+    profile_id: int | None = None
+    obsolescence_date: str | None = None
+    domain_enriched_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,3 +92,44 @@ class ApplicationEvent:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "details", MappingProxyType(dict(self.details)))
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileDefinition:
+    name: str
+    system_prompt: str
+    user_prompt: str
+    chunk_prompt: str
+    synthesis_prompt: str
+    preferred_model: str
+    fallback_allowed: bool = True
+    temperature: float = 0.3
+    max_output_tokens: int = 4000
+    enabled: bool = True
+    profile_id: int | None = None
+    revision: int = 1
+
+
+@dataclass(frozen=True, slots=True)
+class TopicDefinition:
+    name: str
+    folder: str
+    keywords: tuple[str, ...]
+    position: int
+    default_profile_id: int
+    is_updatable: bool = True
+    obsolescence_days: int | None = None
+    auto_review: bool = False
+    enabled: bool = True
+    topic_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TopicAssignment:
+    capture_id: str
+    topic_id: int
+    topic_name: str
+    folder: str
+    profile_id: int
+    source_origin: SourceOrigin
+    obsolescence_date: str | None

@@ -6,7 +6,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, Iterable
 
-from knowledge_orchestrator.domain.models import CaptureRecord, CaptureStatus
+from knowledge_orchestrator.domain.models import CaptureRecord, CaptureStatus, SourceOrigin
 
 from .database import Database
 
@@ -31,6 +31,11 @@ def _record(row: sqlite3.Row) -> CaptureRecord:
         transcript_content=row["transcript_content"],
         last_error_code=row["last_error_code"],
         last_error_message=row["last_error_message"],
+        source_origin=SourceOrigin(row["source_origin"]),
+        topic_id=row["topic_id"],
+        profile_id=row["profile_id"],
+        obsolescence_date=row["obsolescence_date"],
+        domain_enriched_at=row["domain_enriched_at"],
     )
 
 
@@ -64,6 +69,14 @@ class CaptureRepository:
             rows = connection.execute(
                 f"SELECT * FROM captures WHERE status IN ({placeholders}) ORDER BY created_at, capture_id",
                 values,
+            ).fetchall()
+            return [_record(row) for row in rows]
+
+    def list_unenriched_pending(self) -> list[CaptureRecord]:
+        with closing(self.database.connect()) as connection:
+            rows = connection.execute(
+                "SELECT * FROM captures WHERE status = 'PENDING' AND domain_enriched_at IS NULL "
+                "ORDER BY created_at, capture_id"
             ).fetchall()
             return [_record(row) for row in rows]
 
