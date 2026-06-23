@@ -1,0 +1,1 @@
+"""Acceso durable a datos."""

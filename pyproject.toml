@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knowledge-orchestrator"
+version = "0.1.0"
+description = "Ingesta durable y orquestación local de conocimiento"
+requires-python = ">=3.10"
+dependencies = [
+    "PyYAML>=6.0,<7",
+    "watchdog>=4.0,<7",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+knowledge-orchestrator = "knowledge_orchestrator.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+knowledge_orchestrator = ["migrations/*.sql"]

@@ -99,6 +99,74 @@ STAGED → PENDING → SUBMITTING → QUEUED → PROCESSING → COMPLETED → (p
 - Base SQLite en `C:/YT-Pipeline/state/orchestrator.db` con modo WAL
 - Integridad mediante estados durables y operaciones idempotentes; no existe transacción única SQLite+NTFS
 
+## Desarrollo
+
+La fase 1 implementa la frontera de ingesta y persistencia. Incluye:
+
+- validación segura del contrato Markdown v1 y límite de 20 MiB;
+- tres observaciones consecutivas de tamaño/mtime;
+- apertura con reintentos y backoff de 1, 2 y 4 segundos;
+- SQLite en modo WAL con migraciones para capturas, tareas, eventos, notas, temas y perfiles;
+- copia sincronizada a `staging`, SHA-256, commit `STAGED`, `os.replace` y transición `PENDING`;
+- recuperación de caídas antes y después de cada transición durable;
+- cuarentena de contratos, transcripciones ausentes y duplicados con sidecar JSON;
+- worker de ingesta separado y puente de eventos que reserva Tk para el hilo principal.
+- vigilancia continua con `watchdog` y rescan periódico de seguridad;
+- apagado cancelable sin borrar ficheros que aún estén esperando estabilidad;
+- cuarentena recuperable mediante intención durable, movimiento y sidecar.
+
+Temas, perfiles funcionales, Broker, publicación, mantenimiento semántico y UI completa pertenecen a fases posteriores.
+
+### Preparación
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+```
+
+### Pruebas
+
+```powershell
+$env:PYTHONPATH = "src"
+python -B -m unittest discover -s tests -v
+```
+
+### Recuperación e ingesta inicial
+
+```powershell
+knowledge-orchestrator
+```
+
+El comando crea las carpetas predeterminadas, aplica migraciones, reconcilia estados incompletos, ingiere los `.md` existentes y permanece vigilando `%USERPROFILE%/Downloads/YT-Knowledge-Inbox`. Se detiene con `Ctrl+C`.
+
+Para ejecutar únicamente recuperación + ingesta y terminar:
+
+```powershell
+knowledge-orchestrator --once
+```
+
+Para probar sin escribir en `C:/YT-Pipeline`:
+
+```powershell
+knowledge-orchestrator --once --root "$env:TEMP\knowledge-orchestrator-test"
+```
+
+Un fichero que siga bloqueado tras los reintentos queda en el inbox y no se reenvía indefinidamente mientras tamaño y `mtime` no cambien. La futura UI invocará el reintento explícito expuesto por el worker.
+
+### Estructura implementada
+
+```text
+src/knowledge_orchestrator/
+  domain/          # contrato, estados y errores
+  repositories/    # SQLite y transiciones durables
+  services/        # estabilidad, ingesta y recuperación
+  worker/          # ejecución fuera del hilo de UI
+  ui/              # puente thread-safe; widgets en fase 6
+  migrations/      # esquema versionado
+tests/
+```
+
 ## Licencia
 
 MIT
