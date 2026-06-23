@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from knowledge_orchestrator.domain.models import ProfileDefinition
@@ -64,6 +65,23 @@ class ProfileServiceTests(unittest.TestCase):
         self.assertIs(validate_profile(default_profile), default_profile)
         with self.assertRaisesRegex(ValueError, "usado por temas activos"):
             self.service.set_enabled(default_profile.profile_id or 0, False)
+
+    def test_persists_and_validates_multitasking_policy(self) -> None:
+        created = self.service.save_profile(profile_definition(
+            execution_strategy="mixture_of_agents",
+            multitasking_steps=("synthesis", "single"),
+            consensus_max_proposers=3,
+            consensus_fallback_to_single=True,
+        ))
+        self.assertEqual(created.execution_strategy, "mixture_of_agents")
+        self.assertEqual(created.multitasking_steps, ("synthesis", "single"))
+        with self.assertRaises(ProfileValidationError):
+            self.service.save_profile(replace(
+                created,
+                data_classification="local_only",
+                cloud_allowed=True,
+                allowed_providers=("deepseek",),
+            ))
 
 
 if __name__ == "__main__":

@@ -91,8 +91,15 @@ def build_chat_request(
     profile: ProfileDefinition,
     system_content: str,
     user_content: str,
-    max_cost_usd: float = 0.05,
+    execution_step: str,
 ) -> dict[str, Any]:
+    use_consensus = (
+        profile.execution_strategy == "mixture_of_agents"
+        and execution_step in profile.multitasking_steps
+        and execution_step in {"single", "synthesis"}
+    )
+    strategy = "mixture_of_agents" if use_consensus else "single"
+    proposer_count = profile.consensus_max_proposers if use_consensus else 1
     prompt = (
         "<system_instructions>\n"
         + system_content
@@ -116,18 +123,18 @@ def build_chat_request(
         "model_requirements": {
             "preferred_model": profile.preferred_model,
             "fallback_allowed": profile.fallback_allowed,
-            "cloud_allowed": False,
-            "allowed_providers": ["ollama"],
-            "max_cost_usd": max_cost_usd,
+            "cloud_allowed": profile.cloud_allowed,
+            "allowed_providers": list(profile.allowed_providers),
+            "max_cost_usd": profile.max_cost_usd,
         },
         "execution": {
-            "strategy": "single",
-            "preset": "fast",
+            "strategy": strategy,
+            "preset": profile.consensus_preset if use_consensus else "fast",
             "scheduling": "adaptive",
-            "max_proposers": 1,
+            "max_proposers": proposer_count,
             "max_judges": 0,
             "max_rounds": 1,
-            "timeout_seconds": 600,
+            "timeout_seconds": profile.consensus_timeout_seconds if use_consensus else 600,
             "early_stop": True,
             "selection": {
                 "mode": "auto",
@@ -136,9 +143,12 @@ def build_chat_request(
                 "allow_substitution": profile.fallback_allowed,
                 "proposers": [],
                 "required_proposers": [],
-                "proposer_count": 1,
+                "proposer_count": proposer_count,
             },
         },
-        "risk": {"data_classification": "local_only", "human_review_required": False},
+        "risk": {
+            "data_classification": profile.data_classification,
+            "human_review_required": profile.human_review_required,
+        },
         "priority": 100,
     }

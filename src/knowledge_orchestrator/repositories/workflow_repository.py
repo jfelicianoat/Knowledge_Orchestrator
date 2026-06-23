@@ -44,6 +44,8 @@ def _task(row: sqlite3.Row) -> BrokerTaskRecord:
         execution_preset=row["execution_preset"],
         selection_mode=row["selection_mode"],
         progress_json=row["progress_json"],
+        strategy_fallback_allowed=bool(row["strategy_fallback_allowed"]),
+        replacement_for_task_id=row["replacement_for_task_id"],
     )
 
 
@@ -65,6 +67,13 @@ def _workflow(row: sqlite3.Row) -> WorkflowRecord:
 
 
 class WorkflowRepository:
+    CONSENSUS_FALLBACK_CODES = {
+        "CONSENSUS_QUORUM_NOT_REACHED",
+        "CONSENSUS_PRESET_NOT_IMPLEMENTED",
+        "VRAM_INSUFFICIENT",
+        "MODEL_UNAVAILABLE",
+        "PROVIDER_UNAVAILABLE",
+    }
     def __init__(self, database: Database) -> None:
         self.database = database
 
@@ -82,6 +91,13 @@ class WorkflowRepository:
             return int(connection.execute(
                 "SELECT COALESCE(MAX(revision), 0) + 1 FROM workflows WHERE capture_id = ?", (capture_id,)
             ).fetchone()[0])
+
+    def list_resumable_workflow_ids(self) -> list[str]:
+        with closing(self.database.connect()) as connection:
+            return [row["workflow_id"] for row in connection.execute(
+                "SELECT workflow_id FROM workflows WHERE status IN ('PLANNED', 'RUNNING') "
+                "ORDER BY created_at, workflow_id"
+            ).fetchall()]
 
     def recover_interrupted_submissions(self) -> int:
         """Reabre envíos interrumpidos; la clave idempotente evita duplicarlos en el Broker."""
@@ -236,8 +252,9 @@ class WorkflowRepository:
         encoded = json.dumps(dict(task.request), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         connection.execute(
             "INSERT INTO tasks (task_id, capture_id, workflow_id, step_id, status, request_json, "
-            "step_kind, sequence_index, idempotency_key, request_hash, input_text, broker_contract_version) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '2.0')",
+            "step_kind, sequence_index, idempotency_key, request_hash, input_text, broker_contract_version, "
+            "strategy_fallback_allowed, replacement_for_task_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '2.0', ?, ?)",
             (
                 task.task_id,
                 task.capture_id,
@@ -250,6 +267,8 @@ class WorkflowRepository:
                 task.idempotency_key,
                 hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
                 task.input_text,
+                int(task.strategy_fallback_allowed),
+                task.replacement_for_task_id,
             ),
         )
 
@@ -431,13 +450,26 @@ class WorkflowRepository:
                     (current["workflow_id"],),
                 )
             elif target in {TaskStatus.ERROR, TaskStatus.CANCELLED}:
-                self._fail_workflow(
-                    connection,
-                    current["workflow_id"],
-                    current["capture_id"],
-                    error.get("code", target.value),
-                    error.get("message", target.value),
+                may_fallback = (
+                    target is TaskStatus.ERROR
+                    and current["execution_strategy"] == "mixture_of_agents"
+                    and bool(current["strategy_fallback_allowed"])
+                    and error.get("code") in self.CONSENSUS_FALLBACK_CODES
                 )
+                if may_fallback:
+                    connection.execute(
+                        "INSERT INTO events(capture_id, event_type, message, details_json) "
+                        "VALUES (?, 'CONSENSUS_FALLBACK_REQUIRED', ?, ?)",
+                        (current["capture_id"], error.get("message", target.value), json.dumps({"task_id": task_id})),
+                    )
+                else:
+                    self._fail_workflow(
+                        connection,
+                        current["workflow_id"],
+                        current["capture_id"],
+                        error.get("code", target.value),
+                        error.get("message", target.value),
+                    )
             return True
 
     def finish_workflow(self, workflow_id: str, final_result: str) -> None:

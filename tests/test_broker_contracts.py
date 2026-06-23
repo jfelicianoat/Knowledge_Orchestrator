@@ -52,7 +52,7 @@ def accepted_response() -> dict:
 
 class BrokerContractTests(unittest.TestCase):
     def test_shared_v2_single_fixture_matches_orchestrator_validator(self) -> None:
-        fixture = Path(__file__).parents[2] / "docs" / "contracts" / "broker_v2_single_request.json"
+        fixture = Path(__file__).parent / "fixtures" / "broker_v2_single_request.json"
         payload = json.loads(fixture.read_text(encoding="utf-8"))
         self.assertIs(validate_create_task_request(payload), payload)
 
@@ -88,6 +88,26 @@ class BrokerContractTests(unittest.TestCase):
                 },
                 "broker_task_1",
             )
+
+    def test_validates_complete_consensus_metadata_and_rejects_false_quorum(self) -> None:
+        payload = {
+            "task_id": "broker_consensus", "status": "completed", "request_id": "local_consensus",
+            "created_at": "2026-06-23T10:00:00Z", "updated_at": "2026-06-23T10:01:00Z",
+            "execution_strategy": "mixture_of_agents", "execution_preset": "fast", "selection_mode": "auto",
+            "progress": {"phase": "completed", "invocations_completed": 4, "invocations_total": 4},
+            "result": {
+                "result_markdown": "# Consenso",
+                "consensus": {"proposers_completed": 3, "confidence": 0.7},
+                "scheduling": {"mode_used": "parallel", "waves": 1},
+                "usage": {"invocations": 4, "cost_usd": 0.01},
+                "models_used": [{"model": "a"}, {"model": "b"}, {"model": "c"}, {"model": "arbiter"}],
+            },
+            "error": None,
+        }
+        self.assertIs(validate_task_status_response(payload, "broker_consensus"), payload)
+        payload["result"]["consensus"]["proposers_completed"] = 1
+        with self.assertRaises(BrokerContractError):
+            validate_task_status_response(payload, "broker_consensus")
 
 
 if __name__ == "__main__":

@@ -43,6 +43,8 @@ class PlannedTask:
     idempotency_key: str
     request: Mapping[str, Any]
     input_text: str
+    strategy_fallback_allowed: bool = False
+    replacement_for_task_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +71,8 @@ class BrokerTaskRecord:
     execution_preset: str = "fast"
     selection_mode: str = "auto"
     progress_json: str = "{}"
+    strategy_fallback_allowed: bool = False
+    replacement_for_task_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

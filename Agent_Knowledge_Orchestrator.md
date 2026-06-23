@@ -536,13 +536,14 @@ La revisión por fechas solo crea candidatos. Sin una fuente nueva introducida e
 - El Broker offline acumula trabajo y se recupera automáticamente.
 - Una tarea Broker lenta no bloquea la ingestión ni el envío de las siguientes; todas quedan registradas y visibles mientras esperan. El Broker decide si el workflow activo usa una invocación o un consenso interno acotado.
 
-### Integración futura Multitasking_LLM
+### Integración Multitasking_LLM
 
-- Se desarrollará en la fase 5. Contrato compartido, idempotencia y consumo autónomo ya están resueltos; permanece desactivada hasta disponer de providers reales, catálogo y evaluación de consenso.
+- La política de fase 5 está implementada y permanece desactivada por defecto. Su activación productiva espera providers reales, catálogo y evaluación de consenso.
 - `single` será el valor predeterminado. La estrategia se elegirá mediante política versionada del perfil/paso, no por instrucciones incluidas en el contenido.
-- Los chunks y embeddings usarán inicialmente `single`; solo síntesis finales o pasos de alto impacto podrán solicitar `mixture_of_agents`.
+- Los chunks y embeddings usan siempre `single`; solo síntesis finales o pasos `single` habilitados en el perfil pueden solicitar `mixture_of_agents/fast`.
 - El Orchestrator persistirá estrategia, progreso, consenso, scheduling, uso, modelos y advertencias, pero no calculará VRAM ni coordinará proponentes.
 - Consenso y confianza no constituyen evidencia. La publicación y el mantenimiento semántico seguirán requiriendo evidencia local.
+- El fallback a `single` crea una tarea nueva y solo se admite para fallos tipados de quorum/capacidad, nunca presupuesto, privacidad o contrato.
 - El análisis y los prerrequisitos están definidos en `docs/Study_Multitasking_LLM.md`.
 
 ### Feedback visual obligatorio

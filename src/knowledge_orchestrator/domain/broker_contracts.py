@@ -103,6 +103,23 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
     selection = _mapping(execution.get("selection"), boundary, "execution.selection")
     if selection.get("mode") not in {"auto", "manual", "hybrid"}:
         _fail(boundary, "execution.selection.mode", "modo no permitido")
+    limits = {
+        "max_proposers": (1, 5),
+        "max_judges": (0, 2),
+        "max_rounds": (1, 2),
+    }
+    for field, (minimum, maximum) in limits.items():
+        value = execution.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or not minimum <= value <= maximum:
+            _fail(boundary, f"execution.{field}", f"debe estar entre {minimum} y {maximum}")
+    timeout = execution.get("timeout_seconds")
+    if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout < 1:
+        _fail(boundary, "execution.timeout_seconds", "debe ser integer positivo")
+    if not isinstance(execution.get("early_stop"), bool):
+        _fail(boundary, "execution.early_stop", "debe ser boolean")
+    proposer_count = selection.get("proposer_count")
+    if not isinstance(proposer_count, int) or isinstance(proposer_count, bool) or not 1 <= proposer_count <= 5:
+        _fail(boundary, "execution.selection.proposer_count", "debe estar entre 1 y 5")
 
     risk = _mapping(payload.get("risk"), boundary, "risk")
     if risk.get("data_classification") not in {"public", "internal", "confidential", "local_only"}:
@@ -111,6 +128,14 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
         _fail(boundary, "risk.human_review_required", "debe ser boolean")
     if not isinstance(payload.get("priority"), int) or not 0 <= payload["priority"] <= 1000:
         _fail(boundary, "priority", "debe estar entre 0 y 1000")
+    cloudish = {"deepseek", "ollama_cloud", "openai", "anthropic", "google"}
+    normalized_providers = {provider.lower() for provider in providers}
+    if not requirements["cloud_allowed"] and normalized_providers & cloudish:
+        _fail(boundary, "model_requirements.allowed_providers", "incluye cloud con cloud_allowed=false")
+    if risk["data_classification"] == "local_only" and (
+        requirements["cloud_allowed"] or normalized_providers != {"ollama"}
+    ):
+        _fail(boundary, "risk.data_classification", "local_only exige únicamente ollama local")
     return payload
 
 
@@ -141,9 +166,26 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
     _string(payload.get("created_at"), boundary, "created_at")
     _string(payload.get("updated_at"), boundary, "updated_at")
     _mapping(payload.get("progress", {}), boundary, "progress")
+    strategy = payload.get("execution_strategy")
+    if strategy not in {"single", "mixture_of_agents"}:
+        _fail(boundary, "execution_strategy", "estrategia no permitida")
     if status == "completed":
         result = _mapping(payload.get("result"), boundary, "result")
         _string(result.get("result_markdown"), boundary, "result.result_markdown")
+        if strategy == "mixture_of_agents":
+            consensus = _mapping(result.get("consensus"), boundary, "result.consensus")
+            completed = consensus.get("proposers_completed")
+            if not isinstance(completed, int) or completed < 2:
+                _fail(boundary, "result.consensus.proposers_completed", "debe indicar quorum de al menos 2")
+            scheduling = _mapping(result.get("scheduling"), boundary, "result.scheduling")
+            if scheduling.get("mode_used") not in {"parallel", "waves", "sequential"}:
+                _fail(boundary, "result.scheduling.mode_used", "modo no permitido")
+            usage = _mapping(result.get("usage"), boundary, "result.usage")
+            if not isinstance(usage.get("invocations"), int) or usage["invocations"] < 3:
+                _fail(boundary, "result.usage.invocations", "no corresponde a un consenso completo")
+            models = result.get("models_used")
+            if not isinstance(models, list) or len(models) < 3:
+                _fail(boundary, "result.models_used", "debe contener participantes y árbitro")
         if payload.get("error") is not None:
             _fail(boundary, "error", "debe ser null en completed")
     elif status == "failed":

@@ -110,6 +110,17 @@ class ProfileDefinition:
     enabled: bool = True
     profile_id: int | None = None
     revision: int = 1
+    execution_strategy: str = "single"
+    multitasking_steps: tuple[str, ...] = ("synthesis",)
+    consensus_preset: str = "fast"
+    consensus_max_proposers: int = 3
+    consensus_timeout_seconds: int = 600
+    consensus_fallback_to_single: bool = True
+    cloud_allowed: bool = False
+    allowed_providers: tuple[str, ...] = ("ollama",)
+    data_classification: str = "local_only"
+    max_cost_usd: float = 0.05
+    human_review_required: bool = False
 
 
 @dataclass(frozen=True, slots=True)

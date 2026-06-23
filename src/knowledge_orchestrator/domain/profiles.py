@@ -65,6 +65,31 @@ def validate_profile(profile: ProfileDefinition) -> ProfileDefinition:
         raise ProfileValidationError("max_output_tokens debe estar entre 1 y 100000")
     if profile.revision < 1:
         raise ProfileValidationError("revision debe ser mayor o igual que 1")
+    if profile.execution_strategy not in {"single", "mixture_of_agents"}:
+        raise ProfileValidationError("execution_strategy no permitido")
+    allowed_steps = {"single", "synthesis"}
+    if not profile.multitasking_steps or set(profile.multitasking_steps) - allowed_steps:
+        raise ProfileValidationError("multitasking_steps solo admite single y synthesis")
+    if len(set(profile.multitasking_steps)) != len(profile.multitasking_steps):
+        raise ProfileValidationError("multitasking_steps contiene duplicados")
+    if profile.consensus_preset != "fast":
+        raise ProfileValidationError("solo se admite consensus_preset fast en esta fase")
+    if not 2 <= profile.consensus_max_proposers <= 5:
+        raise ProfileValidationError("consensus_max_proposers debe estar entre 2 y 5")
+    if not 1 <= profile.consensus_timeout_seconds <= 3600:
+        raise ProfileValidationError("consensus_timeout_seconds debe estar entre 1 y 3600")
+    if profile.data_classification not in {"public", "internal", "confidential", "local_only"}:
+        raise ProfileValidationError("data_classification no permitida")
+    if not profile.allowed_providers or any(not provider.strip() for provider in profile.allowed_providers):
+        raise ProfileValidationError("allowed_providers debe ser una lista no vacía")
+    cloud_providers = {"deepseek", "ollama_cloud", "openai", "anthropic", "google"}
+    if not profile.cloud_allowed and cloud_providers.intersection(provider.lower() for provider in profile.allowed_providers):
+        raise ProfileValidationError("cloud_allowed=false no permite proveedores cloud")
+    if profile.data_classification == "local_only":
+        if profile.cloud_allowed or set(provider.lower() for provider in profile.allowed_providers) != {"ollama"}:
+            raise ProfileValidationError("local_only exige cloud desactivado y proveedor ollama")
+    if profile.max_cost_usd < 0:
+        raise ProfileValidationError("max_cost_usd no puede ser negativo")
     for field_name in PROMPT_PLACEHOLDERS:
         template = getattr(profile, field_name)
         if not template.strip():

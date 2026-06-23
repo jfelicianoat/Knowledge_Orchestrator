@@ -181,7 +181,7 @@ tests/
 
 ### Fase 3 — Frontera con el Broker
 
-La fase 3 implementa el cliente HTTP asíncrono, validación v1 inmediata, workflows durables simples o por chunks, síntesis con dependencias, aceptación durable `202`, dispatcher y poller independientes, reintentos transitorios, recuperación idempotente y descubrimiento periódico de modelos.
+La fase 3 implementa el cliente HTTP asíncrono y la validación inmediata del contrato Broker v2, con identificadores locales separados de los `task_id` asignados por el Broker. Incluye workflows durables simples o por chunks, síntesis con dependencias, creación `202`, replay idempotente `200`, detección de conflictos `409`, dispatcher y poller independientes, reintentos transitorios, recuperación tras reinicio y descubrimiento periódico de modelos.
 
 El dispatcher envía todos los chunks disponibles sin esperar resultados. En el baseline `single`, el Broker procesa una inferencia a la vez. La futura opción Multitasking_LLM mantendrá un solo workflow Broker activo, aunque podrá ejecutar invocaciones internas mediante planificación adaptativa. El worker de red está separado del watcher y del hilo principal.
 
@@ -193,11 +193,11 @@ La fase 4 publica el resultado final en Obsidian mediante intención SQLite, tem
 
 El rechazo retira nota y fuente a `rejected` sin destruirlas. El reprocesado copia la evidencia conservada a `processing` y crea una revisión nueva con identificadores idempotentes distintos. Véase [`docs/Phase_4_Publication.md`](docs/Phase_4_Publication.md).
 
-### Fase futura — Multitasking_LLM
+### Fase 5 — Multitasking_LLM
 
-La integración opcional con el modo `mixture_of_agents` del AI Broker se desarrollará en la fase 5. `single` seguirá siendo el valor predeterminado; los chunks permanecerán inicialmente en `single` y el consenso se reservará para síntesis o pasos de alto impacto definidos por política.
+La integración opcional con `mixture_of_agents/fast` está implementada mediante una política versionada por perfil y paso. `single` sigue siendo el valor predeterminado; los chunks permanecen en `single` y el consenso se reserva para síntesis o pasos `single` habilitados expresamente.
 
-El contrato v2 ya está alineado en modo `single`: creación idempotente, ID local separado del ID Broker, estados detallados, `result_markdown` y despacho autónomo. Multitasking_LLM continúa en fase 5 hasta disponer de providers reales, catálogo de modelos y evaluación específica. Véase [`docs/Study_Multitasking_LLM.md`](docs/Study_Multitasking_LLM.md).
+La integración incluye validación de metadata de consenso, progreso durable y fallback `single` restringido a fallos de quorum/capacidad. El uso productivo sigue pendiente de providers reales y catálogo de modelos; las pruebas actuales usan el provider bootstrap. Véanse [`docs/Phase_5_Multitasking.md`](docs/Phase_5_Multitasking.md) y [`docs/Study_Multitasking_LLM.md`](docs/Study_Multitasking_LLM.md).
 
 ## Licencia
 

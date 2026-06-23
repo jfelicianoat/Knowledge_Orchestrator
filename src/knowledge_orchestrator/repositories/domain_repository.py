@@ -15,6 +15,8 @@ from .database import Database
 
 
 def _profile(row: sqlite3.Row) -> ProfileDefinition:
+    multitasking_steps = tuple(json.loads(row["multitasking_steps_json"]))
+    allowed_providers = tuple(json.loads(row["allowed_providers_json"]))
     return ProfileDefinition(
         profile_id=row["profile_id"],
         name=row["name"],
@@ -28,6 +30,17 @@ def _profile(row: sqlite3.Row) -> ProfileDefinition:
         max_output_tokens=int(row["max_output_tokens"]),
         enabled=bool(row["enabled"]),
         revision=int(row["revision"]),
+        execution_strategy=row["execution_strategy"],
+        multitasking_steps=multitasking_steps,
+        consensus_preset=row["consensus_preset"],
+        consensus_max_proposers=int(row["consensus_max_proposers"]),
+        consensus_timeout_seconds=int(row["consensus_timeout_seconds"]),
+        consensus_fallback_to_single=bool(row["consensus_fallback_to_single"]),
+        cloud_allowed=bool(row["cloud_allowed"]),
+        allowed_providers=allowed_providers,
+        data_classification=row["data_classification"],
+        max_cost_usd=float(row["max_cost_usd"]),
+        human_review_required=bool(row["human_review_required"]),
     )
 
 
@@ -79,7 +92,10 @@ class DomainRepository:
                 cursor = connection.execute(
                     "INSERT INTO profiles (name, config_json, system_prompt, user_prompt, chunk_prompt, "
                     "synthesis_prompt, preferred_model, fallback_allowed, temperature, max_output_tokens, "
-                    "enabled, revision) VALUES (?, '{}', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+                    "enabled, revision, execution_strategy, multitasking_steps_json, consensus_preset, "
+                    "consensus_max_proposers, consensus_timeout_seconds, consensus_fallback_to_single, "
+                    "cloud_allowed, allowed_providers_json, data_classification, max_cost_usd, "
+                    "human_review_required) VALUES (?, '{}', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         profile.name,
                         profile.system_prompt,
@@ -91,6 +107,17 @@ class DomainRepository:
                         profile.temperature,
                         profile.max_output_tokens,
                         int(profile.enabled),
+                        profile.execution_strategy,
+                        json.dumps(list(profile.multitasking_steps)),
+                        profile.consensus_preset,
+                        profile.consensus_max_proposers,
+                        profile.consensus_timeout_seconds,
+                        int(profile.consensus_fallback_to_single),
+                        int(profile.cloud_allowed),
+                        json.dumps(list(profile.allowed_providers)),
+                        profile.data_classification,
+                        profile.max_cost_usd,
+                        int(profile.human_review_required),
                     ),
                 )
                 profile_id = int(cursor.lastrowid)
@@ -98,7 +125,10 @@ class DomainRepository:
                 cursor = connection.execute(
                     "UPDATE profiles SET name = ?, system_prompt = ?, user_prompt = ?, chunk_prompt = ?, "
                     "synthesis_prompt = ?, preferred_model = ?, fallback_allowed = ?, temperature = ?, "
-                    "max_output_tokens = ?, enabled = ?, revision = revision + 1, "
+                    "max_output_tokens = ?, enabled = ?, execution_strategy = ?, multitasking_steps_json = ?, "
+                    "consensus_preset = ?, consensus_max_proposers = ?, consensus_timeout_seconds = ?, "
+                    "consensus_fallback_to_single = ?, cloud_allowed = ?, allowed_providers_json = ?, "
+                    "data_classification = ?, max_cost_usd = ?, human_review_required = ?, revision = revision + 1, "
                     "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
                     "WHERE profile_id = ? AND revision = ?",
                     (
@@ -112,6 +142,17 @@ class DomainRepository:
                         profile.temperature,
                         profile.max_output_tokens,
                         int(profile.enabled),
+                        profile.execution_strategy,
+                        json.dumps(list(profile.multitasking_steps)),
+                        profile.consensus_preset,
+                        profile.consensus_max_proposers,
+                        profile.consensus_timeout_seconds,
+                        int(profile.consensus_fallback_to_single),
+                        int(profile.cloud_allowed),
+                        json.dumps(list(profile.allowed_providers)),
+                        profile.data_classification,
+                        profile.max_cost_usd,
+                        int(profile.human_review_required),
                         profile.profile_id,
                         profile.revision,
                     ),

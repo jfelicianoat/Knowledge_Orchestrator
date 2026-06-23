@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from knowledge_orchestrator.domain.models import ProfileDefinition
 from knowledge_orchestrator.domain.profiles import validate_profile
 from knowledge_orchestrator.repositories.domain_repository import DomainRepository
@@ -30,18 +32,5 @@ class ProfileService:
 
     def set_enabled(self, profile_id: int, enabled: bool) -> ProfileDefinition:
         current = self.get_profile(profile_id)
-        updated = ProfileDefinition(
-            profile_id=current.profile_id,
-            name=current.name,
-            system_prompt=current.system_prompt,
-            user_prompt=current.user_prompt,
-            chunk_prompt=current.chunk_prompt,
-            synthesis_prompt=current.synthesis_prompt,
-            preferred_model=current.preferred_model,
-            fallback_allowed=current.fallback_allowed,
-            temperature=current.temperature,
-            max_output_tokens=current.max_output_tokens,
-            enabled=enabled,
-            revision=current.revision,
-        )
+        updated = replace(current, enabled=enabled)
         return self.save_profile(updated)

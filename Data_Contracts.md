@@ -1042,4 +1042,4 @@ El contrato incluye:
 - consenso, scheduling, uso, modelos, advertencias y desacuerdos;
 - errores tipados de quórum, presupuesto, contexto, privacidad y capacidad.
 
-`single` seguirá siendo el valor predeterminado. Los chunks y embeddings no usarán consenso inicialmente. La confianza de consenso nunca se tratará como evidencia factual. El análisis completo está en `docs/Study_Multitasking_LLM.md`.
+`single` sigue siendo el valor predeterminado. Los chunks y embeddings no usan consenso; la síntesis o un paso `single` solo lo solicitan mediante política versionada del perfil. Un fallback autorizado crea otra tarea con nueva clave y referencia a la original. La confianza de consenso nunca se trata como evidencia factual. La especificación operativa está en `docs/Phase_5_Multitasking.md`.

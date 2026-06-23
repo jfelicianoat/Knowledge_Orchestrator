@@ -134,15 +134,22 @@ class WorkflowPlanner:
             return
         tasks = self.workflows.list_workflow_tasks(workflow_id)
         if workflow.strategy == "single":
-            single = next((task for task in tasks if task.step_kind is StepKind.SINGLE), None)
-            if single and single.status is TaskStatus.SUCCESS:
-                self.workflows.finish_workflow(workflow_id, self._assistant_content(single.result_json))
+            singles = [task for task in tasks if task.step_kind is StepKind.SINGLE]
+            successful = next((task for task in singles if task.status is TaskStatus.SUCCESS), None)
+            if successful:
+                self.workflows.finish_workflow(workflow_id, self._assistant_content(successful.result_json))
+                return
+            self._create_single_fallback_if_needed(singles)
             return
 
-        synthesis = next((task for task in tasks if task.step_kind is StepKind.SYNTHESIS), None)
-        if synthesis:
-            if synthesis.status is TaskStatus.SUCCESS:
-                self.workflows.finish_workflow(workflow_id, self._assistant_content(synthesis.result_json))
+        syntheses = [task for task in tasks if task.step_kind is StepKind.SYNTHESIS]
+        successful = next((task for task in syntheses if task.status is TaskStatus.SUCCESS), None)
+        if successful:
+            self.workflows.finish_workflow(workflow_id, self._assistant_content(successful.result_json))
+            return
+        if syntheses:
+            chunks = [task for task in tasks if task.step_kind is StepKind.CHUNK]
+            self._create_fallback_if_needed(syntheses, [task.task_id for task in chunks])
             return
         chunks = [task for task in tasks if task.step_kind is StepKind.CHUNK]
         if not chunks or any(task.status is not TaskStatus.SUCCESS for task in chunks):
@@ -175,6 +182,50 @@ class WorkflowPlanner:
         )
         self.workflows.insert_synthesis_task(task, [item.task_id for item in chunks])
 
+    def _create_single_fallback_if_needed(self, tasks: list) -> None:
+        self._create_fallback_if_needed(tasks, [])
+
+    def _create_fallback_if_needed(self, tasks: list, dependency_ids: list[str]) -> None:
+        originals = [
+            task for task in tasks
+            if task.status is TaskStatus.ERROR
+            and task.execution_strategy == "mixture_of_agents"
+            and task.strategy_fallback_allowed
+        ]
+        for original in originals:
+            if any(task.replacement_for_task_id == original.task_id for task in tasks):
+                continue
+            request = json.loads(original.request_json)
+            fallback_task_id = f"{original.task_id}_fallback"
+            fallback_step_id = f"{original.step_id}_fallback"
+            request["request_id"] = fallback_task_id
+            request["idempotency_key"] = f"{original.idempotency_key}:fallback"
+            request["content"]["metadata"]["step_id"] = fallback_step_id
+            request["execution"].update({
+                "strategy": "single",
+                "preset": "fast",
+                "max_proposers": 1,
+                "max_judges": 0,
+                "max_rounds": 1,
+            })
+            request["execution"]["selection"]["proposer_count"] = 1
+            validate_create_task_request(request)
+            fallback = PlannedTask(
+                task_id=fallback_task_id,
+                workflow_id=original.workflow_id,
+                capture_id=original.capture_id,
+                step_id=fallback_step_id,
+                step_kind=original.step_kind,
+                sequence_index=original.sequence_index + 1,
+                idempotency_key=request["idempotency_key"],
+                request=request,
+                input_text=original.input_text,
+                strategy_fallback_allowed=False,
+                replacement_for_task_id=original.task_id,
+            )
+            self.workflows.insert_synthesis_task(fallback, dependency_ids)
+            return
+
     def _task(
         self,
         *,
@@ -198,6 +249,7 @@ class WorkflowPlanner:
             profile=profile,
             system_content=system,
             user_content=user,
+            execution_step=step_kind.value.lower(),
         )
         validate_create_task_request(request)
         return PlannedTask(
@@ -210,6 +262,10 @@ class WorkflowPlanner:
             idempotency_key=request["idempotency_key"],
             request=request,
             input_text=input_text,
+            strategy_fallback_allowed=(
+                request["execution"]["strategy"] == "mixture_of_agents"
+                and profile.consensus_fallback_to_single
+            ),
         )
 
     @staticmethod

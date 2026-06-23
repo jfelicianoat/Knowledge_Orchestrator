@@ -2,7 +2,7 @@
 
 Fecha: 23 de junio de 2026
 
-**Actualización:** la incompatibilidad contractual, la idempotencia de creación y el despacho autónomo quedaron corregidos el 23 de junio de 2026 para el modo `single`. Multitasking_LLM continúa reservado para la fase 5 porque aún requiere providers reales, catálogo de modelos y evaluación específica.
+**Actualización:** la política Multitasking_LLM del Orchestrator quedó implementada el 23 de junio de 2026 para `mixture_of_agents/fast`, con `single` por defecto, límites por perfil/paso y fallback seguro. La activación productiva aún requiere providers reales, catálogo de modelos y benchmark.
 
 ## Conclusión
 
@@ -10,7 +10,7 @@ La opción denominada `Multitasking_LLM` corresponde en el AI Broker actual a `e
 
 La integración es viable sin trasladar lógica de conocimiento al Broker. El Orchestrator seguirá siendo responsable de fuentes, prompts finales, chunking, workflows, validación semántica, publicación y Obsidian. El Broker será responsable de ejecutar la estrategia LLM solicitada, seleccionar modelos dentro de las restricciones, proteger VRAM y devolver un único resultado técnico sintetizado.
 
-No debe activarse todavía. La base contractual v2 ya funciona en `single`; el desarrollo funcional de consenso se mantiene como nueva fase 5, posterior a la publicación de la fase 4.
+No debe activarse por defecto todavía. La base contractual v2 funciona en `single` y consenso; el provider actual del Broker sigue siendo bootstrap.
 
 ## Estado real de compatibilidad
 

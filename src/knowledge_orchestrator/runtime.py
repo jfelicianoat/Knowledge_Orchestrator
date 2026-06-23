@@ -54,6 +54,8 @@ class OrchestratorRuntime:
         self.workflow_repository.upgrade_legacy_ready_requests()
         self.publication.recover()
         self.workflow_planner.plan_unplanned()
+        for workflow_id in self.workflow_repository.list_resumable_workflow_ids():
+            self.workflow_planner.advance_workflow(workflow_id)
         return report
 
     def start(self) -> RecoveryReport:
