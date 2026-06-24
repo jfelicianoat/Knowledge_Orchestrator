@@ -11,6 +11,7 @@ from knowledge_orchestrator.integrations.broker_client import BrokerClientError
 from knowledge_orchestrator.services.broker_dispatch import BrokerDispatcher, BrokerPoller
 from knowledge_orchestrator.services.model_discovery import ModelDiscoveryService
 from knowledge_orchestrator.services.publication import PublicationService
+from knowledge_orchestrator.services.semantic_broker import SemanticBrokerProcessor
 from knowledge_orchestrator.services.workflow_planner import WorkflowPlanner
 
 
@@ -26,6 +27,7 @@ class BrokerWorker:
         events: "queue.Queue[ApplicationEvent]",
         settings: BrokerSettings,
         publisher: PublicationService | None = None,
+        semantic_processor: SemanticBrokerProcessor | None = None,
     ) -> None:
         self.planner = planner
         self.dispatcher = dispatcher
@@ -34,6 +36,7 @@ class BrokerWorker:
         self.events = events
         self.settings = settings
         self.publisher = publisher
+        self.semantic_processor = semantic_processor
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._broker_online: bool | None = None
@@ -83,6 +86,15 @@ class BrokerWorker:
                     published = self.publisher.publish_ready()
                     if published:
                         self._emit("NOTES_PUBLISHED", f"Notas publicadas: {published}", {"published": published})
+                if self.semantic_processor is not None:
+                    semantic_accepted = await self.semantic_processor.dispatch_once()
+                    semantic_updated = await self.semantic_processor.poll_once()
+                    if semantic_accepted or semantic_updated:
+                        self._emit(
+                            "SEMANTIC_JOBS_UPDATED",
+                            f"Jobs semánticos aceptados: {semantic_accepted}; actualizados: {semantic_updated}",
+                            {"accepted": semantic_accepted, "updated": semantic_updated},
+                        )
                 if now >= next_discovery:
                     try:
                         count = await self.discovery.refresh()

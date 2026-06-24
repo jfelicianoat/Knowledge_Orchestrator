@@ -1023,7 +1023,15 @@ update_candidate:
   status: "awaiting_user_review"
 ```
 
-Toda propuesta debe citar fuentes y spans existentes en el repositorio local. El conocimiento interno del LLM no es evidencia. `manual_lock: true` impide sustitución automática y obliga a conservar el texto o solicitar una decisión explícita.
+La implementación usa IDs SQLite enteros, estados en mayúsculas y dos respuestas JSON estrictas:
+
+- Extracción: objeto con `claims[]`; cada claim requiere `statement`, `claim_type`, `volatility`, `span_start`, `span_end`, `quote` y `entities`. `quote` debe ser exactamente `document[span_start:span_end]` y no puede pertenecer al frontmatter.
+- Comparación: `relation`, `confidence`, `impact`, `rationale` y `replacement_text`. Las relaciones son `SUPPORTS`, `EXTENDS`, `CONTRADICTS`, `SUPERSEDES`, `UNRELATED` y `UNCERTAIN`.
+- Solo `EXTENDS`, `CONTRADICTS` y `SUPERSEDES` pueden incluir `replacement_text` y generar un patch `replace`.
+
+Estados de candidato: `PENDING_COMPARISON`, `PENDING_REVIEW`, `APPLYING`, `APPLIED`, `REJECTED`, `CONFLICT` y `ERROR`. Estados de job: `READY`, `SUBMITTING`, `QUEUED`, `PROCESSING`, `SUCCESS` y `ERROR`.
+
+Toda propuesta debe citar fuentes y spans existentes en el repositorio local. El conocimiento interno del LLM no es evidencia. `manual_lock: true` impide incluso almacenar un patch. La aprobación conserva primero un snapshot en `note_revisions` y aplica mediante temporal sincronizado más `os.replace`.
 
 ### 8.11 Contrato Broker v2 y base futura para Multitasking_LLM
 

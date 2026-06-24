@@ -65,6 +65,7 @@ class PublicationService:
         planner: WorkflowPlanner,
         *,
         checkpoint: Callable[[str], None] | None = None,
+        on_published: Callable[[NoteRecord], None] | None = None,
     ) -> None:
         self.paths = paths
         self.captures = captures
@@ -72,6 +73,7 @@ class PublicationService:
         self.repository = repository
         self.planner = planner
         self.checkpoint = checkpoint or (lambda _name: None)
+        self.on_published = on_published or (lambda _note: None)
 
     def publish_ready(self) -> int:
         published = 0
@@ -127,7 +129,9 @@ class PublicationService:
         self._archive_source(self.repository.get_note(note.note_id) or note)
         self.checkpoint("source_archived")
         self.repository.complete_capture(note.note_id)
-        return self.repository.get_note(note.note_id) or note
+        published_note = self.repository.get_note(note.note_id) or note
+        self.on_published(published_note)
+        return published_note
 
     def recover(self) -> None:
         for note in self.repository.list_notes_by_status("PUBLISHING"):
@@ -138,6 +142,7 @@ class PublicationService:
             if capture and capture.status.value != "COMPLETED":
                 self._archive_source(note)
                 self.repository.complete_capture(note.note_id)
+                self.on_published(self.repository.get_note(note.note_id) or note)
         for note in self.repository.list_notes_by_status("REJECTING"):
             self._finish_rejection(note)
         for intent in self.repository.list_reprocess_intents("PREPARED", "COPIED"):

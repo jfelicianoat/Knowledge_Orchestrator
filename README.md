@@ -115,7 +115,7 @@ La fase 1 implementa la frontera de ingesta y persistencia. Incluye:
 - apagado cancelable sin borrar ficheros que aún estén esperando estabilidad;
 - cuarentena recuperable mediante intención durable, movimiento y sidecar.
 
-El mantenimiento semántico y la UI completa pertenecen a fases posteriores.
+La UI completa pertenece a la fase 7. El mantenimiento semántico durable está implementado en la fase 6.
 
 La fase 2 añade:
 
@@ -197,7 +197,15 @@ El rechazo retira nota y fuente a `rejected` sin destruirlas. El reprocesado cop
 
 La integración opcional con `mixture_of_agents/fast` está implementada mediante una política versionada por perfil y paso. `single` sigue siendo el valor predeterminado; los chunks permanecen en `single` y el consenso se reserva para síntesis o pasos `single` habilitados expresamente.
 
-La integración incluye validación de metadata de consenso, progreso durable y fallback `single` restringido a fallos de quorum/capacidad. El uso productivo sigue pendiente de providers reales y catálogo de modelos; las pruebas actuales usan el provider bootstrap. Véanse [`docs/Phase_5_Multitasking.md`](docs/Phase_5_Multitasking.md) y [`docs/Study_Multitasking_LLM.md`](docs/Study_Multitasking_LLM.md).
+La integración incluye validación de metadata de consenso, progreso durable y fallback `single` restringido a fallos de quorum/capacidad. AI Broker ya dispone de providers reales y catálogo; la activación por defecto sigue esperando el benchmark representativo. Véanse [`docs/Phase_5_Multitasking.md`](docs/Phase_5_Multitasking.md) y [`docs/Study_Multitasking_LLM.md`](docs/Study_Multitasking_LLM.md).
+
+### Fase 6 — Mantenimiento semántico
+
+Cada nota publicada crea un job durable de extracción de claims. El Orchestrator construye prompts `local_only` con JSON Schema, valida que las citas coincidan exactamente con spans locales y recupera candidatos por tema, entidades, FTS5 y embeddings opcionales.
+
+Las comparaciones generan relación, confianza, impacto, patch y diff. Ningún cambio se aplica automáticamente: `manual_lock` bloquea la propuesta y los demás candidatos quedan `PENDING_REVIEW` hasta aprobación humana. La aprobación conserva la revisión anterior y usa escritura sincronizada más reemplazo atómico recuperable.
+
+Véase [`docs/Phase_6_Semantic_Maintenance.md`](docs/Phase_6_Semantic_Maintenance.md).
 
 ## Licencia
 

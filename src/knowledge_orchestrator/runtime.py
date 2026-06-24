@@ -10,6 +10,7 @@ from knowledge_orchestrator.repositories.database import Database
 from knowledge_orchestrator.repositories.domain_repository import DomainRepository
 from knowledge_orchestrator.repositories.workflow_repository import WorkflowRepository
 from knowledge_orchestrator.repositories.publication_repository import PublicationRepository
+from knowledge_orchestrator.repositories.semantic_repository import SemanticRepository
 from knowledge_orchestrator.services.broker_dispatch import BrokerDispatcher, BrokerPoller
 from knowledge_orchestrator.services.classification import TopicClassifier
 from knowledge_orchestrator.services.domain_enrichment import DomainEnrichmentService
@@ -18,6 +19,8 @@ from knowledge_orchestrator.services.model_discovery import ModelDiscoveryServic
 from knowledge_orchestrator.services.publication import PublicationService
 from knowledge_orchestrator.services.profile_service import ProfileService
 from knowledge_orchestrator.services.recovery import RecoveryReport, RecoveryService
+from knowledge_orchestrator.services.semantic_maintenance import SemanticMaintenanceService
+from knowledge_orchestrator.services.semantic_broker import SemanticBrokerProcessor
 from knowledge_orchestrator.services.topic_service import TopicService
 from knowledge_orchestrator.services.workflow_planner import WorkflowPlanner
 from knowledge_orchestrator.ui.event_bridge import UiEventBridge
@@ -34,6 +37,7 @@ class OrchestratorRuntime:
     domain_repository: DomainRepository
     workflow_repository: WorkflowRepository
     publication_repository: PublicationRepository
+    semantic_repository: SemanticRepository
     profiles: ProfileService
     topics: TopicService
     domain_enrichment: DomainEnrichmentService
@@ -45,6 +49,8 @@ class OrchestratorRuntime:
     workflow_planner: WorkflowPlanner
     broker_worker: BrokerWorker
     publication: PublicationService
+    semantic_maintenance: SemanticMaintenanceService
+    semantic_broker: SemanticBrokerProcessor
 
     def recover_once(self, *, ingest_inbox: bool = True) -> RecoveryReport:
         report = self.recovery.recover(ingest_inbox=ingest_inbox)
@@ -53,6 +59,9 @@ class OrchestratorRuntime:
         self.workflow_repository.recover_interrupted_submissions()
         self.workflow_repository.upgrade_legacy_ready_requests()
         self.publication.recover()
+        self.semantic_maintenance.recover()
+        for note in self.publication_repository.list_notes_by_status("PUBLISHED"):
+            self.semantic_maintenance.schedule_extraction(note.note_id)
         self.workflow_planner.plan_unplanned()
         for workflow_id in self.workflow_repository.list_resumable_workflow_ids():
             self.workflow_planner.advance_workflow(workflow_id)
@@ -97,6 +106,7 @@ def build_runtime(
     domain_repository = DomainRepository(database)
     workflow_repository = WorkflowRepository(database)
     publication_repository = PublicationRepository(database)
+    semantic_repository = SemanticRepository(database)
     profiles = ProfileService(domain_repository)
     topics = TopicService(pipeline_paths, domain_repository)
     domain_enrichment = DomainEnrichmentService(
@@ -134,12 +144,20 @@ def build_runtime(
     )
     poller = BrokerPoller(workflow_repository, broker_client, workflow_planner)
     discovery = ModelDiscoveryService(workflow_repository, broker_client)
+    semantic_maintenance = SemanticMaintenanceService(semantic_repository)
     publication = PublicationService(
         pipeline_paths,
         repository,
         domain_repository,
         publication_repository,
         workflow_planner,
+        on_published=lambda note: semantic_maintenance.schedule_extraction(note.note_id),
+    )
+    semantic_broker = SemanticBrokerProcessor(
+        semantic_repository,
+        semantic_maintenance,
+        broker_client,
+        backoff_seconds=settings.submission_backoff_seconds,
     )
     broker_worker = BrokerWorker(
         workflow_planner,
@@ -149,6 +167,7 @@ def build_runtime(
         bridge.queue,
         settings,
         publication,
+        semantic_processor=semantic_broker,
     )
     return OrchestratorRuntime(
         paths=pipeline_paths,
@@ -157,6 +176,7 @@ def build_runtime(
         domain_repository=domain_repository,
         workflow_repository=workflow_repository,
         publication_repository=publication_repository,
+        semantic_repository=semantic_repository,
         profiles=profiles,
         topics=topics,
         domain_enrichment=domain_enrichment,
@@ -168,4 +188,6 @@ def build_runtime(
         workflow_planner=workflow_planner,
         broker_worker=broker_worker,
         publication=publication,
+        semantic_maintenance=semantic_maintenance,
+        semantic_broker=semantic_broker,
     )
