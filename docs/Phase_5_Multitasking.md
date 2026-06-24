@@ -17,6 +17,8 @@ Cada perfil conserva una política versionada:
 
 El valor predeterminado es `single`. Activar `mixture_of_agents` no afecta automáticamente a todo el workflow: solo los pasos incluidos expresamente en `multitasking_steps` lo solicitan.
 
+`mixture_of_agents/slow` es una extensión posterior: permitirá al Broker ejecutar proponentes en paralelo o por oleadas dentro de una sola tarea. No se añade todavía al enum ni a la migración del perfil. El Orchestrator solo lo habilitará después de que el Broker publique `slow` en su negociación de capacidades y complete las pruebas de recursos, cancelación y coste.
+
 ## Límites obligatorios
 
 - Los chunks y embeddings siempre permanecen en `single`.

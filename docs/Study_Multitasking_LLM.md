@@ -2,7 +2,7 @@
 
 Fecha: 23 de junio de 2026
 
-**Actualización:** la política Multitasking_LLM del Orchestrator quedó implementada el 23 de junio de 2026 para `mixture_of_agents/fast`, con `single` por defecto, límites por perfil/paso y fallback seguro. La activación productiva aún requiere providers reales, catálogo de modelos y benchmark.
+**Actualización:** la política Multitasking_LLM del Orchestrator quedó implementada el 23 de junio de 2026 para `mixture_of_agents/fast`, con `single` por defecto, límites por perfil/paso y fallback seguro. `mixture_of_agents/slow` queda planificado como preset con proponentes paralelos dentro de un único workflow Broker; el Orchestrator no lo enviará hasta que el Broker publique esa capacidad y se actualice el contrato compartido.
 
 ## Conclusión
 
@@ -57,7 +57,7 @@ El contrato compartido v2 ya está congelado para `single`. La fase 5 lo reutili
 
 - `request_id`/clave idempotente durable y hash del payload;
 - `execution.strategy`: `single` o `mixture_of_agents`;
-- preset inicialmente limitado a `fast` mientras el Broker no implemente los demás;
+- preset actualmente limitado a `fast`; `slow` solo se habilitará tras negociación de capacidades, validación de contrato y pruebas reales de concurrencia/VRAM;
 - selección `auto` en el primer incremento; `manual` e `hybrid` solo con catálogo real;
 - máximos de proponentes, jueces, rondas, timeout y coste;
 - `data_classification`, `cloud_allowed`, proveedores permitidos y revisión humana.
@@ -121,6 +121,7 @@ Antipatrones expresamente prohibidos:
 6. Todos los estados y errores del Broker se mapean y recuperan tras reinicio.
 7. La indisponibilidad o falta de capacidad puede usar `single` solo cuando el perfil lo autorice.
 8. Un benchmark representativo demuestra una mejora material antes de habilitar consenso por defecto.
+9. Cuando se habilite `slow`, el Broker conserva un único workflow, demuestra solapamiento real entre proponentes y respeta límites de concurrencia, VRAM, coste y timeout.
 
 La suite deberá cubrir dominio/políticas, validadores de contrato, migración SQLite, transiciones del worker, recuperación tras caída, errores tipados y la frontera UI mediante eventos. La prueba extremo a extremo incluirá un Broker real en `single` y en `mixture_of_agents/fast`.
 
