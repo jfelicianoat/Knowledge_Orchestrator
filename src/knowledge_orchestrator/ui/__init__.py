@@ -1,1 +1,1 @@
-"""Frontera de presentación; Tk se implementará en la fase de UX."""
+"""Frontera de presentación Tk de Knowledge Orchestrator."""

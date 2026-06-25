@@ -5,6 +5,7 @@ from pathlib import Path
 
 from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.runtime import OrchestratorRuntime, build_runtime
+from knowledge_orchestrator.ui.dashboard import run_dashboard
 
 
 def initialize_phase_one(paths: PipelinePaths | None = None) -> OrchestratorRuntime:
@@ -12,8 +13,9 @@ def initialize_phase_one(paths: PipelinePaths | None = None) -> OrchestratorRunt
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Knowledge Orchestrator — ingesta de fase 1")
+    parser = argparse.ArgumentParser(description="Knowledge Orchestrator")
     parser.add_argument("--once", action="store_true", help="recupera e ingiere el inbox y termina")
+    parser.add_argument("--ui", action="store_true", help="abre la interfaz visual Tk de cola y revisión")
     parser.add_argument("--root", type=str, help="raíz alternativa para pruebas locales")
     parser.add_argument("--scan-interval", type=float, default=5.0, help="rescan de seguridad en segundos")
     arguments = parser.parse_args()
@@ -22,6 +24,8 @@ def main() -> None:
     if arguments.once:
         report = runtime.recover_once(ingest_inbox=True)
         print(f"Recuperación e ingesta completadas: {report}")
+    elif arguments.ui:
+        run_dashboard(runtime)
     else:
         runtime.run_forever()
 

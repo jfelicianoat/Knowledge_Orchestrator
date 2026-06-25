@@ -29,7 +29,7 @@ Orquestador de escritorio que conecta la captura de contenido con el procesamien
 
 | Componente | Tecnología |
 |------------|------------|
-| UI Framework | CustomTkinter (tema oscuro) |
+| UI Framework | Tkinter/ttk |
 | File Monitoring | watchdog |
 | HTTP Client | httpx (asíncrono) |
 | Gráficos | matplotlib |
@@ -115,7 +115,7 @@ La fase 1 implementa la frontera de ingesta y persistencia. Incluye:
 - apagado cancelable sin borrar ficheros que aún estén esperando estabilidad;
 - cuarentena recuperable mediante intención durable, movimiento y sidecar.
 
-La UI completa pertenece a la fase 7. El mantenimiento semántico durable está implementado en la fase 6.
+La UI inicial de fase 7 ya está implementada con Dashboard, Cola, Revisión, Temas y Configuración. El mantenimiento semántico durable está implementado en la fase 6.
 
 La fase 2 añade:
 
@@ -174,7 +174,7 @@ src/knowledge_orchestrator/
   repositories/    # SQLite y transiciones durables
   services/        # estabilidad, ingesta y recuperación
   worker/          # ejecución fuera del hilo de UI
-  ui/              # puente thread-safe; widgets en fase 7
+  ui/              # puente thread-safe, snapshots y ventana Tk
   migrations/      # esquema versionado
 tests/
 ```
@@ -206,6 +206,19 @@ Cada nota publicada crea un job durable de extracción de claims. El Orchestrato
 Las comparaciones generan relación, confianza, impacto, patch y diff. Ningún cambio se aplica automáticamente: `manual_lock` bloquea la propuesta y los demás candidatos quedan `PENDING_REVIEW` hasta aprobación humana. La aprobación conserva la revisión anterior y usa escritura sincronizada más reemplazo atómico recuperable.
 
 Véase [`docs/Phase_6_Semantic_Maintenance.md`](docs/Phase_6_Semantic_Maintenance.md).
+
+### Fase 7 — Cola visual y revisión
+
+La interfaz se abre con:
+
+```powershell
+$env:PYTHONPATH='src'
+python -m knowledge_orchestrator.app --ui
+```
+
+Incluye Dashboard, Cola, Revisión, Temas y Configuración. La UI refresca cada 2 segundos desde snapshots SQLite de solo lectura, drena eventos del worker únicamente en el hilo principal y muestra posición, estado, fase, modelo, tiempo transcurrido e intentos sin inventar porcentajes.
+
+La pestaña Revisión muestra candidatos semánticos `PENDING_REVIEW` con diff y rationale, y permite aprobar o rechazar usando los servicios atómicos existentes. Véase [`docs/Phase_7_UI.md`](docs/Phase_7_UI.md).
 
 ## Licencia
 

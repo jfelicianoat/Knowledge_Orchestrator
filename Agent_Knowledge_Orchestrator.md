@@ -514,7 +514,7 @@ Estados persistidos: `STAGED`, `PENDING`, `SUBMITTING`, `QUEUED`, `PROCESSING`, 
 
 ### Mantenimiento semántico de Obsidian
 
-**Implementado en fase 6:** la migración 007, los jobs Broker durables, los validadores de spans/evidencia, FTS5/embeddings opcionales, candidatos, diffs, aprobación explícita, snapshots y reemplazo atómico recuperable están operativos. La UI que presenta y aprueba candidatos corresponde a la fase 7.
+**Implementado en fase 6:** la migración 007, los jobs Broker durables, los validadores de spans/evidencia, FTS5/embeddings opcionales, candidatos, diffs, aprobación explícita, snapshots y reemplazo atómico recuperable están operativos. **Implementado en fase 7:** la UI presenta candidatos `PENDING_REVIEW` con diff y permite aprobar o rechazar mediante los servicios de dominio existentes.
 
 El Orchestrator es el único responsable de decidir, proponer y aplicar actualizaciones:
 
