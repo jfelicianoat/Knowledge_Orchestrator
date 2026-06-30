@@ -14,6 +14,8 @@ class PipelinePaths:
     rejected: Path
     state: Path
     logs: Path
+    backups: Path
+    diagnostics: Path
     obsidian_vault: Path
 
     @classmethod
@@ -29,6 +31,8 @@ class PipelinePaths:
             rejected=root / "rejected",
             state=root / "state",
             logs=root / "logs",
+            backups=root / "backups",
+            diagnostics=root / "diagnostics",
             obsidian_vault=Path("C:/ObsidianVault/Knowledge"),
         )
 
@@ -43,6 +47,8 @@ class PipelinePaths:
             rejected=root / "rejected",
             state=root / "state",
             logs=root / "logs",
+            backups=root / "backups",
+            diagnostics=root / "diagnostics",
             obsidian_vault=root / "vault",
         )
 
@@ -75,6 +81,8 @@ class PipelinePaths:
             self.rejected,
             self.state,
             self.logs,
+            self.backups,
+            self.diagnostics,
             self.obsidian_vault,
         ):
             directory.mkdir(parents=True, exist_ok=True)

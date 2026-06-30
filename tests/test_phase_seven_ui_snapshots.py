@@ -8,6 +8,7 @@ from pathlib import Path
 from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.runtime import build_runtime
 from knowledge_orchestrator.services.file_stability import FileStabilityChecker
+from knowledge_orchestrator.ui.dashboard import data_root_label
 from knowledge_orchestrator.ui.snapshots import UiSnapshotService
 from tests.helpers import generic_markdown
 
@@ -122,3 +123,7 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
         with closing(self.runtime.database.connect()) as connection:
             profile_count = connection.execute("SELECT COUNT(*) FROM profiles").fetchone()[0]
         self.assertEqual(len(profiles), profile_count)
+
+    def test_dashboard_uses_existing_pipeline_paths_without_root_attribute(self) -> None:
+        self.assertFalse(hasattr(self.runtime.paths, "root"))
+        self.assertEqual(data_root_label(self.runtime), str(self.root))

@@ -220,6 +220,26 @@ Incluye Dashboard, Cola, Revisión, Temas y Configuración. La UI refresca cada 
 
 La pestaña Revisión muestra candidatos semánticos `PENDING_REVIEW` con diff y rationale, y permite aprobar o rechazar usando los servicios atómicos existentes. Véase [`docs/Phase_7_UI.md`](docs/Phase_7_UI.md).
 
+### Fase 8 — Operación y empaquetado
+
+Operación básica:
+
+```powershell
+$env:PYTHONPATH='src'
+python -m knowledge_orchestrator.app --backup
+python -m knowledge_orchestrator.app --diagnostics C:\tmp\ko-diagnostics.zip
+```
+
+El backup usa la API consistente de SQLite y se guarda en `backups/`. El diagnóstico genera un ZIP sin base de datos ni contenido de notas, con contadores, entorno, configuración saneada y cola de logs redacted.
+
+Build Windows:
+
+```powershell
+.\scripts\build_windows.ps1 -Clean
+```
+
+Véase [`docs/Phase_8_Operations.md`](docs/Phase_8_Operations.md).
+
 ## Licencia
 
 MIT

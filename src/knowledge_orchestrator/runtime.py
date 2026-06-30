@@ -16,6 +16,7 @@ from knowledge_orchestrator.services.classification import TopicClassifier
 from knowledge_orchestrator.services.domain_enrichment import DomainEnrichmentService
 from knowledge_orchestrator.services.ingestion import IngestionService
 from knowledge_orchestrator.services.model_discovery import ModelDiscoveryService
+from knowledge_orchestrator.services.operations import configure_logging
 from knowledge_orchestrator.services.publication import PublicationService
 from knowledge_orchestrator.services.profile_service import ProfileService
 from knowledge_orchestrator.services.recovery import RecoveryReport, RecoveryService
@@ -97,9 +98,12 @@ def build_runtime(
     *,
     scan_interval_seconds: float = 5.0,
     broker_settings: BrokerSettings | None = None,
+    enable_logging: bool = False,
 ) -> OrchestratorRuntime:
     pipeline_paths = paths or PipelinePaths.defaults()
     pipeline_paths.ensure_directories()
+    if enable_logging:
+        configure_logging(pipeline_paths)
     database = Database(pipeline_paths.database)
     database.initialize()
     repository = CaptureRepository(database)

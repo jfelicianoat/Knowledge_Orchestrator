@@ -142,7 +142,7 @@ class OrchestratorDashboard(tk.Tk):
         self.topics_tab.rowconfigure(0, weight=1)
 
     def _build_config(self) -> None:
-        self.paths_var = tk.StringVar(value=str(self.runtime.paths.root))
+        self.paths_var = tk.StringVar(value=data_root_label(self.runtime))
         ttk.Label(self.config_tab, text="Raíz de datos").grid(row=0, column=0, sticky="w")
         ttk.Label(self.config_tab, textvariable=self.paths_var).grid(row=0, column=1, sticky="w", padx=8)
         columns = ("nombre", "modelo", "estrategia", "revision", "activo")
@@ -331,3 +331,11 @@ class OrchestratorDashboard(tk.Tk):
 
 def run_dashboard(runtime: OrchestratorRuntime) -> None:
     OrchestratorDashboard(runtime).start()
+
+
+def data_root_label(runtime: OrchestratorRuntime) -> str:
+    """Devuelve una raíz humana estable aunque PipelinePaths no exponga `root`."""
+    paths = runtime.paths
+    if paths.state.name == "state":
+        return str(paths.state.parent)
+    return str(paths.state)
