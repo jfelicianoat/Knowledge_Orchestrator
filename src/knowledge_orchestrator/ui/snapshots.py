@@ -82,7 +82,7 @@ class UiSnapshotService:
         self.database = database
 
     def dashboard(self) -> DashboardSnapshot:
-        with closing(self.database.connect()) as connection:
+        with closing(self.database.connect(readonly=True)) as connection:
             captures = {
                 row["status"]: int(row["total"])
                 for row in connection.execute("SELECT status, COUNT(*) AS total FROM captures GROUP BY status")
@@ -114,7 +114,7 @@ class UiSnapshotService:
 
     def queue(self) -> list[QueueItem]:
         placeholders = ",".join("?" for _ in ACTIVE_TASK_STATUSES)
-        with closing(self.database.connect()) as connection:
+        with closing(self.database.connect(readonly=True)) as connection:
             rows = connection.execute(
                 "SELECT t.task_id, t.capture_id, c.title, t.status, t.step_kind, t.sequence_index, "
                 "t.attempt, t.created_at, t.queued_at, t.started_at, t.progress_json, "
@@ -129,7 +129,7 @@ class UiSnapshotService:
         return [self._queue_item(position, row) for position, row in enumerate(rows, start=1)]
 
     def reviews(self) -> list[ReviewItem]:
-        with closing(self.database.connect()) as connection:
+        with closing(self.database.connect(readonly=True)) as connection:
             rows = connection.execute(
                 "SELECT candidate_id, status, relation, confidence, impact, target_note_id, rationale, "
                 "diff_text, blocked_reason FROM update_candidates "
@@ -151,7 +151,7 @@ class UiSnapshotService:
         ]
 
     def topics(self) -> list[TopicItem]:
-        with closing(self.database.connect()) as connection:
+        with closing(self.database.connect(readonly=True)) as connection:
             rows = connection.execute(
                 "SELECT t.topic_id, t.name, t.folder, t.position, t.enabled, p.name AS profile_name "
                 "FROM topics t LEFT JOIN profiles p ON p.profile_id = t.default_profile_id "
@@ -170,7 +170,7 @@ class UiSnapshotService:
         ]
 
     def profiles(self) -> list[ProfileItem]:
-        with closing(self.database.connect()) as connection:
+        with closing(self.database.connect(readonly=True)) as connection:
             rows = connection.execute(
                 "SELECT profile_id, name, enabled, preferred_model, execution_strategy, human_review_required "
                 "FROM profiles ORDER BY name COLLATE NOCASE, profile_id"

@@ -32,10 +32,10 @@ class JsonFormatter(logging.Formatter):
             "timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat().replace("+00:00", "Z"),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": sanitize(record.getMessage()),
         }
         if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
+            payload["exception"] = sanitize(self.formatException(record.exc_info))
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
@@ -85,7 +85,7 @@ def backup_database(database: Database, paths: PipelinePaths, *, now: datetime |
     timestamp = _timestamp(now)
     paths.backups.mkdir(parents=True, exist_ok=True)
     target = paths.backups / f"orchestrator-{timestamp}.db"
-    with closing(database.connect()) as source:
+    with closing(database.connect(readonly=True)) as source:
         with closing(sqlite3.connect(target)) as destination:
             source.backup(destination)
             destination.execute("PRAGMA wal_checkpoint(FULL)")
@@ -155,7 +155,7 @@ def _database_summary(database: Database) -> dict[str, Any]:
     summary: dict[str, Any] = {"path_exists": database.path.exists()}
     if not database.path.exists():
         return summary
-    with closing(database.connect()) as connection:
+    with closing(database.connect(readonly=True)) as connection:
         summary["journal_mode"] = connection.execute("PRAGMA journal_mode").fetchone()[0]
         summary["user_version"] = connection.execute("PRAGMA user_version").fetchone()[0]
         summary["schema_version"] = connection.execute("PRAGMA schema_version").fetchone()[0]

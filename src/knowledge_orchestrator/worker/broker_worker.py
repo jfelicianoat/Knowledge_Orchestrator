@@ -18,6 +18,8 @@ from knowledge_orchestrator.services.workflow_planner import WorkflowPlanner
 class BrokerWorker:
     """Bucle de red asíncrono aislado de la UI y del worker de filesystem."""
 
+    _MAX_CRASH_BACKOFF_SECONDS = 30.0
+
     def __init__(
         self,
         planner: WorkflowPlanner,
@@ -57,15 +59,24 @@ class BrokerWorker:
                 raise TimeoutError("El worker del Broker no se detuvo a tiempo")
 
     def _run(self) -> None:
-        try:
-            asyncio.run(self._run_async())
-        except Exception as error:  # protección de la frontera del hilo
-            self._emit("BROKER_WORKER_CRASH", str(error))
+        crash_backoff = 1.0
+        while not self._stop.is_set():
+            try:
+                asyncio.run(self._run_async())
+            except Exception as error:  # protección de la frontera del hilo
+                self._emit("BROKER_WORKER_CRASH", str(error))
+                if self._stop.is_set():
+                    return
+                self._stop.wait(crash_backoff)
+                crash_backoff = min(crash_backoff * 2, self._MAX_CRASH_BACKOFF_SECONDS)
+            else:
+                return
 
     async def _run_async(self) -> None:
         next_poll = 0.0
         next_discovery = 0.0
         next_health = 0.0
+        consecutive_errors = 0
         while not self._stop.is_set():
             now = time.monotonic()
             try:
@@ -107,9 +118,13 @@ class BrokerWorker:
                     next_health = now + self.settings.health_interval_seconds
             except BrokerClientError as error:
                 self._emit("BROKER_OFFLINE", str(error))
+                consecutive_errors += 1
             except Exception as error:
                 self._emit("BROKER_CYCLE_ERROR", str(error))
-            await self._sleep_until_next_cycle()
+                consecutive_errors += 1
+            else:
+                consecutive_errors = 0
+            await self._sleep_until_next_cycle(consecutive_errors)
 
         client = self.dispatcher.client
         await client.close()
@@ -126,8 +141,11 @@ class BrokerWorker:
                 self._emit("BROKER_ONLINE", "Broker disponible")
             self._broker_online = True
 
-    async def _sleep_until_next_cycle(self) -> None:
-        deadline = time.monotonic() + self.settings.dispatcher_interval_seconds
+    async def _sleep_until_next_cycle(self, consecutive_errors: int = 0) -> None:
+        interval = self.settings.dispatcher_interval_seconds
+        if consecutive_errors:
+            interval = min(interval * (2**consecutive_errors), self._MAX_CRASH_BACKOFF_SECONDS)
+        deadline = time.monotonic() + interval
         while not self._stop.is_set() and time.monotonic() < deadline:
             await asyncio.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
 

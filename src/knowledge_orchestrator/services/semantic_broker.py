@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timedelta, timezone
-
 from knowledge_orchestrator.domain.broker_contracts import BrokerContractError
 from knowledge_orchestrator.integrations.broker_client import BrokerClient, PermanentBrokerError, TransientBrokerError
 from knowledge_orchestrator.repositories.semantic_repository import SemanticRepository
 
+from .broker_submission import attempt_broker_submission
 from .semantic_maintenance import SemanticContractError, SemanticMaintenanceService
 
 
@@ -30,19 +28,20 @@ class SemanticBrokerProcessor:
             job = self.repository.claim_job(candidate.job_id)
             if job is None:
                 continue
-            try:
-                response = await self.client.create_task(json.loads(job.request_json))
-            except TransientBrokerError as error:
-                retry_index = job.attempt - 1
-                if retry_index < len(self.backoff_seconds):
-                    retry_at = datetime.now(timezone.utc) + timedelta(seconds=self.backoff_seconds[retry_index])
-                    self.repository.retry_job(job.job_id, next_retry_at=retry_at.isoformat(), message=str(error))
-                else:
-                    self.repository.fail_job(job.job_id, "BROKER_UNAVAILABLE", str(error))
-            except (PermanentBrokerError, BrokerContractError, ValueError) as error:
-                self.repository.fail_job(job.job_id, "CONTRACT_VALIDATION_FAILED", str(error))
+            decision = await attempt_broker_submission(
+                self.client,
+                job.request_json,
+                attempt=job.attempt,
+                backoff_seconds=self.backoff_seconds,
+            )
+            if decision.kind == "retry":
+                self.repository.retry_job(job.job_id, next_retry_at=decision.retry_at, message=decision.message)
+            elif decision.kind == "exhausted":
+                self.repository.fail_job(job.job_id, "BROKER_UNAVAILABLE", decision.message or "")
+            elif decision.kind == "permanent":
+                self.repository.fail_job(job.job_id, "CONTRACT_VALIDATION_FAILED", decision.message or "")
             else:
-                self.repository.accept_job(job.job_id, response)
+                self.repository.accept_job(job.job_id, decision.response or {})
                 accepted += 1
         return accepted
 
@@ -53,7 +52,7 @@ class SemanticBrokerProcessor:
                 payload = await self.client.get_task(job.broker_task_id or job.job_id, status_url=job.status_url)
             except TransientBrokerError:
                 continue
-            except (PermanentBrokerError, BrokerContractError, ValueError) as error:
+            except (PermanentBrokerError, BrokerContractError) as error:
                 self.repository.fail_job(job.job_id, "CONTRACT_VALIDATION_FAILED", str(error))
                 updated += 1
                 continue

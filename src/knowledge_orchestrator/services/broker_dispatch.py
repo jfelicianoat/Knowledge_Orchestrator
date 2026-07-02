@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timedelta, timezone
-
 from knowledge_orchestrator.domain.broker_contracts import BrokerContractError
 from knowledge_orchestrator.integrations.broker_client import (
     BrokerClient,
@@ -11,6 +8,7 @@ from knowledge_orchestrator.integrations.broker_client import (
 )
 from knowledge_orchestrator.repositories.workflow_repository import WorkflowRepository
 
+from .broker_submission import attempt_broker_submission
 from .workflow_planner import WorkflowPlanner
 
 
@@ -32,23 +30,26 @@ class BrokerDispatcher:
             task = self.repository.claim_submission(candidate.task_id)
             if task is None:
                 continue
-            try:
-                response = await self.client.create_task(json.loads(task.request_json))
-            except TransientBrokerError as error:
-                retry_index = task.attempt - 1
-                if retry_index < len(self.backoff_seconds):
-                    retry_at = datetime.now(timezone.utc) + timedelta(seconds=self.backoff_seconds[retry_index])
-                    self.repository.release_submission(
-                        task.task_id,
-                        next_retry_at=retry_at.isoformat(),
-                        message=str(error),
-                    )
-                else:
-                    self.repository.mark_submission_error(task.task_id, "BROKER_UNAVAILABLE", str(error))
-            except (PermanentBrokerError, BrokerContractError, ValueError) as error:
-                self.repository.mark_submission_error(task.task_id, "CONTRACT_VALIDATION_FAILED", str(error))
+            decision = await attempt_broker_submission(
+                self.client,
+                task.request_json,
+                attempt=task.attempt,
+                backoff_seconds=self.backoff_seconds,
+            )
+            if decision.kind == "retry":
+                self.repository.release_submission(
+                    task.task_id,
+                    next_retry_at=decision.retry_at,
+                    message=decision.message,
+                )
+            elif decision.kind == "exhausted":
+                self.repository.mark_submission_error(task.task_id, "BROKER_UNAVAILABLE", decision.message or "")
+            elif decision.kind == "permanent":
+                self.repository.mark_submission_error(
+                    task.task_id, "CONTRACT_VALIDATION_FAILED", decision.message or ""
+                )
             else:
-                self.repository.mark_accepted(task.task_id, response)
+                self.repository.mark_accepted(task.task_id, decision.response or {})
                 accepted += 1
         return accepted
 
@@ -74,7 +75,7 @@ class BrokerPoller:
                 )
             except TransientBrokerError:
                 continue
-            except (PermanentBrokerError, BrokerContractError, ValueError) as error:
+            except (PermanentBrokerError, BrokerContractError) as error:
                 self.repository.mark_submission_error(
                     task.task_id,
                     "CONTRACT_VALIDATION_FAILED",

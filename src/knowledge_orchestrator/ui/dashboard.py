@@ -300,11 +300,7 @@ class OrchestratorDashboard(tk.Tk):
         if not self._selected_review:
             return
         try:
-            self.runtime.semantic_repository.mark_candidate(
-                self._selected_review.candidate_id,
-                "REJECTED",
-                reason="REJECTED_FROM_UI",
-            )
+            self.runtime.semantic_maintenance.reject(self._selected_review.candidate_id)
         except Exception as error:
             messagebox.showerror("No se pudo rechazar", str(error))
         else:

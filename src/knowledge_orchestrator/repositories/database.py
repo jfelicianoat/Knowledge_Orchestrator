@@ -11,13 +11,19 @@ class Database:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
 
-    def connect(self) -> sqlite3.Connection:
+    def connect(self, *, readonly: bool = False) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.path, timeout=10.0)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 10000")
-        connection.execute("PRAGMA synchronous = FULL")
+        if readonly:
+            # Las conexiones de solo lectura (snapshots de UI, backup, diagnóstico) nunca
+            # escriben, así que no necesitan el fsync de FULL; query_only evita además que
+            # un bug las use accidentalmente para escribir.
+            connection.execute("PRAGMA query_only = ON")
+        else:
+            connection.execute("PRAGMA synchronous = FULL")
         return connection
 
     @contextmanager
