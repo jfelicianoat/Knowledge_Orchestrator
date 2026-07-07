@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from knowledge_orchestrator.config import (
+    ENV_BROKER_ADMIN_TOKEN,
     ENV_BROKER_URL,
     ENV_INBOX,
     ENV_OBSIDIAN_VAULT,
@@ -66,6 +67,18 @@ class BrokerSettingsEnvironmentOverrideTests(unittest.TestCase):
             settings = BrokerSettings(base_url="http://explicit.test")
 
         self.assertEqual(settings.base_url, "http://explicit.test")
+
+    def test_admin_token_is_none_without_environment_override(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            settings = BrokerSettings()
+
+        self.assertIsNone(settings.admin_token)
+
+    def test_environment_variable_sets_admin_token(self) -> None:
+        with patch.dict("os.environ", {ENV_BROKER_ADMIN_TOKEN: "secret-token"}, clear=True):
+            settings = BrokerSettings()
+
+        self.assertEqual(settings.admin_token, "secret-token")
 
 
 if __name__ == "__main__":

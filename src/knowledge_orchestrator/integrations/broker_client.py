@@ -41,10 +41,12 @@ class BrokerClient:
 
     async def start(self) -> None:
         if self._client is None:
+            headers = {"X-Admin-Token": self.settings.admin_token} if self.settings.admin_token else None
             self._client = httpx.AsyncClient(
                 base_url=self.settings.base_url,
                 timeout=self.settings.request_timeout_seconds,
                 transport=self.transport,
+                headers=headers,
             )
 
     async def close(self) -> None:

@@ -11,6 +11,7 @@ ENV_ROOT = "KO_ROOT"
 ENV_INBOX = "KO_INBOX_DIR"
 ENV_OBSIDIAN_VAULT = "KO_OBSIDIAN_VAULT"
 ENV_BROKER_URL = "KO_BROKER_URL"
+ENV_BROKER_ADMIN_TOKEN = "KO_BROKER_ADMIN_TOKEN"
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,9 +104,17 @@ def _default_broker_url() -> str:
     return os.environ.get(ENV_BROKER_URL) or "http://broker-machine.local:8080"
 
 
+def _default_admin_token() -> str | None:
+    return os.environ.get(ENV_BROKER_ADMIN_TOKEN) or None
+
+
 @dataclass(frozen=True, slots=True)
 class BrokerSettings:
     base_url: str = field(default_factory=_default_broker_url)
+    # Requerido por el Broker en POST/DELETE /api/v1/tasks, PATCH /api/v1/queue y
+    # /api/v1/dispatcher/tick solo cuando el operador configura admin_token_env o
+    # keyring en el Broker; en LAN sin token configurado, None no cambia nada.
+    admin_token: str | None = field(default_factory=_default_admin_token)
     request_timeout_seconds: float = 10.0
     poll_interval_seconds: float = 2.0
     discovery_interval_seconds: float = 300.0

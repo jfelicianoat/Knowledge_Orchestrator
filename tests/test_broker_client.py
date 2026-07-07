@@ -54,6 +54,40 @@ class BrokerClientTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await client.close()
 
+    async def test_sends_admin_token_header_when_configured(self) -> None:
+        seen_headers: list[str | None] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen_headers.append(request.headers.get("x-admin-token"))
+            return httpx.Response(202, json=accepted_response())
+
+        client = BrokerClient(
+            BrokerSettings(base_url="http://broker.test", admin_token="secret-token"),
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            await client.create_task(valid_request())
+        finally:
+            await client.close()
+        self.assertEqual(seen_headers, ["secret-token"])
+
+    async def test_omits_admin_token_header_when_not_configured(self) -> None:
+        seen_headers: list[str | None] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen_headers.append(request.headers.get("x-admin-token"))
+            return httpx.Response(202, json=accepted_response())
+
+        client = BrokerClient(
+            BrokerSettings(base_url="http://broker.test"),
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            await client.create_task(valid_request())
+        finally:
+            await client.close()
+        self.assertEqual(seen_headers, [None])
+
 
 if __name__ == "__main__":
     unittest.main()
