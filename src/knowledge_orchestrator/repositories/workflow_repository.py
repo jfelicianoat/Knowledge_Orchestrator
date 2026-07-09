@@ -67,6 +67,14 @@ def _workflow(row: sqlite3.Row) -> WorkflowRecord:
 
 
 class WorkflowRepository:
+    """Persistencia de workflows y tareas Broker.
+
+    Esta capa no decide prompts ni chunks; su trabajo es dejar cada transicion
+    durable para que un reinicio no duplique envios ni pierda resultados.
+    """
+
+    # El fallback a single solo vale para fallos de capacidad/quorum del consenso.
+    # Otros errores siguen siendo terminales, porque repetir en single podria ocultar problemas reales.
     CONSENSUS_FALLBACK_CODES = {
         "CONSENSUS_QUORUM_NOT_REACHED",
         "CONSENSUS_PRESET_NOT_IMPLEMENTED",

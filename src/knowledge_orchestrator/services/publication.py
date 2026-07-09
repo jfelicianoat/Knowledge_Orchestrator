@@ -56,6 +56,14 @@ def _safe_identifier(value: str) -> str:
 
 
 class PublicationService:
+    """Publica, rechaza y reprocesa notas sin perder la fuente original.
+
+    Aqui el orden importa bastante:
+    - Primero se guarda una intencion durable en SQLite.
+    - Luego se materializan ficheros con temporales y replace atomico.
+    - Al recuperar, repetimos pasos ya hechos sin duplicar notas ni borrar evidencias.
+    """
+
     def __init__(
         self,
         paths: PipelinePaths,
@@ -87,6 +95,8 @@ class PublicationService:
         return published
 
     def publish(self, workflow: PublishableWorkflow) -> NoteRecord:
+        """Materializa un workflow completado en Obsidian y archiva su fuente."""
+
         capture = self.captures.get(workflow.capture_id)
         topic = self.domains.get_topic(workflow.topic_id)
         profile = self.domains.get_profile(workflow.profile_id)
@@ -121,6 +131,7 @@ class PublicationService:
         note = self.repository.create_intent(
             workflow, vault_path=destination, temp_path=temporary, content_hash=digest, source_archive_path=archive,
         )
+        # Este checkpoint prueba que la intencion ya existe antes de tocar el vault.
         self.checkpoint("publication_intent")
         self._materialize_note(note, document)
         self.checkpoint("note_renamed")
@@ -134,6 +145,8 @@ class PublicationService:
         return published_note
 
     def recover(self) -> None:
+        """Continua publicaciones, rechazos y reprocesos que quedaron a medias."""
+
         for note in self.repository.list_notes_by_status("PUBLISHING"):
             workflow = self.repository.get_workflow_for_note(note.note_id)
             self.publish(workflow)
@@ -201,6 +214,7 @@ class PublicationService:
             raise PublicationError("La intención no conserva temporal")
         write_synced(note.temp_path, encoded)
         note.vault_path.parent.mkdir(parents=True, exist_ok=True)
+        # La intencion ya esta persistida; el replace deja la nota entera o sin tocar.
         os.replace(note.temp_path, note.vault_path)
         if self._hash(note.vault_path) != note.content_hash:
             raise PublicationError("El hash de la nota publicada no coincide")
@@ -214,6 +228,7 @@ class PublicationService:
         if capture.processing_path is None or not capture.processing_path.exists():
             raise PublicationError("No existe la fuente en processing ni en completed")
         note.source_archive_path.parent.mkdir(parents=True, exist_ok=True)
+        # Archivamos la fuente solo despues de publicar la nota; asi siempre queda evidencia local.
         os.replace(capture.processing_path, note.source_archive_path)
 
     @staticmethod
@@ -238,6 +253,7 @@ class PublicationService:
                 shutil.copyfileobj(source_stream, target_stream)
                 target_stream.flush()
                 os.fsync(target_stream.fileno())
+            # Para reprocesar copiamos, no movemos: el rechazo debe conservar su evidencia.
             os.replace(temporary, target)
         finally:
             temporary.unlink(missing_ok=True)

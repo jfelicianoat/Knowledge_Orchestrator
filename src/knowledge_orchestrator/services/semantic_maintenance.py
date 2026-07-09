@@ -66,6 +66,13 @@ COMPARISON_SCHEMA: dict[str, Any] = {
 
 
 class SemanticMaintenanceService:
+    """Mantiene claims semanticos usando solo evidencia local verificable.
+
+    La regla de oro es esta: el LLM puede proponer, pero no inventar ni aplicar.
+    Cada claim debe apuntar a un span local exacto y toda modificacion queda pendiente
+    de aprobacion humana antes de tocar una nota publicada.
+    """
+
     def __init__(
         self,
         repository: SemanticRepository,
@@ -136,6 +143,7 @@ class SemanticMaintenanceService:
             "risk": {"data_classification": "local_only", "human_review_required": True},
             "priority": 100,
         }
+        # Frontera semantica -> Broker: pedimos JSON estricto, local_only y revision humana.
         validate_create_task_request(request)
         return request
 
@@ -210,6 +218,8 @@ class SemanticMaintenanceService:
         return job_id
 
     def process_job_result(self, job, result_text: str) -> None:
+        """Interpreta JSON del Broker y lo convierte en claims o candidatos revisables."""
+
         try:
             payload = json.loads(result_text)
         except json.JSONDecodeError as error:
@@ -308,6 +318,8 @@ class SemanticMaintenanceService:
         )
 
     def approve(self, candidate_id: int) -> UpdateCandidate:
+        """Aplica un candidato aprobado solo si la nota sigue igual que cuando se hizo el diff."""
+
         candidate = self.repository.get_candidate(candidate_id)
         if candidate is None or candidate.status != "PENDING_REVIEW" or not candidate.patch_json:
             raise SemanticContractError("El candidato no está listo para aprobación")
@@ -333,6 +345,7 @@ class SemanticMaintenanceService:
             temp_path=temporary,
             patch_json=candidate.patch_json,
         )
+        # Este checkpoint garantiza que recovery conoce base_hash, result_hash y temporal.
         self.checkpoint("semantic_intent")
         self._materialize(path, temporary, updated, result_hash)
         self.checkpoint("semantic_note_replaced")
@@ -346,6 +359,8 @@ class SemanticMaintenanceService:
         self.repository.mark_candidate(candidate_id, "REJECTED", reason="HUMAN_REJECTED")
 
     def recover(self) -> None:
+        """Reanuda aplicaciones semanticas pendientes sin pisar cambios manuales."""
+
         self.repository.recover_jobs()
         for candidate in self.repository.list_candidates("APPLYING"):
             context = self.repository.note_context(candidate.target_note_id)
@@ -385,6 +400,7 @@ class SemanticMaintenanceService:
             start, end = raw["span_start"], raw["span_end"]
             if not isinstance(start, int) or isinstance(start, bool) or not isinstance(end, int) or isinstance(end, bool):
                 raise SemanticContractError(f"Claim {index} tiene offsets inválidos")
+            # Sin quote exacta no hay evidencia; asi evitamos que el modelo cuele conocimiento externo.
             if start < body_start or end <= start or end > len(document) or document[start:end] != raw["quote"]:
                 raise SemanticContractError(f"Claim {index} no está respaldado por su span local")
             statement = raw["statement"]
@@ -462,6 +478,7 @@ class SemanticMaintenanceService:
     def _materialize(path: Path, temporary: Path, content: str, expected_hash: str) -> None:
         write_synced(temporary, content.encode("utf-8"))
         path.parent.mkdir(parents=True, exist_ok=True)
+        # La aplicacion ya tiene intencion durable; replace atomico evita notas a medio escribir.
         os.replace(temporary, path)
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected_hash:
             raise RuntimeError("El hash de la actualización semántica no coincide")

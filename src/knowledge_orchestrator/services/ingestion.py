@@ -26,6 +26,14 @@ Checkpoint = Callable[[str], None]
 
 
 class IngestionService:
+    """Gestiona la ingesta durable de capturas desde inbox.
+
+    Ojo con esto:
+    - SQLite y NTFS no comparten transaccion, asi que el orden de pasos es parte del contrato.
+    - Primero validamos y sincronizamos la copia; despues persistimos; solo entonces movemos.
+    - Si el proceso cae a mitad, RecoveryService tiene que poder seguir la jugada sin duplicar.
+    """
+
     def __init__(
         self,
         paths: PipelinePaths,
@@ -54,6 +62,8 @@ class IngestionService:
         self._cancel_event.clear()
 
     def ingest(self, source_path: Path) -> IngestionResult:
+        """Acepta un Markdown del inbox o lo manda a cuarentena con causa trazable."""
+
         source = Path(source_path)
         self.paths.ensure_directories()
         if source.suffix.lower() != ".md":
@@ -74,6 +84,8 @@ class IngestionService:
             self.repository.record_event("FILE_UNSTABLE", str(error), details={"path": str(source)})
             return IngestionResult(False, None, None, "FILE_UNSTABLE", str(error))
 
+        # Esta es la frontera plugin -> Orchestrator: nada toca staging ni SQLite
+        # hasta que el contrato local este validado.
         try:
             document = parse_capture_bytes(original_bytes)
         except CaptureContractError as error:
@@ -115,6 +127,7 @@ class IngestionService:
         staged_document = parse_capture_bytes(staged_bytes)
         if staged_document.capture_id != capture_id:
             raise RuntimeError("capture_id cambió al revalidar staging")
+        # Este checkpoint no es decorativo; permite a los tests simular una caida justo aqui.
         self.checkpoint("AFTER_STAGING_SYNC")
 
         record = CaptureRecord(
@@ -132,8 +145,11 @@ class IngestionService:
             transcript_content=document.transcript_content,
         )
         self.repository.insert_staged(record)
+        # A partir de aqui recovery ya sabe que la captura existe aunque el proceso caiga.
         self.checkpoint("AFTER_STAGED_COMMIT")
 
+        # Aqui no movemos el fichero "a lo loco": SQLite ya tiene staging, hash y destino.
+        # Si la app se cae despues del replace, RecoveryService puede rematar el estado.
         os.replace(staging_path, processing_path)
         self.checkpoint("AFTER_PROCESSING_MOVE")
         self.repository.mark_pending(capture_id, processing_path)

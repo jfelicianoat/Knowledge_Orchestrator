@@ -18,6 +18,13 @@ from .prompting import (
 
 
 class WorkflowPlanner:
+    """Convierte una captura enriquecida en tareas Broker reanudables.
+
+    El Broker ejecuta inferencias, pero no decide chunks, sintesis ni Obsidian.
+    Esa responsabilidad se queda aqui, mi nino, para que el workflow de conocimiento
+    no dependa de como el Broker planifique modelos por dentro.
+    """
+
     def __init__(
         self,
         captures: CaptureRepository,
@@ -44,6 +51,8 @@ class WorkflowPlanner:
         return planned
 
     def plan_capture(self, capture_id: str, *, revision: int | None = None) -> str:
+        """Crea un workflow single o chunked segun el presupuesto real de contexto."""
+
         capture = self.captures.get(capture_id)
         if capture is None or capture.profile_id is None:
             raise ValueError("La captura no está enriquecida con un perfil")
@@ -80,6 +89,7 @@ class WorkflowPlanner:
             chunk_count = 1
         else:
             strategy = "chunked"
+            # Si no cabe, partimos localmente por limites naturales; el Broker recibe tareas opacas.
             empty_context = prompt_context(metadata, "", chunk="", chunk_index=1, chunk_count=1)
             overhead = estimate_tokens(
                 self.renderer.render(profile.system_prompt, empty_context)
@@ -129,6 +139,8 @@ class WorkflowPlanner:
         return workflow_id
 
     def advance_workflow(self, workflow_id: str) -> None:
+        """Avanza workflows con resultados ya persistidos, sin esperar al Broker aqui."""
+
         workflow = self.workflows.get_workflow(workflow_id)
         if workflow is None or workflow.status.value in {"SUCCESS", "ERROR", "CANCELLED"}:
             return
@@ -186,6 +198,8 @@ class WorkflowPlanner:
         self._create_fallback_if_needed(tasks, [])
 
     def _create_fallback_if_needed(self, tasks: list, dependency_ids: list[str]) -> None:
+        # El fallback a single no es un comodin: solo se crea para errores de consenso
+        # ya tipados y con permiso del perfil.
         originals = [
             task for task in tasks
             if task.status is TaskStatus.ERROR
@@ -209,6 +223,7 @@ class WorkflowPlanner:
                 "max_rounds": 1,
             })
             request["execution"]["selection"]["proposer_count"] = 1
+            # Frontera Orchestrator -> Broker: antes de persistir, el payload tiene que cumplir v2.
             validate_create_task_request(request)
             fallback = PlannedTask(
                 task_id=fallback_task_id,
@@ -251,6 +266,7 @@ class WorkflowPlanner:
             user_content=user,
             execution_step=step_kind.value.lower(),
         )
+        # Frontera Orchestrator -> Broker: no se guarda una tarea que el Broker no pueda aceptar.
         validate_create_task_request(request)
         return PlannedTask(
             task_id=task_id,

@@ -32,6 +32,14 @@ from knowledge_orchestrator.worker.broker_worker import BrokerWorker
 
 @dataclass(slots=True)
 class OrchestratorRuntime:
+    """Agrupa los servicios vivos del Orchestrator y marca el orden de arranque.
+
+    Ojo con cambiar esta coreografia sin revisar recuperacion:
+    - Primero se recompone SQLite/filesystem.
+    - Luego se reabren publicaciones y jobs semanticos pendientes.
+    - Solo al final arrancan watcher y worker Broker, cuando el estado ya esta cuadrado.
+    """
+
     paths: PipelinePaths
     database: Database
     repository: CaptureRepository
@@ -54,6 +62,8 @@ class OrchestratorRuntime:
     semantic_broker: SemanticBrokerProcessor
 
     def recover_once(self, *, ingest_inbox: bool = True) -> RecoveryReport:
+        """Deja el sistema en un estado reanudable antes de meter trabajo nuevo."""
+
         report = self.recovery.recover(ingest_inbox=ingest_inbox)
         self.topics.ensure_all_folders()
         self.domain_enrichment.enrich_unassigned_pending()
@@ -100,6 +110,8 @@ def build_runtime(
     broker_settings: BrokerSettings | None = None,
     enable_logging: bool = False,
 ) -> OrchestratorRuntime:
+    """Construye el grafo de dependencias sin arrancar hilos todavia."""
+
     pipeline_paths = paths or PipelinePaths.defaults()
     pipeline_paths.ensure_directories()
     if enable_logging:

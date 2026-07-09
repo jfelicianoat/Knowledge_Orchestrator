@@ -29,6 +29,12 @@ class RecoveryReport:
 
 
 class RecoveryService:
+    """Recompone SQLite y carpetas de trabajo despues de una caida.
+
+    La idea es sencilla pero delicada: no adivinamos. Cada fichero se verifica por
+    hash y capture_id antes de adoptarlo, moverlo o retirar el original del inbox.
+    """
+
     def __init__(
         self,
         paths: PipelinePaths,
@@ -42,9 +48,12 @@ class RecoveryService:
         self.quarantine = QuarantineService(paths, repository)
 
     def recover(self, *, ingest_inbox: bool = False) -> RecoveryReport:
+        """Ejecuta una pasada de reconciliacion sin duplicar capturas ni tareas."""
+
         self.paths.ensure_directories()
         report = RecoveryReport()
         report.quarantines_recovered = self.quarantine.recover_pending()
+        # Primero rematamos capturas con estado durable conocido; los huerfanos vienen despues.
         for record in self.repository.list_by_status([CaptureStatus.STAGED]):
             try:
                 self._complete_staged(record)
@@ -74,6 +83,7 @@ class RecoveryService:
                 document = parse_capture_bytes(staging_path.read_bytes())
                 existing = self.repository.get(document.capture_id)
                 if existing is None:
+                    # Si no hay fila SQLite pero el fichero valida, lo adoptamos con hash nuevo.
                     self._adopt_orphan(staging_path, document, from_processing=False)
                     report.orphan_staging_recovered += 1
                 elif hashlib.sha256(staging_path.read_bytes()).hexdigest() == existing.sha256:
@@ -129,6 +139,7 @@ class RecoveryService:
         elif record.staging_path and record.staging_path.exists():
             self._verify(record.staging_path, record)
             processing.parent.mkdir(parents=True, exist_ok=True)
+            # El registro STAGED ya existe; este replace solo completa el paso fisico pendiente.
             os.replace(record.staging_path, processing)
         elif record.source_path and record.source_path.exists():
             source_bytes = record.source_path.read_bytes()
@@ -182,6 +193,7 @@ class RecoveryService:
         )
         self.repository.insert_staged(record)
         if not from_processing:
+            # Primero registramos la adopcion; despues movemos para que recovery siga siendo reentrante.
             os.replace(path, processing)
         self.repository.mark_pending(capture_id, processing)
         self._retire_source(source, digest)
