@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import unittest
 import json
+import unittest
 from pathlib import Path
 
 from knowledge_orchestrator.domain.broker_contracts import (
@@ -17,7 +17,10 @@ def valid_request() -> dict:
         "idempotency_key": "capture:1:single",
         "request_id": "task_1",
         "content": {
-            "prompt": "<system_instructions>Analiza</system_instructions>\n<user_request>Contenido final</user_request>",
+            "prompt": (
+                "<system_instructions>Analiza</system_instructions>\n"
+                "<user_request>Contenido final</user_request>"
+            ),
             "attachments": [],
             "metadata": {"workflow_id": "wf_1", "step_id": "single"},
         },
@@ -88,6 +91,55 @@ class BrokerContractTests(unittest.TestCase):
                 },
                 "broker_task_1",
             )
+
+    def test_accepts_v25_auto_strategy_round_trip(self) -> None:
+        # Contrato v2.5: la petición puede delegar en el meta-router del Broker
+        # y las respuestas conservan "auto" en execution_strategy toda la vida
+        # de la tarea (la resolución interna viaja en el evento strategy.routed).
+        request = valid_request()
+        request["execution"]["strategy"] = "auto"
+        self.assertIs(validate_create_task_request(request), request)
+
+        accepted = accepted_response()
+        accepted["execution_strategy"] = "auto"
+        self.assertIs(validate_accepted_response(accepted), accepted)
+
+        completed = {
+            "task_id": "broker_task_1", "status": "completed", "request_id": "task_1",
+            "created_at": "2026-07-19T10:00:00Z", "updated_at": "2026-07-19T10:01:00Z",
+            "execution_strategy": "auto", "execution_preset": "fast", "selection_mode": "auto",
+            "progress": {"phase": "completed"},
+            # Aunque el Broker haya resuelto a mixture internamente, para "auto"
+            # solo se exige result_markdown: el bloque consensus no es garantía.
+            "result": {"result_markdown": "Resultado"}, "error": None,
+        }
+        self.assertIs(validate_task_status_response(completed, "broker_task_1"), completed)
+
+    def test_accepts_v25_waiting_for_tools_and_slow_preset(self) -> None:
+        waiting = {
+            "task_id": "broker_task_1", "status": "waiting_for_tools", "request_id": "task_1",
+            "created_at": "2026-07-19T10:00:00Z", "updated_at": "2026-07-19T10:01:00Z",
+            "execution_strategy": "agent", "execution_preset": "fast", "selection_mode": "auto",
+            "progress": {"phase": "waiting_for_tools"}, "result": None, "error": None,
+        }
+        self.assertIs(validate_task_status_response(waiting, "broker_task_1"), waiting)
+
+        request = valid_request()
+        request["execution"]["strategy"] = "mixture_of_agents"
+        request["execution"]["preset"] = "slow"
+        self.assertIs(validate_create_task_request(request), request)
+
+    def test_still_rejects_unknown_strategies_and_statuses(self) -> None:
+        request = valid_request()
+        request["execution"]["strategy"] = "swarm"
+        with self.assertRaises(BrokerContractError):
+            validate_create_task_request(request)
+        unknown_status = {
+            "task_id": "broker_task_1", "status": "hibernating", "created_at": "x",
+            "updated_at": "x", "execution_strategy": "single", "progress": {},
+        }
+        with self.assertRaises(BrokerContractError):
+            validate_task_status_response(unknown_status, "broker_task_1")
 
     def test_validates_complete_consensus_metadata_and_rejects_false_quorum(self) -> None:
         payload = {

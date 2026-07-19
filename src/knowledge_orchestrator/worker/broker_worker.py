@@ -26,7 +26,7 @@ class BrokerWorker:
         dispatcher: BrokerDispatcher,
         poller: BrokerPoller,
         discovery: ModelDiscoveryService,
-        events: "queue.Queue[ApplicationEvent]",
+        events: queue.Queue[ApplicationEvent],
         settings: BrokerSettings,
         publisher: PublicationService | None = None,
         semantic_processor: SemanticBrokerProcessor | None = None,

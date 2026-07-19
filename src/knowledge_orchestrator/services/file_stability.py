@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import time
 import threading
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import BinaryIO
@@ -77,5 +77,7 @@ def read_bytes_with_lock_retries(
             if cancel_event is None:
                 sleep(retry_delays[attempt])
             elif cancel_event.wait(retry_delays[attempt]):
-                raise IngestionCancelled("Ingesta cancelada durante la espera por bloqueo")
+                # from None: la cancelación es deliberada, no consecuencia
+                # del error de bloqueo que se estaba reintentando.
+                raise IngestionCancelled("Ingesta cancelada durante la espera por bloqueo") from None
     raise FileLockedError(f"No se pudo abrir {path} tras {attempts} intentos") from last_error

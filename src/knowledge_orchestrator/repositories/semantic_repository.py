@@ -5,9 +5,9 @@ import math
 import re
 import sqlite3
 import unicodedata
+from collections.abc import Iterable
 from contextlib import closing
 from pathlib import Path
-from typing import Iterable
 
 from knowledge_orchestrator.domain.semantic_models import (
     ComparisonDecision,
@@ -114,7 +114,8 @@ class SemanticRepository:
                 (note_id, claim.span_start, claim.span_end, normalized),
             ).fetchone()
             connection.execute(
-                "INSERT INTO evidence_links(claim_id, source_capture_id, source_note_id, quote, span_start, span_end, source_path) "
+                "INSERT INTO evidence_links(claim_id, source_capture_id, source_note_id, quote, "
+                "span_start, span_end, source_path) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
                 (
                     row["claim_id"], context["capture_id"], note_id, claim.quote,
@@ -139,7 +140,9 @@ class SemanticRepository:
             parameters.append(status)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with closing(self.database.connect()) as connection:
-            rows = connection.execute("SELECT * FROM knowledge_claims" + where + " ORDER BY claim_id", parameters).fetchall()
+            rows = connection.execute(
+                "SELECT * FROM knowledge_claims" + where + " ORDER BY claim_id", parameters
+            ).fetchall()
             return [_claim(row) for row in rows]
 
     def set_manual_lock(self, claim_id: int, locked: bool) -> None:
@@ -198,7 +201,8 @@ class SemanticRepository:
         blocked = "MANUAL_LOCK" if target.manual_lock else None
         with self.database.transaction(immediate=True) as connection:
             connection.execute(
-                "INSERT INTO update_candidates(target_note_id, target_claim_id, new_claim_id, retrieval_reason, blocked_reason) "
+                "INSERT INTO update_candidates(target_note_id, target_claim_id, new_claim_id, "
+                "retrieval_reason, blocked_reason) "
                 "VALUES (?, ?, ?, ?, ?) ON CONFLICT(target_claim_id, new_claim_id) DO NOTHING",
                 (target.note_id, target.claim_id, new_claim.claim_id, retrieval_reason, blocked),
             )
@@ -210,7 +214,9 @@ class SemanticRepository:
 
     def get_candidate(self, candidate_id: int) -> UpdateCandidate | None:
         with closing(self.database.connect()) as connection:
-            row = connection.execute("SELECT * FROM update_candidates WHERE candidate_id = ?", (candidate_id,)).fetchone()
+            row = connection.execute(
+                "SELECT * FROM update_candidates WHERE candidate_id = ?", (candidate_id,)
+            ).fetchone()
             return _candidate(row) if row else None
 
     def list_candidates(self, *statuses: str) -> list[UpdateCandidate]:
@@ -244,7 +250,8 @@ class SemanticRepository:
             if row["claim_status"] != "ACTIVE":
                 raise ValueError("El claim objetivo ya no está activo")
             blocked = "MANUAL_LOCK" if bool(row["manual_lock"]) else row["blocked_reason"]
-            status = "PENDING_REVIEW" if decision.relation in {"EXTENDS", "CONTRADICTS", "SUPERSEDES"} and not blocked else "REJECTED"
+            reviewable = decision.relation in {"EXTENDS", "CONTRADICTS", "SUPERSEDES"} and not blocked
+            status = "PENDING_REVIEW" if reviewable else "REJECTED"
             connection.execute(
                 "UPDATE update_candidates SET relation = ?, confidence = ?, impact = ?, rationale = ?, "
                 "replacement_text = ?, patch_json = ?, diff_text = ?, blocked_reason = ?, status = ?, "
@@ -478,7 +485,8 @@ class SemanticRepository:
                     job_id,
                 ),
             )
-            return _job(connection.execute("SELECT * FROM semantic_jobs WHERE job_id = ?", (job_id,)).fetchone()), result_text
+            refreshed = connection.execute("SELECT * FROM semantic_jobs WHERE job_id = ?", (job_id,)).fetchone()
+            return _job(refreshed), result_text
 
     def complete_job(self, job_id: str) -> None:
         with self.database.transaction(immediate=True) as connection:
@@ -540,7 +548,10 @@ class SemanticRepository:
         for row in rows:
             vector = json.loads(row["vector_json"])
             norm = math.sqrt(sum(value * value for value in vector))
-            similarity = sum(a * b for a, b in zip(origin, vector)) / (norm_origin * norm) if norm_origin and norm else 0.0
+            # strict=False conserva la semántica previa: un vector de otra
+            # dimensión trunca el producto en vez de romper el mantenimiento.
+            dot = sum(a * b for a, b in zip(origin, vector, strict=False))
+            similarity = dot / (norm_origin * norm) if norm_origin and norm else 0.0
             if similarity >= minimum_similarity:
                 scored.append((similarity, int(row["claim_id"])))
         return [claim for _, claim in sorted(scored, reverse=True)[:limit]]

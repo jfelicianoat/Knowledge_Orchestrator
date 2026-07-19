@@ -95,7 +95,8 @@ class DomainRepository:
                     "enabled, revision, execution_strategy, multitasking_steps_json, consensus_preset, "
                     "consensus_max_proposers, consensus_timeout_seconds, consensus_fallback_to_single, "
                     "cloud_allowed, allowed_providers_json, data_classification, max_cost_usd, "
-                    "human_review_required) VALUES (?, '{}', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "human_review_required) VALUES "
+                    "(?, '{}', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         profile.name,
                         profile.system_prompt,
@@ -120,7 +121,7 @@ class DomainRepository:
                         int(profile.human_review_required),
                     ),
                 )
-                profile_id = int(cursor.lastrowid)
+                profile_id = int(cursor.lastrowid or 0)
             else:
                 cursor = connection.execute(
                     "UPDATE profiles SET name = ?, system_prompt = ?, user_prompt = ?, chunk_prompt = ?, "
@@ -212,7 +213,7 @@ class DomainRepository:
                     "VALUES (?, ?, ?, '{}', ?, ?, ?, ?, ?, ?)",
                     values,
                 )
-                topic_id = int(cursor.lastrowid)
+                topic_id = int(cursor.lastrowid or 0)
             else:
                 cursor = connection.execute(
                     "UPDATE topics SET name = ?, position = ?, folder = ?, default_profile_id = ?, "

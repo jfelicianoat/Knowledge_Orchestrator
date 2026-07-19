@@ -8,7 +8,6 @@ from typing import Any
 
 from knowledge_orchestrator.repositories.database import Database
 
-
 ACTIVE_CAPTURE_STATUSES = ("STAGED", "PENDING", "SUBMITTING", "QUEUED", "PROCESSING")
 ACTIVE_TASK_STATUSES = ("READY", "SUBMITTING", "QUEUED", "PROCESSING", "CANCEL_REQUESTED")
 

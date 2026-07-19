@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -33,8 +34,9 @@ class _InboxEventHandler(FileSystemEventHandler):
     def on_moved(self, event: FileSystemEvent) -> None:
         self._submit_file(event.dest_path, event.is_directory)
 
-    def _submit_file(self, raw_path: str, is_directory: bool) -> None:
-        path = Path(raw_path)
+    def _submit_file(self, raw_path: str | bytes, is_directory: bool) -> None:
+        # watchdog puede entregar rutas como bytes según la plataforma.
+        path = Path(os.fsdecode(raw_path))
         if not is_directory and path.suffix.lower() == ".md":
             self.submit(path)
 

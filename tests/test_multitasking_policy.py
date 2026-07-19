@@ -45,6 +45,28 @@ class MultitaskingPolicyTests(unittest.TestCase):
             self.assertEqual(request["execution"]["max_proposers"], 3)
             self.assertTrue(task.strategy_fallback_allowed)
 
+    def test_auto_profile_delegates_strategy_to_broker_meta_router(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = self.make_runtime(Path(temporary), "document_auto_single", "Texto breve.")
+            profile = runtime.profiles.list_profiles(enabled_only=True)[0]
+            runtime.profiles.save_profile(replace(profile, execution_strategy="auto"))
+            workflow_id = runtime.workflow_planner.plan_capture("document_auto_single")
+            task = runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
+            request = json.loads(task.request_json)
+            # El contrato v2.5 viaja con "auto": el Broker resuelve la estrategia.
+            self.assertEqual(request["execution"]["strategy"], "auto")
+            # Presupuesto de proponentes por si el meta-router resuelve a mixture.
+            self.assertEqual(request["execution"]["max_proposers"], 3)
+            self.assertTrue(task.strategy_fallback_allowed)
+
+            # El estado agent waiting_for_tools del Broker es válido y no terminal.
+            runtime.workflow_repository.apply_status(task.task_id, {
+                "task_id": task.task_id, "status": "waiting_for_tools",
+                "result": None, "error": None,
+            })
+            refreshed = runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
+            self.assertIs(refreshed.status, TaskStatus.PROCESSING)
+
     def test_chunks_remain_single_and_only_synthesis_uses_consensus(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             runtime = self.make_runtime(Path(temporary), "document_consensus_chunks", "hecho " * 6000)

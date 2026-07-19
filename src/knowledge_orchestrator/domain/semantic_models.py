@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-
 Volatility = Literal["LOW", "MEDIUM", "HIGH"]
 Relation = Literal["UNKNOWN", "SUPPORTS", "EXTENDS", "CONTRADICTS", "SUPERSEDES", "UNRELATED", "UNCERTAIN"]
 Impact = Literal["LOW", "MEDIUM", "HIGH"]

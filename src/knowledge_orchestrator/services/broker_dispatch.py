@@ -37,10 +37,13 @@ class BrokerDispatcher:
                 backoff_seconds=self.backoff_seconds,
             )
             if decision.kind == "retry":
+                # attempt_broker_submission siempre fija retry_at y message en
+                # kind="retry"; el assert documenta y tipa la invariante.
+                assert decision.retry_at is not None
                 self.repository.release_submission(
                     task.task_id,
                     next_retry_at=decision.retry_at,
-                    message=decision.message,
+                    message=decision.message or "",
                 )
             elif decision.kind == "exhausted":
                 self.repository.mark_submission_error(task.task_id, "BROKER_UNAVAILABLE", decision.message or "")

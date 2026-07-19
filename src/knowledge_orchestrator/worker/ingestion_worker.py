@@ -11,10 +11,10 @@ from knowledge_orchestrator.services.ingestion import IngestionService
 class IngestionWorker:
     """Worker serial de filesystem; nunca toca widgets de Tk."""
 
-    def __init__(self, service: IngestionService, events: "queue.Queue[ApplicationEvent]") -> None:
+    def __init__(self, service: IngestionService, events: queue.Queue[ApplicationEvent]) -> None:
         self.service = service
         self.events = events
-        self._requests: "queue.Queue[Path | None]" = queue.Queue()
+        self._requests: queue.Queue[Path | None] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._pending: set[Path] = set()
         self._suppressed: dict[Path, tuple[int, int] | None] = {}

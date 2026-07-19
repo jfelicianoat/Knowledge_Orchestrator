@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,7 @@ class QuarantineService:
         self,
         source: Path,
         directory: Path,
-        payload: dict[str, Any],
+        payload: Mapping[str, Any],
         discriminator: str | None = None,
     ) -> Path:
         source = Path(source)

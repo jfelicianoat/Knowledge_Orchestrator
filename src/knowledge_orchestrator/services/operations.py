@@ -17,7 +17,6 @@ from typing import Any
 from knowledge_orchestrator.config import BrokerSettings, PipelinePaths
 from knowledge_orchestrator.repositories.database import Database
 
-
 LOG_FILE_NAME = "orchestrator.log"
 SENSITIVE_KEYS = re.compile(r"(token|secret|password|api[_-]?key|authorization|cookie)", re.IGNORECASE)
 URL_CREDENTIALS = re.compile(r"://([^:/@\s]+):([^@\s]+)@")
@@ -123,7 +122,10 @@ def export_diagnostics(
     with zipfile.ZipFile(target, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("diagnostics.json", json.dumps(manifest, ensure_ascii=False, indent=2, default=str))
         archive.writestr("logs/orchestrator-tail.log", sanitize(log_text))
-        archive.writestr("README.txt", "Paquete diagnóstico sin secretos. No incluye base SQLite ni contenido de notas.\n")
+        archive.writestr(
+            "README.txt",
+            "Paquete diagnóstico sin secretos. No incluye base SQLite ni contenido de notas.\n",
+        )
     with zipfile.ZipFile(target) as archive:
         names = tuple(archive.namelist())
     return DiagnosticResult(path=target, created_at=timestamp, files=names)

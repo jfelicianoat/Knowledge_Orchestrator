@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from importlib.resources import files
 from pathlib import Path
-from typing import Iterator
 
 
 class Database:

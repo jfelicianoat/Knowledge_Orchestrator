@@ -71,7 +71,9 @@ class PhaseThreeWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_chunk_tasks_are_all_submitted_without_waiting_for_first_result(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            runtime = self.make_runtime(Path(temporary), capture_id="document_chunks", transcript=("dato técnico " * 5000))
+            runtime = self.make_runtime(
+                Path(temporary), capture_id="document_chunks", transcript=("dato técnico " * 5000)
+            )
             planner = WorkflowPlanner(
                 runtime.repository,
                 runtime.domain_repository,
@@ -162,7 +164,9 @@ class PhaseThreeWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_startup_upgrades_unsent_v1_chat_request_to_v2(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            runtime = self.make_runtime(Path(temporary), capture_id="document_legacy_request", transcript="Texto breve.")
+            runtime = self.make_runtime(
+                Path(temporary), capture_id="document_legacy_request", transcript="Texto breve."
+            )
             workflow_id = runtime.workflow_planner.plan_capture("document_legacy_request")
             task = runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
             legacy = {

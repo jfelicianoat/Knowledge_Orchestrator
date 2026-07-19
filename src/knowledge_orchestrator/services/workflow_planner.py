@@ -199,11 +199,12 @@ class WorkflowPlanner:
 
     def _create_fallback_if_needed(self, tasks: list, dependency_ids: list[str]) -> None:
         # El fallback a single no es un comodin: solo se crea para errores de consenso
-        # ya tipados y con permiso del perfil.
+        # ya tipados y con permiso del perfil. Incluye "auto" (contrato v2.5): el
+        # meta-router del Broker pudo resolver a mixture y fallar por lo mismo.
         originals = [
             task for task in tasks
             if task.status is TaskStatus.ERROR
-            and task.execution_strategy == "mixture_of_agents"
+            and task.execution_strategy in {"mixture_of_agents", "auto"}
             and task.strategy_fallback_allowed
         ]
         for original in originals:
@@ -279,7 +280,7 @@ class WorkflowPlanner:
             request=request,
             input_text=input_text,
             strategy_fallback_allowed=(
-                request["execution"]["strategy"] == "mixture_of_agents"
+                request["execution"]["strategy"] in {"mixture_of_agents", "auto"}
                 and profile.consensus_fallback_to_single
             ),
         )

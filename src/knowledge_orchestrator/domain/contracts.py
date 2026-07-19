@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import urlparse
 
 import yaml
@@ -42,7 +42,7 @@ _UniqueKeySafeLoader.add_constructor(
 )
 
 
-def _raise(field: str, reason: str, version: str | None = None) -> None:
+def _raise(field: str, reason: str, version: str | None = None) -> NoReturn:
     raise CaptureContractError(
         ContractIssue(
             boundary="plugin_to_orchestrator",
@@ -188,7 +188,11 @@ def parse_capture_bytes(content: bytes) -> CaptureDocument:
     if not isinstance(metadata, dict):
         _raise("$", "el frontmatter debe ser un objeto", None)
     if not all(isinstance(key, str) for key in metadata):
-        _raise("$", "todas las claves YAML deben ser strings", str(metadata.get("contract_version")) if metadata else None)
+        _raise(
+            "$",
+            "todas las claves YAML deben ser strings",
+            str(metadata.get("contract_version")) if metadata else None,
+        )
 
     body = normalized[closing + 5 :]
     heading_match = re.search(rf"(?m)^{re.escape(TRANSCRIPT_HEADING)}[ \t]*$", body)

@@ -5,12 +5,13 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Callable, Mapping
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
-from knowledge_orchestrator.domain.semantic_models import ComparisonDecision, ExtractedClaim, UpdateCandidate
 from knowledge_orchestrator.domain.broker_contracts import validate_create_task_request
+from knowledge_orchestrator.domain.semantic_models import ComparisonDecision, ExtractedClaim, UpdateCandidate
 from knowledge_orchestrator.repositories.semantic_repository import SemanticRepository
 
 from .filesystem import write_synced
@@ -97,7 +98,8 @@ class SemanticMaintenanceService:
     @staticmethod
     def comparison_prompt(*, old_claim: str, new_claim: str, old_evidence: str, new_evidence: str) -> str:
         return (
-            "Compara solo las dos afirmaciones y sus evidencias locales. No añadas hechos. Clasifica SUPPORTS, EXTENDS, "
+            "Compara solo las dos afirmaciones y sus evidencias locales. No añadas hechos. "
+            "Clasifica SUPPORTS, EXTENDS, "
             "CONTRADICTS, SUPERSEDES, UNRELATED o UNCERTAIN. replacement_text solo se usa para EXTENDS, CONTRADICTS "
             "o SUPERSEDES; en los demás casos debe ser null. Cuando se use, debe ser una sustitución "
             "autosuficiente respaldada por la evidencia nueva. Devuelve JSON conforme al schema.\n"
@@ -298,16 +300,17 @@ class SemanticMaintenanceService:
             old_text = document[target.span_start:target.span_end]
             if not old_text:
                 raise SemanticContractError("El span objetivo está vacío")
+            replacement = decision.replacement_text.strip()
             patch = {
                 "op": "replace",
                 "start": target.span_start,
                 "end": target.span_end,
                 "old": old_text,
-                "replacement": decision.replacement_text.strip(),
+                "replacement": replacement,
             }
             patch_json = json.dumps(patch, ensure_ascii=False, sort_keys=True)
             diff_text = "".join(difflib.unified_diff(
-                [old_text + "\n"], [patch["replacement"] + "\n"],
+                [old_text + "\n"], [replacement + "\n"],
                 fromfile="current", tofile="proposed",
             ))
         return self.repository.record_comparison(
@@ -374,7 +377,9 @@ class SemanticMaintenanceService:
                 self.repository.mark_applied(candidate.candidate_id)
                 continue
             if current_hash != candidate.base_hash:
-                self.repository.mark_candidate(candidate.candidate_id, "CONFLICT", reason="NOTE_CHANGED_DURING_RECOVERY")
+                self.repository.mark_candidate(
+                    candidate.candidate_id, "CONFLICT", reason="NOTE_CHANGED_DURING_RECOVERY"
+                )
                 continue
             original = self.repository.revision_content(candidate.candidate_id)
             patch = self._validate_patch(candidate.patch_json, original)
@@ -398,7 +403,9 @@ class SemanticMaintenanceService:
             if not isinstance(raw, Mapping) or not required.issubset(raw) or set(raw) - allowed:
                 raise SemanticContractError(f"Claim {index} no cumple el contrato")
             start, end = raw["span_start"], raw["span_end"]
-            if not isinstance(start, int) or isinstance(start, bool) or not isinstance(end, int) or isinstance(end, bool):
+            valid_start = isinstance(start, int) and not isinstance(start, bool)
+            valid_end = isinstance(end, int) and not isinstance(end, bool)
+            if not valid_start or not valid_end:
                 raise SemanticContractError(f"Claim {index} tiene offsets inválidos")
             # Sin quote exacta no hay evidencia; asi evitamos que el modelo cuele conocimiento externo.
             if start < body_start or end <= start or end > len(document) or document[start:end] != raw["quote"]:
@@ -420,7 +427,8 @@ class SemanticMaintenanceService:
                 raise SemanticContractError(f"Claim {index} tiene manual_lock inválido")
             for field in ("observed_at", "source_date"):
                 value = raw.get(field)
-                if value is not None and (not isinstance(value, str) or not SemanticMaintenanceService._valid_date(value)):
+                valid = isinstance(value, str) and SemanticMaintenanceService._valid_date(value)
+                if value is not None and not valid:
                     raise SemanticContractError(f"Claim {index} tiene {field} inválido")
             result.append(ExtractedClaim(
                 statement=statement.strip(), claim_type=claim_type.strip(), volatility=volatility,

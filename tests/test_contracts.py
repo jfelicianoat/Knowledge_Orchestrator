@@ -4,7 +4,6 @@ import unittest
 
 from knowledge_orchestrator.domain.contracts import parse_capture_bytes
 from knowledge_orchestrator.domain.errors import CaptureContractError
-
 from tests.helpers import generic_markdown, valid_markdown
 
 

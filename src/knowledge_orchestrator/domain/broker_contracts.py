@@ -1,19 +1,30 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, NoReturn
 
 UNRESOLVED_PLACEHOLDER = re.compile(
     r"\{(?:title|channel|transcript|published_date|captured_at|source_type|source_url|"
     r"chunk|chunk_index|chunk_count|partial_results)\}"
 )
 IDENTIFIER = re.compile(r"^[A-Za-z0-9._:-]{1,240}$")
+# Espejo del contrato v2.5 del Broker (GET /api/v1/capabilities). Debe ampliarse
+# en el mismo cambio que el Broker: un estado o estrategia desconocidos hacen
+# que el poller marque la tarea como CONTRACT_VALIDATION_FAILED y la pierda.
 BROKER_STATUSES = {
     "queued", "routing", "planning", "resource_planning", "chunking", "generating",
     "proposing", "evaluating", "debating", "synthesizing", "verifying",
+    # Estrategia agent con tool-calls del cliente pendientes (no terminal).
+    "waiting_for_tools",
     "completed", "failed", "cancelled",
 }
+# single/mixture_of_agents: clásicas. agent: bucle ReAct con skills del Broker.
+# auto: el meta-router del Broker elige la estrategia; la respuesta conserva
+# "auto" en execution_strategy y la resolución queda en el evento strategy.routed.
+BROKER_STRATEGIES = {"single", "mixture_of_agents", "agent", "auto"}
+BROKER_PRESETS = {"fast", "slow", "standard", "verified", "high_stakes"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +32,7 @@ class BrokerContractIssue:
     boundary: str
     field: str
     reason: str
-    contract_version: str | None = "2.0"
+    contract_version: str | None = "2.5"
     code: str = "CONTRACT_VALIDATION_FAILED"
 
 
@@ -31,7 +42,7 @@ class BrokerContractError(ValueError):
         self.issue = issue
 
 
-def _fail(boundary: str, field: str, reason: str) -> None:
+def _fail(boundary: str, field: str, reason: str) -> NoReturn:
     raise BrokerContractError(BrokerContractIssue(boundary, field, reason))
 
 
@@ -87,16 +98,18 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
     if not isinstance(requirements.get("cloud_allowed"), bool):
         _fail(boundary, "model_requirements.cloud_allowed", "debe ser boolean")
     providers = requirements.get("allowed_providers")
-    if not isinstance(providers, list) or not providers or any(not isinstance(item, str) or not item for item in providers):
+    if not isinstance(providers, list) or not providers or any(
+        not isinstance(item, str) or not item for item in providers
+    ):
         _fail(boundary, "model_requirements.allowed_providers", "debe ser una lista no vacía")
     cost = requirements.get("max_cost_usd")
     if cost is not None and (not isinstance(cost, (int, float)) or isinstance(cost, bool) or cost < 0):
         _fail(boundary, "model_requirements.max_cost_usd", "debe ser número no negativo o null")
 
     execution = _mapping(payload.get("execution"), boundary, "execution")
-    if execution.get("strategy") not in {"single", "mixture_of_agents"}:
+    if execution.get("strategy") not in BROKER_STRATEGIES:
         _fail(boundary, "execution.strategy", "estrategia no permitida")
-    if execution.get("preset") not in {"fast", "standard", "verified", "high_stakes"}:
+    if execution.get("preset") not in BROKER_PRESETS:
         _fail(boundary, "execution.preset", "preset no permitido")
     if execution.get("scheduling") not in {"adaptive", "parallel", "waves", "sequential"}:
         _fail(boundary, "execution.scheduling", "scheduling no permitido")
@@ -144,9 +157,9 @@ def validate_accepted_response(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     _string(payload.get("task_id"), boundary, "task_id")
     if payload.get("status") not in BROKER_STATUSES:
         _fail(boundary, "status", "estado no permitido")
-    if payload.get("execution_strategy") not in {"single", "mixture_of_agents"}:
+    if payload.get("execution_strategy") not in BROKER_STRATEGIES:
         _fail(boundary, "execution_strategy", "estrategia no permitida")
-    if payload.get("execution_preset") not in {"fast", "standard", "verified", "high_stakes"}:
+    if payload.get("execution_preset") not in BROKER_PRESETS:
         _fail(boundary, "execution_preset", "preset no permitido")
     if payload.get("selection_mode") not in {"auto", "manual", "hybrid"}:
         _fail(boundary, "selection_mode", "modo no permitido")
@@ -167,7 +180,7 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
     _string(payload.get("updated_at"), boundary, "updated_at")
     _mapping(payload.get("progress", {}), boundary, "progress")
     strategy = payload.get("execution_strategy")
-    if strategy not in {"single", "mixture_of_agents"}:
+    if strategy not in BROKER_STRATEGIES:
         _fail(boundary, "execution_strategy", "estrategia no permitida")
     if status == "completed":
         result = _mapping(payload.get("result"), boundary, "result")

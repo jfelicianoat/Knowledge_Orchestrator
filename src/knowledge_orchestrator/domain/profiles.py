@@ -65,7 +65,12 @@ def validate_profile(profile: ProfileDefinition) -> ProfileDefinition:
         raise ProfileValidationError("max_output_tokens debe estar entre 1 y 100000")
     if profile.revision < 1:
         raise ProfileValidationError("revision debe ser mayor o igual que 1")
-    if profile.execution_strategy not in {"single", "mixture_of_agents"}:
+    # "auto" delega en el meta-router del Broker (contrato v2.5): decide entre
+    # single, mixture o agent por tarea y aprende de escalados previos. La
+    # estrategia "agent" no se expone como valor de perfil a propósito: las
+    # skills del Broker (web_search, run_code...) no aplican al flujo de
+    # conocimiento y auto ya puede elegirla si conviene.
+    if profile.execution_strategy not in {"single", "mixture_of_agents", "auto"}:
         raise ProfileValidationError("execution_strategy no permitido")
     allowed_steps = {"single", "synthesis"}
     if not profile.multitasking_steps or set(profile.multitasking_steps) - allowed_steps:
@@ -83,7 +88,8 @@ def validate_profile(profile: ProfileDefinition) -> ProfileDefinition:
     if not profile.allowed_providers or any(not provider.strip() for provider in profile.allowed_providers):
         raise ProfileValidationError("allowed_providers debe ser una lista no vacía")
     cloud_providers = {"deepseek", "ollama_cloud", "openai", "anthropic", "google"}
-    if not profile.cloud_allowed and cloud_providers.intersection(provider.lower() for provider in profile.allowed_providers):
+    lowered_providers = {provider.lower() for provider in profile.allowed_providers}
+    if not profile.cloud_allowed and cloud_providers.intersection(lowered_providers):
         raise ProfileValidationError("cloud_allowed=false no permite proveedores cloud")
     if profile.data_classification == "local_only":
         if profile.cloud_allowed or set(provider.lower() for provider in profile.allowed_providers) != {"ollama"}:

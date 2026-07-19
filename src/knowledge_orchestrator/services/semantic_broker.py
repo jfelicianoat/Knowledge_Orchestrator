@@ -35,7 +35,10 @@ class SemanticBrokerProcessor:
                 backoff_seconds=self.backoff_seconds,
             )
             if decision.kind == "retry":
-                self.repository.retry_job(job.job_id, next_retry_at=decision.retry_at, message=decision.message)
+                assert decision.retry_at is not None
+                self.repository.retry_job(
+                    job.job_id, next_retry_at=decision.retry_at, message=decision.message or ""
+                )
             elif decision.kind == "exhausted":
                 self.repository.fail_job(job.job_id, "BROKER_UNAVAILABLE", decision.message or "")
             elif decision.kind == "permanent":

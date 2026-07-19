@@ -8,7 +8,6 @@ import yaml
 
 from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.domain.models import CaptureStatus
-from knowledge_orchestrator.repositories.publication_repository import PublicationRepository
 from knowledge_orchestrator.runtime import build_runtime
 from knowledge_orchestrator.services.file_stability import FileStabilityChecker
 from knowledge_orchestrator.services.publication import PublicationError, PublicationService, validate_result_markdown

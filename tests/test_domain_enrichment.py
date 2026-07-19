@@ -9,8 +9,8 @@ from knowledge_orchestrator.domain.models import SourceOrigin, TopicDefinition
 from knowledge_orchestrator.domain.sources import autonomous_sources_enabled
 from knowledge_orchestrator.runtime import build_runtime
 from knowledge_orchestrator.services.file_stability import FileStabilityChecker
-
-from tests.helpers import generic_markdown, runtime as phase_one_runtime, valid_markdown
+from tests.helpers import generic_markdown, valid_markdown
+from tests.helpers import runtime as phase_one_runtime
 
 
 class DomainEnrichmentTests(unittest.TestCase):

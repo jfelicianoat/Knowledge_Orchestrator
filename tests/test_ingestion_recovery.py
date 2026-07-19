@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from knowledge_orchestrator.domain.models import CaptureRecord, CaptureStatus
 from knowledge_orchestrator.domain.contracts import parse_capture_bytes
+from knowledge_orchestrator.domain.models import CaptureRecord, CaptureStatus
 from knowledge_orchestrator.services.recovery import RecoveryService
-
 from tests.helpers import runtime, valid_markdown
 
 
@@ -56,7 +55,7 @@ class IngestionRecoveryTests(unittest.TestCase):
             "AFTER_QUARANTINE_SIDECAR",
         ):
             with self.subTest(crash_point=crash_point), tempfile.TemporaryDirectory() as temporary:
-                def checkpoint(point: str) -> None:
+                def checkpoint(point: str, crash_point: str = crash_point) -> None:
                     if point == crash_point:
                         raise SimulatedCrash(point)
 
@@ -94,7 +93,7 @@ class IngestionRecoveryTests(unittest.TestCase):
         )
         for crash_point in checkpoints:
             with self.subTest(crash_point=crash_point), tempfile.TemporaryDirectory() as temporary:
-                def checkpoint(point: str) -> None:
+                def checkpoint(point: str, crash_point: str = crash_point) -> None:
                     if point == crash_point:
                         raise SimulatedCrash(point)
 

@@ -28,13 +28,13 @@ def main() -> None:
         result = backup_database(runtime.database, runtime.paths)
         print(f"Backup creado: {result.path} ({result.size_bytes} bytes)")
     elif arguments.diagnostics:
-        result = export_diagnostics(
+        diagnostics = export_diagnostics(
             runtime.database,
             runtime.paths,
             runtime.broker_worker.settings,
             output_path=Path(arguments.diagnostics),
         )
-        print(f"Diagnóstico creado: {result.path}")
+        print(f"Diagnóstico creado: {diagnostics.path}")
     elif arguments.once:
         report = runtime.recover_once(ingest_inbox=True)
         print(f"Recuperación e ingesta completadas: {report}")

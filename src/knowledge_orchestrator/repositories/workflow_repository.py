@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Iterable
 from contextlib import closing
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any
 
+from knowledge_orchestrator.domain.broker_contracts import validate_create_task_request
 from knowledge_orchestrator.domain.broker_models import (
     BrokerTaskRecord,
     PlannedTask,
@@ -15,7 +17,6 @@ from knowledge_orchestrator.domain.broker_models import (
     WorkflowRecord,
     WorkflowStatus,
 )
-from knowledge_orchestrator.domain.broker_contracts import validate_create_task_request
 
 from .database import Database
 
@@ -389,6 +390,9 @@ class WorkflowRepository:
             "debating": TaskStatus.PROCESSING,
             "synthesizing": TaskStatus.PROCESSING,
             "verifying": TaskStatus.PROCESSING,
+            # Estrategia agent del Broker esperando tool-calls del cliente; el
+            # Orchestrator no envía tools, pero el estado es válido y no terminal.
+            "waiting_for_tools": TaskStatus.PROCESSING,
             "completed": TaskStatus.SUCCESS,
             "success": TaskStatus.SUCCESS,
             "failed": TaskStatus.ERROR,
@@ -412,7 +416,7 @@ class WorkflowRepository:
                     result = broker_result
                 else:
                     result = {
-                        "assistant_content": broker_result["result_markdown"],
+                        "assistant_content": (broker_result or {})["result_markdown"],
                         "broker_result": broker_result,
                     }
             broker_error = payload.get("error") or {}
@@ -435,7 +439,9 @@ class WorkflowRepository:
                     int(error["retryable"]) if "retryable" in error else None,
                     model_used,
                     payload.get("created_at") if target is TaskStatus.PROCESSING else None,
-                    payload.get("updated_at") if target in {TaskStatus.SUCCESS, TaskStatus.ERROR, TaskStatus.CANCELLED} else None,
+                    payload.get("updated_at")
+                    if target in {TaskStatus.SUCCESS, TaskStatus.ERROR, TaskStatus.CANCELLED}
+                    else None,
                     json.dumps(payload.get("progress") or {}, ensure_ascii=False),
                     json.dumps({
                         key: (broker_result or {}).get(key)
@@ -503,7 +509,8 @@ class WorkflowRepository:
         with self.database.transaction(immediate=True) as connection:
             for model in models:
                 connection.execute(
-                    "INSERT INTO model_catalog(name, provider, status, context_window, capabilities_json, discovered_at) "
+                    "INSERT INTO model_catalog(name, provider, status, context_window, "
+                    "capabilities_json, discovered_at) "
                     "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(name, provider) DO UPDATE SET status = excluded.status, "
                     "context_window = excluded.context_window, capabilities_json = excluded.capabilities_json, "
                     "discovered_at = excluded.discovered_at",

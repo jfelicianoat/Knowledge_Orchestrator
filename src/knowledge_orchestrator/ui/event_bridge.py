@@ -10,7 +10,7 @@ class UiEventBridge:
     """Cola thread-safe que la futura UI vaciará exclusivamente desde el hilo principal."""
 
     def __init__(self) -> None:
-        self.queue: "queue.Queue[ApplicationEvent]" = queue.Queue()
+        self.queue: queue.Queue[ApplicationEvent] = queue.Queue()
         self.main_thread_id = threading.main_thread().ident
 
     def drain(self, limit: int = 100) -> list[ApplicationEvent]:

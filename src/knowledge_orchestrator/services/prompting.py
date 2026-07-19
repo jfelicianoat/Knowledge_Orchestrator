@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from knowledge_orchestrator.domain.models import ProfileDefinition
 
@@ -93,13 +94,19 @@ def build_chat_request(
     user_content: str,
     execution_step: str,
 ) -> dict[str, Any]:
-    use_consensus = (
-        profile.execution_strategy == "mixture_of_agents"
-        and execution_step in profile.multitasking_steps
+    # Los pasos elegibles para estrategias pesadas son los mismos para mixture
+    # y para auto: el resto (chunks del map, embeddings) siempre viaja single.
+    eligible_step = (
+        execution_step in profile.multitasking_steps
         and execution_step in {"single", "synthesis"}
     )
-    strategy = "mixture_of_agents" if use_consensus else "single"
-    proposer_count = profile.consensus_max_proposers if use_consensus else 1
+    use_consensus = profile.execution_strategy == "mixture_of_agents" and eligible_step
+    # auto delega la decisión en el meta-router del Broker (contrato v2.5); se
+    # envía el presupuesto de proponentes por si resuelve a mixture y el timeout
+    # de consenso porque la estrategia elegida puede ser la más lenta.
+    use_auto = profile.execution_strategy == "auto" and eligible_step
+    strategy = "auto" if use_auto else "mixture_of_agents" if use_consensus else "single"
+    proposer_count = profile.consensus_max_proposers if use_consensus or use_auto else 1
     prompt = (
         "<system_instructions>\n"
         + system_content
@@ -134,7 +141,7 @@ def build_chat_request(
             "max_proposers": proposer_count,
             "max_judges": 0,
             "max_rounds": 1,
-            "timeout_seconds": profile.consensus_timeout_seconds if use_consensus else 600,
+            "timeout_seconds": profile.consensus_timeout_seconds if use_consensus or use_auto else 600,
             "early_stop": True,
             "selection": {
                 "mode": "auto",

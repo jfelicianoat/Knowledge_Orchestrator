@@ -8,7 +8,6 @@ from pathlib import Path
 from knowledge_orchestrator.ui.event_bridge import UiEventBridge
 from knowledge_orchestrator.worker.inbox_watcher import InboxWatcher
 from knowledge_orchestrator.worker.ingestion_worker import IngestionWorker
-
 from tests.helpers import runtime, valid_markdown
 
 

@@ -42,7 +42,7 @@ status: "pending"
 ## Transcripción
 
 {transcript}
-'''.encode("utf-8")
+'''.encode()
 
 
 def generic_markdown(
@@ -67,7 +67,7 @@ tags: [programación, python]
 ## Transcripción
 
 Contenido aportado manualmente por el usuario.
-'''.encode("utf-8")
+'''.encode()
 
 
 def runtime(root: Path, *, checkpoint=None) -> tuple[PipelinePaths, Database, CaptureRepository, IngestionService]:

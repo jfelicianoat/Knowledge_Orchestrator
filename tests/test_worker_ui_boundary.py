@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import queue
-import threading
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
 
 from knowledge_orchestrator.domain.models import CaptureStatus, IngestionResult
-from knowledge_orchestrator.ui.event_bridge import UiEventBridge
-from knowledge_orchestrator.worker.ingestion_worker import IngestionWorker
 from knowledge_orchestrator.services.file_stability import FileStabilityChecker
 from knowledge_orchestrator.services.ingestion import IngestionService
-
+from knowledge_orchestrator.ui.event_bridge import UiEventBridge
+from knowledge_orchestrator.worker.ingestion_worker import IngestionWorker
 from tests.helpers import runtime, valid_markdown
 
 
@@ -44,7 +43,7 @@ class WorkerUiBoundaryTests(unittest.TestCase):
 
     def test_ui_events_can_only_be_drained_on_main_thread(self) -> None:
         bridge = UiEventBridge()
-        errors: "queue.Queue[Exception]" = queue.Queue()
+        errors: queue.Queue[Exception] = queue.Queue()
 
         def consume() -> None:
             try:

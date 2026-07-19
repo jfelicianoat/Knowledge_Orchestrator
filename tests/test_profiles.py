@@ -66,6 +66,22 @@ class ProfileServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "usado por temas activos"):
             self.service.set_enabled(default_profile.profile_id or 0, False)
 
+    def test_accepts_auto_strategy_and_rejects_agent_as_profile_value(self) -> None:
+        # "auto" delega en el meta-router del Broker (contrato v2.5); "agent"
+        # se mantiene fuera del perfil a propósito: solo el Broker puede
+        # elegirla como resolución interna de auto.
+        created = self.service.save_profile(profile_definition(
+            name="Perfil auto",
+            execution_strategy="auto",
+            consensus_fallback_to_single=True,
+        ))
+        self.assertEqual(created.execution_strategy, "auto")
+        with self.assertRaisesRegex(ProfileValidationError, "execution_strategy"):
+            self.service.save_profile(profile_definition(
+                name="Perfil agent",
+                execution_strategy="agent",
+            ))
+
     def test_persists_and_validates_multitasking_policy(self) -> None:
         created = self.service.save_profile(profile_definition(
             execution_strategy="mixture_of_agents",

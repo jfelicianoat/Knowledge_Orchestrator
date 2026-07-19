@@ -29,7 +29,7 @@ class PipelinePaths:
     obsidian_vault: Path
 
     @classmethod
-    def defaults(cls, home: Path | None = None) -> "PipelinePaths":
+    def defaults(cls, home: Path | None = None) -> PipelinePaths:
         user_home = home or Path.home()
         root = Path(os.environ.get(ENV_ROOT) or "C:/YT-Pipeline")
         inbox = os.environ.get(ENV_INBOX)
@@ -49,7 +49,7 @@ class PipelinePaths:
         )
 
     @classmethod
-    def under(cls, root: Path) -> "PipelinePaths":
+    def under(cls, root: Path) -> PipelinePaths:
         return cls(
             inbox=root / "inbox",
             staging=root / "staging",
@@ -101,7 +101,8 @@ class PipelinePaths:
 
 
 def _default_broker_url() -> str:
-    return os.environ.get(ENV_BROKER_URL) or "http://broker-machine.local:8080"
+    # El puerto por defecto del Broker cambió de 8080 a 8765 (contrato v2.5).
+    return os.environ.get(ENV_BROKER_URL) or "http://broker-machine.local:8765"
 
 
 def _default_admin_token() -> str | None:

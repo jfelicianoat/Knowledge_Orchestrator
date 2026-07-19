@@ -25,7 +25,7 @@ class FileStabilityTests(unittest.TestCase):
 
             checker = FileStabilityChecker(interval_seconds=1, sleep=mutate_once, max_observations=6)
             size, _mtime = checker.wait_until_stable(path)
-            self.assertEqual(size, len("contenido más largo".encode("utf-8")))
+            self.assertEqual(size, len("contenido más largo".encode()))
             self.assertEqual(sleeps, [1, 1, 1])
 
     def test_retries_locked_file_with_backoff_1_2_4(self) -> None:

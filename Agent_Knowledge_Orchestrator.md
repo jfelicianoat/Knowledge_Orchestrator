@@ -324,7 +324,7 @@ La misma pestaña incorpora candidatos de actualización semántica con evidenci
 
 - Hostname/IP de la máquina del Broker
 
-- Puerto (default: 8080)
+- Puerto (default: 8765)
 
 - Test de conectividad
 

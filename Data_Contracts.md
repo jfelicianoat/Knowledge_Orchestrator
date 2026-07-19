@@ -536,7 +536,7 @@ broker:
 
   hostname: "broker-machine.local"
 
-  port: 8080
+  port: 8765
 
   timeout_seconds: 180
 
@@ -646,7 +646,7 @@ server:
 
   host: "0.0.0.0"
 
-  port: 8080
+  port: 8765
 
   workers: 1
 
@@ -1043,7 +1043,7 @@ El contrato incluye:
 
 - clave idempotente y hash canónico con semántica `200 existente`/`409 conflicto`;
 - correlación separada entre ID local, `request_id` y `task_id` del Broker;
-- política `single | mixture_of_agents`, preset, selección y límites;
+- política `single | mixture_of_agents | auto`, preset, selección y límites;
 - referencia opcional `target_model` (`provider/deployment/model`) para selección exacta; el Orchestrator actual puede seguir usando `preferred_model` hasta adoptar esta extensión compatible;
 - clasificación de datos, autorización cloud, allowlist de proveedores y coste máximo;
 - fases, progreso por unidades y estados terminales;
@@ -1053,8 +1053,22 @@ El contrato incluye:
 
 `single` sigue siendo el valor predeterminado. Los chunks y embeddings no usan consenso; la síntesis o un paso `single` solo lo solicitan mediante política versionada del perfil. Un fallback autorizado crea otra tarea con nueva clave y referencia a la original. La confianza de consenso nunca se trata como evidencia factual. La especificación operativa está en `docs/Phase_5_Multitasking.md`.
 
-### 8.12 Extensión prevista `mixture_of_agents/slow`
+### 8.12 Contrato v2.5: `slow`, `auto`, `agent` y `waiting_for_tools`
 
-La versión actual del contrato acepta `fast`. Una revisión compatible añadirá `slow` exclusivamente para `strategy = mixture_of_agents` e `inference_kind = chat`. `slow` autoriza al Broker a ejecutar proponentes en paralelo o por oleadas dentro de una única tarea; no permite que el Orchestrator active dos workflows Broker ni le transfiere cálculo de VRAM.
+El Broker publica contrato v2.5 (`GET /api/v1/capabilities`). El validador del
+Orchestrator acepta desde esta revisión: preset `slow` (proponentes en paralelo
+u oleadas dentro de una única tarea mixture), estrategia `auto` (el meta-router
+del Broker resuelve a single/mixture/agent y la respuesta conserva `auto` en
+`execution_strategy`; la resolución interna queda en el evento
+`strategy.routed`), estrategia `agent` (solo como valor de respuesta: los
+perfiles no la exponen) y el estado no terminal `waiting_for_tools` (bucle
+agent con tool-calls del cliente pendientes; se mapea a PROCESSING). El puerto
+por defecto del Broker pasa de 8080 a 8765. Los perfiles pueden declarar
+`execution_strategy: auto` en los mismos pasos elegibles que mixture; el
+fallback a single autorizado por perfil cubre también las tareas `auto`.
+
+#### Extensión histórica `mixture_of_agents/slow` (texto previo)
+
+La versión anterior del contrato aceptaba solo `fast`. Una revisión compatible añadirá `slow` exclusivamente para `strategy = mixture_of_agents` e `inference_kind = chat`. `slow` autoriza al Broker a ejecutar proponentes en paralelo o por oleadas dentro de una única tarea; no permite que el Orchestrator active dos workflows Broker ni le transfiere cálculo de VRAM.
 
 El Broker expone `GET /api/v1/capabilities` con versión de contrato, presets, límites de concurrencia y modos de scheduling admitidos. El Orchestrator no enviará `slow` hasta implementar el consumo y validación de esa negociación. Los resultados deberán distinguir scheduling solicitado, lanzado y concurrencia observada. `adaptive` puede degradar a waves o serial; `parallel` imposible falla antes de invocar y no se degrada silenciosamente.

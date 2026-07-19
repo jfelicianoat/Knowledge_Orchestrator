@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from knowledge_orchestrator.config import PipelinePaths
@@ -182,7 +182,7 @@ class IngestionService:
         self,
         source: Path,
         directory: Path,
-        payload: dict[str, object],
+        payload: Mapping[str, object],
         discriminator: str | None = None,
     ) -> None:
         self.quarantine.quarantine(source, directory, payload, discriminator)

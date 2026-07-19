@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Sequence
 from tkinter import messagebox, ttk
 
 from knowledge_orchestrator.runtime import OrchestratorRuntime
@@ -134,7 +135,8 @@ class OrchestratorDashboard(tk.Tk):
     def _build_topics(self) -> None:
         columns = ("pos", "nombre", "carpeta", "perfil", "activo")
         self.topics_tree = ttk.Treeview(self.topics_tab, columns=columns, show="headings")
-        for column, text in {"pos": "#", "nombre": "Tema", "carpeta": "Carpeta", "perfil": "Perfil", "activo": "Activo"}.items():
+        headings = {"pos": "#", "nombre": "Tema", "carpeta": "Carpeta", "perfil": "Perfil", "activo": "Activo"}
+        for column, text in headings.items():
             self.topics_tree.heading(column, text=text)
             self.topics_tree.column(column, width=90 if column in {"pos", "activo"} else 260)
         self.topics_tree.grid(row=0, column=0, sticky="nsew")
@@ -187,7 +189,8 @@ class OrchestratorDashboard(tk.Tk):
     def _refresh_queue(self) -> None:
         rows = []
         for item in self.snapshots.queue():
-            position = "⠋⠙⠹⠸"[self._spinner_index] if item.position == 1 and item.status == "PROCESSING" else str(item.position)
+            spinning = item.position == 1 and item.status == "PROCESSING"
+            position = "⠋⠙⠹⠸"[self._spinner_index] if spinning else str(item.position)
             rows.append((
                 item.task_id,
                 (
@@ -229,7 +232,10 @@ class OrchestratorDashboard(tk.Tk):
         self._replace_tree(
             self.topics_tree,
             [
-                (str(item.topic_id), (item.position, item.name, item.folder, item.default_profile, "sí" if item.enabled else "no"))
+                (
+                    str(item.topic_id),
+                    (item.position, item.name, item.folder, item.default_profile, "sí" if item.enabled else "no"),
+                )
                 for item in self.snapshots.topics()
             ],
         )
@@ -253,7 +259,7 @@ class OrchestratorDashboard(tk.Tk):
         )
 
     @staticmethod
-    def _replace_tree(tree: ttk.Treeview, rows: list[tuple[str, tuple[object, ...]]]) -> None:
+    def _replace_tree(tree: ttk.Treeview, rows: Sequence[tuple[str, tuple[object, ...]]]) -> None:
         selected = set(tree.selection())
         current = set(tree.get_children())
         incoming = {row_id for row_id, _ in rows}

@@ -34,7 +34,8 @@ class PublicationRepository:
     def list_publishable(self) -> list[PublishableWorkflow]:
         with closing(self.database.connect()) as connection:
             rows = connection.execute(
-                "SELECT w.workflow_id, w.capture_id, w.revision, w.final_result, w.profile_id, c.topic_id, w.updated_at "
+                "SELECT w.workflow_id, w.capture_id, w.revision, w.final_result, w.profile_id, "
+                "c.topic_id, w.updated_at "
                 "FROM workflows w JOIN captures c ON c.capture_id = w.capture_id "
                 "LEFT JOIN notes n ON n.workflow_id = w.workflow_id "
                 "WHERE w.status = 'SUCCESS' AND w.final_result IS NOT NULL AND n.note_id IS NULL "
@@ -51,7 +52,9 @@ class PublicationRepository:
         content_hash: str, source_archive_path: Path,
     ) -> NoteRecord:
         with self.database.transaction(immediate=True) as connection:
-            existing = connection.execute("SELECT * FROM notes WHERE workflow_id = ?", (workflow.workflow_id,)).fetchone()
+            existing = connection.execute(
+                "SELECT * FROM notes WHERE workflow_id = ?", (workflow.workflow_id,)
+            ).fetchone()
             if existing:
                 return _note(existing)
             cursor = connection.execute(
@@ -74,7 +77,8 @@ class PublicationRepository:
     def get_workflow_for_note(self, note_id: int) -> PublishableWorkflow:
         with closing(self.database.connect()) as connection:
             row = connection.execute(
-                "SELECT w.workflow_id, w.capture_id, w.revision, w.final_result, w.profile_id, c.topic_id, w.updated_at "
+                "SELECT w.workflow_id, w.capture_id, w.revision, w.final_result, w.profile_id, "
+                "c.topic_id, w.updated_at "
                 "FROM notes n JOIN workflows w ON w.workflow_id = n.workflow_id "
                 "JOIN captures c ON c.capture_id = w.capture_id WHERE n.note_id = ?", (note_id,)
             ).fetchone()
@@ -108,7 +112,9 @@ class PublicationRepository:
             return []
         marks = ",".join("?" for _ in statuses)
         with closing(self.database.connect()) as connection:
-            rows = connection.execute(f"SELECT * FROM notes WHERE status IN ({marks}) ORDER BY note_id", statuses).fetchall()
+            rows = connection.execute(
+                f"SELECT * FROM notes WHERE status IN ({marks}) ORDER BY note_id", statuses
+            ).fetchall()
             return [_note(row) for row in rows]
 
     def mark_published(self, note_id: int) -> None:
@@ -122,7 +128,9 @@ class PublicationRepository:
 
     def complete_capture(self, note_id: int) -> None:
         with self.database.transaction(immediate=True) as connection:
-            row = connection.execute("SELECT capture_id, source_archive_path FROM notes WHERE note_id = ?", (note_id,)).fetchone()
+            row = connection.execute(
+                "SELECT capture_id, source_archive_path FROM notes WHERE note_id = ?", (note_id,)
+            ).fetchone()
             if row is None:
                 raise ValueError("Nota inexistente")
             connection.execute(
@@ -206,7 +214,8 @@ class PublicationRepository:
             connection.execute(
                 "UPDATE captures SET status = 'PENDING', processing_path = ?, archive_path = NULL, "
                 "last_error_code = NULL, last_error_message = NULL, "
-                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE capture_id = ? AND status IN ('REJECTED', 'PENDING')",
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE capture_id = ? AND status IN ('REJECTED', 'PENDING')",
                 (str(target_path), intent["capture_id"]),
             )
             connection.execute(

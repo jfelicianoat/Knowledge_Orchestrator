@@ -93,7 +93,9 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
         old_note = self.publish("ui_old", "# Estado\n\n" + old_text + "\n")
         self.runtime.semantic_maintenance.ingest_extraction(old_note.note_id, self.extraction(old_note, old_text))
         new_note = self.publish("ui_new", "# Estado\n\n" + new_text + "\n")
-        candidate_ids = self.runtime.semantic_maintenance.ingest_extraction(new_note.note_id, self.extraction(new_note, new_text))
+        candidate_ids = self.runtime.semantic_maintenance.ingest_extraction(
+            new_note.note_id, self.extraction(new_note, new_text)
+        )
         candidate_id = candidate_ids[0]
         self.runtime.semantic_maintenance.compare(candidate_id, {
             "relation": "SUPERSEDES",

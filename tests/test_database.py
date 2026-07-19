@@ -33,7 +33,7 @@ class DatabaseTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
-                    7,
+                    8,
                 )
                 self.assertEqual(connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
 
@@ -63,7 +63,7 @@ class DatabaseTests(unittest.TestCase):
                 self.assertIsNone(row["topic_id"])
                 self.assertEqual(
                     connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
-                    7,
+                    8,
                 )
 
 

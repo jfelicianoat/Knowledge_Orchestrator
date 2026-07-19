@@ -30,7 +30,8 @@ where = ["src"]
 knowledge_orchestrator = ["migrations/*.sql"]
 
 [tool.ruff]
-line-length = 110
+# 120 armoniza con AI_Broker: los dos proyectos del TFM comparten estilo.
+line-length = 120
 target-version = "py310"
 src = ["src"]
 

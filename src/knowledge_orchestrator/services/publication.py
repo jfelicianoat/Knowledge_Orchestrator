@@ -6,8 +6,8 @@ import os
 import re
 import shutil
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import yaml
 
@@ -73,7 +73,7 @@ class PublicationService:
         planner: WorkflowPlanner,
         *,
         checkpoint: Callable[[str], None] | None = None,
-        on_published: Callable[[NoteRecord], None] | None = None,
+        on_published: Callable[[NoteRecord], object] | None = None,
     ) -> None:
         self.paths = paths
         self.captures = captures
@@ -126,7 +126,8 @@ class PublicationService:
         filename = f"{_safe_filename(capture.title, capture.capture_id)} [{suffix}].md"
         destination = self.paths.obsidian_vault / topic.folder / filename
         temporary = destination.with_name(f".{destination.name}.{workflow.workflow_id}.tmp")
-        archive = self.paths.completed / f"{capture_label}-r{workflow.revision}-{_safe_filename(capture.original_filename, 'source.md')}"
+        archive_name = f"{capture_label}-r{workflow.revision}-{_safe_filename(capture.original_filename, 'source.md')}"
+        archive = self.paths.completed / archive_name
         digest = hashlib.sha256(document.encode("utf-8")).hexdigest()
         note = self.repository.create_intent(
             workflow, vault_path=destination, temp_path=temporary, content_hash=digest, source_archive_path=archive,

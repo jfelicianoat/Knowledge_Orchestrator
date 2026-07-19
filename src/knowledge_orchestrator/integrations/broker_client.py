@@ -6,7 +6,6 @@ import httpx
 
 from knowledge_orchestrator.config import BrokerSettings
 from knowledge_orchestrator.domain.broker_contracts import (
-    BrokerContractError,
     validate_accepted_response,
     validate_create_task_request,
     validate_models_response,

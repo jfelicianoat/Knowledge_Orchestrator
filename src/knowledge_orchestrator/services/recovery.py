@@ -8,7 +8,6 @@ from pathlib import Path
 
 from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.domain.contracts import parse_capture_bytes
-from knowledge_orchestrator.domain.errors import CaptureContractError
 from knowledge_orchestrator.domain.models import CaptureDocument, CaptureRecord, CaptureStatus
 from knowledge_orchestrator.repositories.capture_repository import CaptureRepository
 
