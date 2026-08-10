@@ -1,6 +1,6 @@
 # Knowledge Orchestrator — Desktop Pipeline
 
-Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows de conocimiento — chunking, síntesis, extracción de afirmaciones y comparación semántica — mientras que el AI Broker ejecuta una estrategia técnica `single` o, en una fase futura, `mixture_of_agents`/Multitasking_LLM.
+Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows de conocimiento — chunking, síntesis, extracción de afirmaciones y comparación semántica — mientras que el AI Broker ejecuta la estrategia técnica: `single`, `mixture_of_agents`/Multitasking_LLM o, delegando la decisión en el meta-router del Broker, `auto` (contrato v2.7).
 
 ## Arquitectura del Ecosistema
 
@@ -42,7 +42,7 @@ Orquestador de escritorio que conecta la captura de contenido con el procesamien
 - **Ingestión recuperable**: staging, SHA-256, commit SQLite y movimiento atómico a processing
 - **Orquestación completa de inferencias**: el Orchestrator renderiza prompts, resuelve placeholders, divide en chunks por límites naturales, encadena tareas Broker para cada chunk + síntesis, y valida cada respuesta
 - **Mantenimiento semántico**: indexa afirmaciones (`knowledge_claims`) con entidades, volatilidad y fuentes; compara nuevas evidencias contra notas existentes (supports/contradicts/supersedes); genera diff y propuestas con confianza e impacto; requiere aprobación humana antes de sobrescribir
-- **Pipeline visual animado**: cola con posición, fase, tiempo y salud del Broker
+- **Pipeline visual animado**: cola con posición, fase, tiempo, salud del Broker, espera de memoria explicada y cancelación
 - **Dashboard en tiempo real**: métricas diarias, gráficos de actividad, monitorización de modelos
 - **Gestión de temas**: auto-detección por keywords, carpetas dinámicas en Obsidian, perfiles editables por tema
 - **Sistema de revisión**: aceptar/rechazar notas, reprocesar desde original, revisión de candidatos de actualización semántica
@@ -90,7 +90,7 @@ STAGED → PENDING → SUBMITTING → QUEUED → PROCESSING → COMPLETED → (p
 - UI renderiza estado y envía comandos; no accede directamente a HTTP, SQLite ni filesystem
 - El Orchestrator es el único responsable de construir prompts, resolver placeholders, decidir chunking, encadenar inferencias, interpretar respuestas y proponer actualizaciones semánticas
 - El Broker recibe prompts finales, los encola, selecciona modelos/proveedores y devuelve una respuesta técnica. No conoce fuentes, chunks, Obsidian ni el workflow de conocimiento
-- En el modo actual `single`, una tarea equivale a una inferencia. La fase 5 añadirá `mixture_of_agents`, donde una tarea sigue siendo una unidad opaca para el Orchestrator pero puede contener invocaciones internas acotadas
+- Con `single`, una tarea equivale a una inferencia. Con `mixture_of_agents`, `agent` o `auto`, la tarea sigue siendo una unidad opaca para el Orchestrator pero puede contener invocaciones internas acotadas o pasos de razonamiento con herramientas del Broker
 - `content.metadata` contiene únicamente correlación allowlist; el Broker no la interpreta
 - Solo se usan fuentes introducidas por el usuario (videos capturados, documentos depositados, notas existentes). Sin RSS, vigilancia de documentación ni búsqueda web autónoma
 - Toda propuesta de actualización semántica debe citar evidencia local con `source_id` y span. El conocimiento interno del LLM no es evidencia
@@ -181,7 +181,7 @@ tests/
 
 ### Fase 3 — Frontera con el Broker
 
-La fase 3 implementa el cliente HTTP asíncrono y la validación inmediata del contrato Broker v2, con identificadores locales separados de los `task_id` asignados por el Broker. Incluye workflows durables simples o por chunks, síntesis con dependencias, creación `202`, replay idempotente `200`, detección de conflictos `409`, dispatcher y poller independientes, reintentos transitorios, recuperación tras reinicio y descubrimiento periódico de modelos.
+La fase 3 implementa el cliente HTTP asíncrono y la validación inmediata del contrato Broker v2.7, con identificadores locales separados de los `task_id` asignados por el Broker. Incluye workflows durables simples o por chunks, síntesis con dependencias, creación `202`, replay idempotente `200`, detección de conflictos `409`, dispatcher y poller independientes, espera no terminal `waiting_for_memory`, cancelación idempotente, reintentos transitorios, recuperación tras reinicio y descubrimiento periódico de modelos.
 
 El dispatcher envía todos los chunks disponibles sin esperar resultados. En el baseline `single`, el Broker procesa una inferencia a la vez. La futura opción Multitasking_LLM mantendrá un solo workflow Broker activo, aunque podrá ejecutar invocaciones internas mediante planificación adaptativa. El worker de red está separado del watcher y del hilo principal.
 
@@ -195,7 +195,7 @@ El rechazo retira nota y fuente a `rejected` sin destruirlas. El reprocesado cop
 
 ### Fase 5 — Multitasking_LLM
 
-La integración opcional con `mixture_of_agents/fast` está implementada mediante una política versionada por perfil y paso. `single` sigue siendo el valor predeterminado; los chunks permanecen en `single` y el consenso se reserva para síntesis o pasos `single` habilitados expresamente.
+La integración con `mixture_of_agents/fast` y con `auto` (meta-router del Broker, contrato v2.7) está implementada mediante una política versionada por perfil y paso. `single` sigue siendo el valor predeterminado; los chunks permanecen en `single` y las estrategias pesadas se reservan para síntesis o pasos `single` habilitados expresamente.
 
 La integración incluye validación de metadata de consenso, progreso durable y fallback `single` restringido a fallos de quorum/capacidad. AI Broker ya dispone de providers reales y catálogo; la activación por defecto sigue esperando el benchmark representativo. Véanse [`docs/Phase_5_Multitasking.md`](docs/Phase_5_Multitasking.md) y [`docs/Study_Multitasking_LLM.md`](docs/Study_Multitasking_LLM.md).
 

@@ -57,8 +57,8 @@ def prompt_fields(template: str, field_name: str) -> set[str]:
 def validate_profile(profile: ProfileDefinition) -> ProfileDefinition:
     if not profile.name.strip() or len(profile.name) > 100:
         raise ProfileValidationError("name debe contener entre 1 y 100 caracteres")
-    if not profile.preferred_model.strip() or len(profile.preferred_model) > 200:
-        raise ProfileValidationError("preferred_model debe contener entre 1 y 200 caracteres")
+    if len(profile.preferred_model) > 200:
+        raise ProfileValidationError("preferred_model no puede superar 200 caracteres")
     if not 0 <= profile.temperature <= 2:
         raise ProfileValidationError("temperature debe estar entre 0 y 2")
     if not 1 <= profile.max_output_tokens <= 100_000:
@@ -91,11 +91,19 @@ def validate_profile(profile: ProfileDefinition) -> ProfileDefinition:
     lowered_providers = {provider.lower() for provider in profile.allowed_providers}
     if not profile.cloud_allowed and cloud_providers.intersection(lowered_providers):
         raise ProfileValidationError("cloud_allowed=false no permite proveedores cloud")
-    if profile.data_classification == "local_only":
-        if profile.cloud_allowed or set(provider.lower() for provider in profile.allowed_providers) != {"ollama"}:
-            raise ProfileValidationError("local_only exige cloud desactivado y proveedor ollama")
+    if profile.data_classification in {"confidential", "local_only"}:
+        if profile.cloud_allowed or cloud_providers.intersection(lowered_providers):
+            raise ProfileValidationError(
+                f"{profile.data_classification} exige cloud desactivado y proveedores locales"
+            )
     if profile.max_cost_usd < 0:
         raise ProfileValidationError("max_cost_usd no puede ser negativo")
+    if profile.long_context not in {"fail", "map_reduce"}:
+        raise ProfileValidationError("long_context no permitido")
+    if profile.long_context == "map_reduce" and profile.execution_strategy == "mixture_of_agents":
+        raise ProfileValidationError("map_reduce solo admite estrategia single o auto")
+    if profile.prompt_compression not in {None, "off", "light", "medium", "aggressive"}:
+        raise ProfileValidationError("prompt_compression no permitido")
     for field_name in PROMPT_PLACEHOLDERS:
         template = getattr(profile, field_name)
         if not template.strip():

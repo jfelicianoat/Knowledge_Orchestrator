@@ -72,6 +72,10 @@ class ProfileItem:
     preferred_model: str
     execution_strategy: str
     human_review_required: bool
+    data_classification: str
+    long_context: str
+    prompt_compression: str | None
+    max_cost_usd: float
 
 
 class UiSnapshotService:
@@ -171,7 +175,8 @@ class UiSnapshotService:
     def profiles(self) -> list[ProfileItem]:
         with closing(self.database.connect(readonly=True)) as connection:
             rows = connection.execute(
-                "SELECT profile_id, name, enabled, preferred_model, execution_strategy, human_review_required "
+                "SELECT profile_id, name, enabled, preferred_model, execution_strategy, human_review_required, "
+                "data_classification, long_context, prompt_compression, max_cost_usd "
                 "FROM profiles ORDER BY name COLLATE NOCASE, profile_id"
             ).fetchall()
         return [
@@ -182,14 +187,27 @@ class UiSnapshotService:
                 preferred_model=row["preferred_model"],
                 execution_strategy=row["execution_strategy"],
                 human_review_required=bool(row["human_review_required"]),
+                data_classification=row["data_classification"],
+                long_context=row["long_context"],
+                prompt_compression=row["prompt_compression"],
+                max_cost_usd=float(row["max_cost_usd"]),
             )
             for row in rows
         ]
 
+    def model_names(self) -> list[str]:
+        with closing(self.database.connect(readonly=True)) as connection:
+            rows = connection.execute(
+                "SELECT name FROM model_catalog WHERE status IN ('available', 'loaded', 'online') "
+                "ORDER BY name COLLATE NOCASE"
+            ).fetchall()
+        return [str(row["name"]) for row in rows]
+
     @staticmethod
     def _queue_item(position: int, row: Any) -> QueueItem:
         progress = _safe_json(row["progress_json"])
-        phase = str(progress.get("phase") or progress.get("status") or row["status"]).lower()
+        raw_phase = str(progress.get("phase") or progress.get("status") or row["status"]).lower()
+        phase = "Esperando memoria" if raw_phase == "waiting_for_memory" else raw_phase
         started_at = row["started_at"] or row["queued_at"] or row["created_at"]
         model = row["model_used"] or row["preferred_model"] or "auto"
         return QueueItem(
@@ -207,7 +225,11 @@ class UiSnapshotService:
             elapsed_seconds=_elapsed_seconds(started_at),
             attempt=int(row["attempt"] or 0),
             execution_strategy=row["execution_strategy"] or "single",
-            progress_text=_progress_text(progress),
+            progress_text=(
+                "El Broker reanudará la tarea automáticamente cuando haya memoria disponible."
+                if raw_phase == "waiting_for_memory"
+                else _progress_text(progress)
+            ),
         )
 
 

@@ -133,6 +133,24 @@ class PhaseThreeWorkflowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(recovered.status, TaskStatus.READY)
             self.assertEqual(recovered.idempotency_key, original.idempotency_key)
 
+    async def test_future_intermediate_broker_phase_remains_processing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = self.make_runtime(Path(temporary), capture_id="document_future_phase", transcript="Texto.")
+            workflow_id = runtime.workflow_planner.plan_capture("document_future_phase")
+            task = runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
+
+            runtime.workflow_repository.apply_status(task.task_id, {
+                "task_id": task.task_id,
+                "status": "optimizing_context",
+                "progress": {"phase": "optimizing_context"},
+                "result": None,
+                "error": None,
+            })
+
+            persisted = runtime.workflow_repository.get_task(task.task_id)
+            self.assertEqual(persisted.status, TaskStatus.PROCESSING)
+            self.assertEqual(json.loads(persisted.progress_json)["phase"], "optimizing_context")
+
     async def test_v2_terminal_result_maps_to_internal_success_and_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             runtime = self.make_runtime(Path(temporary), capture_id="document_v2_result", transcript="Texto breve.")

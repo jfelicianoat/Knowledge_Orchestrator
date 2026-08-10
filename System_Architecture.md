@@ -196,7 +196,7 @@ Esta sección consolida las decisiones del hilo original y prevalece sobre ejemp
 
 - **YT Capture Agent:** captura metadata y transcripción sin procesarlas y descarga un Markdown v1 en la bandeja de entrada del navegador.
 - **Knowledge Orchestrator:** valida entradas, indexa Obsidian, decide tema y perfil, construye y encadena todas las inferencias, interpreta sus respuestas, mantiene evidencias/diffs/versiones y escribe el resultado.
-- **AI Broker:** recibe prompts finales, los encola y devuelve una respuesta técnica. Puede ejecutar `single` o coordinar internamente `mixture_of_agents`, pero no contiene lógica de fuentes, conocimiento, Obsidian ni workflows del Orchestrator.
+- **AI Broker:** recibe prompts finales, los encola y devuelve una respuesta técnica. Puede ejecutar `single`, coordinar internamente `mixture_of_agents` o `agent`, o resolver la estrategia por tarea cuando el Orchestrator envía `auto` (contrato v2.7). La espera `waiting_for_memory` conserva la tarea en cola hasta que haya memoria y no se interpreta como fallo. No contiene lógica de fuentes, conocimiento, Obsidian ni workflows del Orchestrator.
 
 ### Flujo de datos definitivo
 
@@ -212,7 +212,7 @@ Esta sección consolida las decisiones del hilo original y prevalece sobre ejemp
 
 - Cada aplicación mantiene su propia base SQLite; no se comparte base de datos entre máquinas.
 - El Orchestrator usa un único proceso: Tk en el hilo principal y un worker con bucle `asyncio` para red, filesystem y reintentos.
-- El Broker usa un proceso Uvicorn y mantiene inicialmente un solo workflow activo. En `single` realiza una llamada; en `mixture_of_agents` puede ejecutar invocaciones internas en paralelo, por oleadas o secuencialmente según VRAM. Esa planificación nunca pertenece al Orchestrator.
+- El Broker usa un proceso Uvicorn y mantiene inicialmente un solo workflow activo. En `single` realiza una llamada; en `mixture_of_agents` puede ejecutar invocaciones internas en paralelo, por oleadas o secuencialmente según VRAM; en `agent` recorre un bucle de razonamiento con herramientas propias. Esa planificación nunca pertenece al Orchestrator.
 - Todas las transiciones de estado se persisten antes de ejecutar efectos externos y se reanudan de forma segura tras un reinicio.
 - La comunicación Orchestrator-Broker usa hostname/mDNS, HTTP en la red privada y, por decisión explícita del usuario, no usa autenticación en el MVP. No debe exponerse el puerto a Internet.
 

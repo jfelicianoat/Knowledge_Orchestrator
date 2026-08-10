@@ -70,7 +70,8 @@ class WorkflowPlanner:
         workflow_revision = revision or self.workflows.next_revision(capture_id)
         workflow_id = f"wf_{capture_id}_r{workflow_revision}"
         tasks: list[PlannedTask] = []
-        if estimate_tokens(system + user) <= input_budget:
+        broker_handles_long_context = profile.long_context == "map_reduce"
+        if estimate_tokens(system + user) <= input_budget or broker_handles_long_context:
             strategy = "single"
             task = self._task(
                 capture_id=capture_id,
@@ -133,6 +134,7 @@ class WorkflowPlanner:
                 "chunk_count": chunk_count,
                 "max_context_tokens": self.max_context_tokens,
                 "input_budget": input_budget,
+                "long_context": profile.long_context,
             },
             tasks=tasks,
         )

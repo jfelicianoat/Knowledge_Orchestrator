@@ -42,6 +42,8 @@ class BrokerWorker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._broker_online: bool | None = None
+        self._capabilities_lock = threading.Lock()
+        self._capabilities: dict = {}
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -57,6 +59,13 @@ class BrokerWorker:
             self._thread.join(wait_seconds)
             if self._thread.is_alive():
                 raise TimeoutError("El worker del Broker no se detuvo a tiempo")
+
+    def capabilities_snapshot(self) -> dict:
+        with self._capabilities_lock:
+            return dict(self._capabilities)
+
+    def request_cancel(self, task_id: str) -> bool:
+        return self.poller.repository.request_cancel(task_id)
 
     def _run(self) -> None:
         crash_backoff = 1.0
@@ -76,10 +85,17 @@ class BrokerWorker:
         next_poll = 0.0
         next_discovery = 0.0
         next_health = 0.0
+        next_capabilities = 0.0
         consecutive_errors = 0
         while not self._stop.is_set():
             now = time.monotonic()
             try:
+                # El contrato se negocia antes de planificar o enviar. Así nunca
+                # sale un payload 2.7 hacia un Broker antiguo durante el arranque.
+                if now >= next_capabilities:
+                    await self._refresh_capabilities()
+                    next_capabilities = now + self.settings.discovery_interval_seconds
+                await self._cancel_requested_tasks()
                 planned = self.planner.plan_unplanned()
                 accepted = await self.dispatcher.dispatch_once()
                 if planned or accepted:
@@ -128,6 +144,53 @@ class BrokerWorker:
 
         client = self.dispatcher.client
         await client.close()
+
+    async def _refresh_capabilities(self) -> None:
+        try:
+            capabilities = await self.dispatcher.client.capabilities()
+        except BrokerClientError as error:
+            # La especificación 2.7 exige degradación amable: no poder leer
+            # capacidades nunca implica que la operación solicitada no exista.
+            self._emit("BROKER_CAPABILITIES_UNAVAILABLE", str(error))
+            return
+        with self._capabilities_lock:
+            self._capabilities = dict(capabilities)
+        contract_version = capabilities.get("contract_version")
+        if contract_version != "2.7":
+            self._emit(
+                "BROKER_CONTRACT_WARNING",
+                f"Contrato Broker anunciado: {contract_version or 'desconocido'}; esperado: 2.7",
+                {"contract_version": contract_version, "expected_contract_version": "2.7"},
+            )
+        self._emit(
+            "BROKER_CAPABILITIES_UPDATED",
+            f"Contrato Broker {capabilities.get('contract_version')}",
+            capabilities,
+        )
+
+    async def _cancel_requested_tasks(self) -> None:
+        for task in self.poller.repository.list_cancel_requested():
+            if not task.broker_task_id:
+                continue
+            try:
+                payload = await self.dispatcher.client.cancel_task(
+                    task.broker_task_id,
+                    cancel_url=task.cancel_url,
+                )
+            except BrokerClientError as error:
+                self._emit(
+                    "BROKER_CANCEL_PENDING",
+                    f"No se pudo confirmar todavía la cancelación de {task.task_id}: {error}",
+                    {"task_id": task.task_id},
+                )
+                continue
+            self.poller.repository.apply_status(task.task_id, payload)
+            self.planner.advance_workflow(task.workflow_id)
+            self._emit(
+                "BROKER_TASK_CANCELLED",
+                f"Tarea cancelada: {task.task_id}",
+                {"task_id": task.task_id},
+            )
 
     async def _check_health(self) -> None:
         try:

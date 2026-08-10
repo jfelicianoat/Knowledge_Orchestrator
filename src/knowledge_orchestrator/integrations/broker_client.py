@@ -26,7 +26,9 @@ class PermanentBrokerError(BrokerClientError):
 
 
 class BrokerClient:
-    TRANSIENT_STATUSES = {429, 502, 503, 504}
+    # Un 401/403 suele significar que el token admin rotó al reiniciarse el
+    # Broker. No invalida las tareas persistidas y debe poder recuperarse.
+    TRANSIENT_STATUSES = {401, 403, 429, 502, 503, 504}
 
     def __init__(
         self,
@@ -77,13 +79,21 @@ class BrokerClient:
         response = await self._request("DELETE", cancel_url or f"/api/v1/tasks/{task_id}")
         if response.status_code not in {200, 202}:
             self._raise_for_status(response)
-        return dict(self._json(response))
+        return dict(validate_task_status_response(self._json(response), task_id))
 
     async def list_models(self) -> list[dict[str, Any]]:
         response = await self._request("GET", "/api/v1/models")
         if response.status_code != 200:
             self._raise_for_status(response)
         return [dict(model) for model in validate_models_response(self._json(response))]
+
+    async def capabilities(self) -> dict[str, Any]:
+        response = await self._request("GET", "/api/v1/capabilities")
+        if response.status_code != 200:
+            self._raise_for_status(response)
+        # Capabilities es aditivo: se ignoran campos desconocidos y la versión
+        # se expone al worker para advertir, sin bloquear el envío de tareas.
+        return dict(self._json(response))
 
     async def health(self) -> dict[str, Any]:
         response = await self._request("GET", "/health")
@@ -114,7 +124,18 @@ class BrokerClient:
         try:
             body = response.json()
             if isinstance(body, dict):
-                message = str(body.get("error_message") or body.get("message") or body.get("code") or message)
+                detail = body.get("detail")
+                nested = body.get("error")
+                if isinstance(detail, dict):
+                    nested = detail
+                if isinstance(nested, dict):
+                    message = str(
+                        nested.get("message") or nested.get("code") or body.get("message") or message
+                    )
+                else:
+                    message = str(
+                        body.get("error_message") or body.get("message") or body.get("code") or message
+                    )
         except ValueError:
             pass
         if response.status_code in self.TRANSIENT_STATUSES:

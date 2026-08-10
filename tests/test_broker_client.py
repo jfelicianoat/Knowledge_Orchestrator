@@ -88,6 +88,79 @@ class BrokerClientTests(unittest.IsolatedAsyncioTestCase):
             await client.close()
         self.assertEqual(seen_headers, [None])
 
+    async def test_reads_v27_capabilities(self) -> None:
+        client = BrokerClient(
+            BrokerSettings(base_url="http://broker.test"),
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={
+                "contract_version": "2.7",
+                "strategies": ["single", "auto"],
+                "work_lanes": ["inference"],
+            })),
+        )
+        try:
+            capabilities = await client.capabilities()
+        finally:
+            await client.close()
+        self.assertEqual(capabilities["contract_version"], "2.7")
+        self.assertIn("auto", capabilities["strategies"])
+
+    async def test_capabilities_version_mismatch_is_reported_without_blocking_client(self) -> None:
+        client = BrokerClient(
+            BrokerSettings(base_url="http://broker.test"),
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(200, json={"contract_version": "2.8", "future_field": True})
+            ),
+        )
+        try:
+            capabilities = await client.capabilities()
+        finally:
+            await client.close()
+        self.assertEqual(capabilities["contract_version"], "2.8")
+        self.assertTrue(capabilities["future_field"])
+
+    async def test_treats_rotated_admin_token_as_recoverable(self) -> None:
+        client = BrokerClient(
+            BrokerSettings(base_url="http://broker.test", admin_token="expired"),
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    403,
+                    json={"detail": {"code": "ADMIN_AUTH_REQUIRED", "message": "token caducado"}},
+                )
+            ),
+        )
+        try:
+            with self.assertRaises(TransientBrokerError) as caught:
+                await client.get_task("broker_task_1")
+        finally:
+            await client.close()
+        self.assertIn("token caducado", str(caught.exception))
+
+    async def test_cancels_through_advertised_url_with_delete(self) -> None:
+        seen: list[tuple[str, str]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append((request.method, request.url.path))
+            return httpx.Response(200, json={
+                "task_id": "broker_task_1", "kind": "inference", "status": "cancelled",
+                "created_at": "2026-07-28T10:00:00Z", "updated_at": "2026-07-28T10:01:00Z",
+                "execution_strategy": "single", "execution_preset": "fast", "selection_mode": "auto",
+                "progress": {"phase": "cancelled"}, "result": None, "error": None,
+            })
+
+        client = BrokerClient(
+            BrokerSettings(base_url="http://broker.test"),
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            result = await client.cancel_task(
+                "broker_task_1",
+                cancel_url="/api/v1/tasks/broker_task_1",
+            )
+        finally:
+            await client.close()
+        self.assertEqual(result["status"], "cancelled")
+        self.assertEqual(seen, [("DELETE", "/api/v1/tasks/broker_task_1")])
+
 
 if __name__ == "__main__":
     unittest.main()

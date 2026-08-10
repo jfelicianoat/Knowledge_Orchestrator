@@ -1033,9 +1033,9 @@ Estados de candidato: `PENDING_COMPARISON`, `PENDING_REVIEW`, `APPLYING`, `APPLI
 
 Toda propuesta debe citar fuentes y spans existentes en el repositorio local. El conocimiento interno del LLM no es evidencia. `manual_lock: true` impide incluso almacenar un patch. La aprobación conserva primero un snapshot en `note_revisions` y aplica mediante temporal sincronizado más `os.replace`.
 
-### 8.11 Contrato Broker v2 y base futura para Multitasking_LLM
+### 8.11 Contrato Broker v2.7 y base para Multitasking_LLM
 
-El contrato v2 está implementado para `single` y constituye la base de la futura fase 5.
+El contrato está implementado para `single`, `mixture_of_agents` y `auto`; el cliente negocia y valida la revisión v2.7. La política por perfil decide qué pasos usan estrategias pesadas.
 
 AI Broker usa `idempotency_key`, `request_id`, `content`, `output`, `generation`, `model_requirements`, `execution`, `risk` y `priority`; genera su propio `task_id`; publica fases detalladas; termina en `completed`, `failed` o `cancelled`; y entrega `result_markdown` con metadata técnica. El Orchestrator adapta y valida este esquema y conserva por separado el ID local y el ID Broker.
 
@@ -1053,10 +1053,10 @@ El contrato incluye:
 
 `single` sigue siendo el valor predeterminado. Los chunks y embeddings no usan consenso; la síntesis o un paso `single` solo lo solicitan mediante política versionada del perfil. Un fallback autorizado crea otra tarea con nueva clave y referencia a la original. La confianza de consenso nunca se trata como evidencia factual. La especificación operativa está en `docs/Phase_5_Multitasking.md`.
 
-### 8.12 Contrato v2.5: `slow`, `auto`, `agent` y `waiting_for_tools`
+### 8.12 Histórico del contrato v2.5: `slow`, `auto`, `agent` y `waiting_for_tools`
 
-El Broker publica contrato v2.5 (`GET /api/v1/capabilities`). El validador del
-Orchestrator acepta desde esta revisión: preset `slow` (proponentes en paralelo
+El Broker publicaba el contrato v2.5 mediante `GET /api/v1/capabilities`. El validador del
+Orchestrator acepta desde aquella revisión: preset `slow` (proponentes en paralelo
 u oleadas dentro de una única tarea mixture), estrategia `auto` (el meta-router
 del Broker resuelve a single/mixture/agent y la respuesta conserva `auto` en
 `execution_strategy`; la resolución interna queda en el evento
@@ -1072,3 +1072,13 @@ fallback a single autorizado por perfil cubre también las tareas `auto`.
 La versión anterior del contrato aceptaba solo `fast`. Una revisión compatible añadirá `slow` exclusivamente para `strategy = mixture_of_agents` e `inference_kind = chat`. `slow` autoriza al Broker a ejecutar proponentes en paralelo o por oleadas dentro de una única tarea; no permite que el Orchestrator active dos workflows Broker ni le transfiere cálculo de VRAM.
 
 El Broker expone `GET /api/v1/capabilities` con versión de contrato, presets, límites de concurrencia y modos de scheduling admitidos. El Orchestrator no enviará `slow` hasta implementar el consumo y validación de esa negociación. Los resultados deberán distinguir scheduling solicitado, lanzado y concurrencia observada. `adaptive` puede degradar a waves o serial; `parallel` imposible falla antes de invocar y no se degrada silenciosamente.
+
+### 8.13 Contrato v2.7: espera recuperable de memoria
+
+`waiting_for_memory` es un estado no terminal equivalente a una espera en cola:
+no consume un intento, no activa backoff del Orchestrator y no inicia el tiempo
+de procesamiento local. El poller continúa consultando la tarea hasta que el
+Broker la reanuda automáticamente. La UI muestra la causa y permite solicitar
+la cancelación mediante el `cancel_url` anunciado por el Broker. Si el modelo
+no cabe ni con la máquina vacía, el error terminal es
+`VRAM_MODEL_TOO_LARGE`; nunca se transforma en una espera infinita.

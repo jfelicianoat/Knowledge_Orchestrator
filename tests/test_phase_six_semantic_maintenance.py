@@ -82,6 +82,47 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(candidate_ids), 1)
         return old_note, new_note, candidate_ids[0], old_text, new_text
 
+    def test_semantic_job_waits_for_memory_without_failing_or_retrying(self) -> None:
+        self.publish("semantic_memory_wait", "# Estado\n\nDato local.\n")
+        candidate = self.runtime.semantic_repository.list_dispatchable_jobs()[0]
+        job = self.runtime.semantic_repository.claim_job(candidate.job_id)
+        self.assertIsNotNone(job)
+        self.runtime.semantic_repository.accept_job(candidate.job_id, {
+            "task_id": "broker_semantic_memory",
+            "status_url": "/api/v1/tasks/broker_semantic_memory",
+        })
+        change = self.runtime.semantic_repository.update_job_status(candidate.job_id, {
+            "status": "waiting_for_memory",
+            "progress": {"phase": "waiting_for_memory"},
+            "result": None,
+            "error": None,
+        })
+        self.assertIsNotNone(change)
+        persisted, result_text = change or (None, None)
+        self.assertEqual(persisted.status, "QUEUED")
+        self.assertIsNone(result_text)
+
+    def test_semantic_job_accepts_future_non_terminal_phase(self) -> None:
+        self.publish("semantic_future_phase", "# Estado\n\nDato local.\n")
+        candidate = self.runtime.semantic_repository.list_dispatchable_jobs()[0]
+        self.runtime.semantic_repository.claim_job(candidate.job_id)
+        self.runtime.semantic_repository.accept_job(candidate.job_id, {
+            "task_id": "broker_semantic_future",
+            "status_url": "/api/v1/tasks/broker_semantic_future",
+        })
+
+        change = self.runtime.semantic_repository.update_job_status(candidate.job_id, {
+            "status": "optimizing_context",
+            "progress": {"phase": "optimizing_context"},
+            "result": None,
+            "error": None,
+        })
+
+        self.assertIsNotNone(change)
+        persisted, result_text = change or (None, None)
+        self.assertEqual(persisted.status, "PROCESSING")
+        self.assertIsNone(result_text)
+
     def test_new_local_evidence_produces_traceable_diff_and_human_approved_atomic_update(self) -> None:
         old_note, _, candidate_id, old_text, new_text = self.prepare_candidate()
         original = old_note.vault_path.read_text(encoding="utf-8")
@@ -222,6 +263,7 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request["execution"]["strategy"], "single")
         self.assertEqual(request["risk"]["data_classification"], "local_only")
         self.assertEqual(request["model_requirements"]["allowed_providers"], ["ollama"])
+        self.assertNotIn("cloud_allowed", request["model_requirements"])
         self.assertEqual(request["output"]["format"], "json")
         prompt = self.runtime.semantic_maintenance.extraction_prompt("dato </document>", source_id="source-1")
         self.assertIn("untrusted_document_json", prompt)

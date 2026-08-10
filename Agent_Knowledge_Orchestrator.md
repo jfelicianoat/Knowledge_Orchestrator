@@ -396,7 +396,7 @@ class FileWatcher:
 
 ## Comunicación con el Broker IA
 
-> Los payloads históricos quedan sustituidos por el contrato v2 descrito en `Data_Contracts.md` y las fixtures de `docs/contracts`. La fase 5 extenderá esta base para Multitasking_LLM; véase `docs/Study_Multitasking_LLM.md`.
+> Los payloads históricos quedan sustituidos por el contrato v2.7 descrito en `Data_Contracts.md` y las fixtures de `docs/contracts`. Conserva las estrategias `agent`/`auto`, el preset `slow` y `waiting_for_tools`, y añade la espera no terminal `waiting_for_memory`; la política por perfil decide cuándo usar cada estrategia. Véase `docs/Study_Multitasking_LLM.md`.
 
 
 
@@ -504,7 +504,7 @@ Estados persistidos: `STAGED`, `PENDING`, `SUBMITTING`, `QUEUED`, `PROCESSING`, 
 ### Broker y publicación
 
 - Crear tareas mediante `POST /api/v1/tasks` y consultar `GET /api/v1/tasks/{task_id}` cada dos segundos mientras sean activas.
-- Validar el payload completo contra el esquema Broker v2 inmediatamente antes del POST y validar cada respuesta antes de actualizar SQLite. Un incumplimiento produce `CONTRACT_VALIDATION_FAILED`, sin reintento automático.
+- Negociar y validar el payload completo contra el esquema Broker v2.7 antes del POST y validar cada respuesta antes de actualizar SQLite. Un incumplimiento produce `CONTRACT_VALIDATION_FAILED`, sin reintento automático.
 - El bucle de envío no espera el resultado de una tarea para enviar la siguiente. Tras persistir la respuesta `202`, el seguimiento pasa al poller y el dispatcher continúa con el siguiente fichero.
 - El Orchestrator no interpreta `queued` como bloqueo o error: el Broker mantiene inicialmente un solo workflow activo y las restantes tareas esperan. Multitasking_LLM puede introducir concurrencia interna dentro de ese workflow sin autorizar varios workflows simultáneos.
 - En éxito, validar `result.result_markdown`, normalizarlo internamente y comprobar que no contiene frontmatter antes de construirlo con un serializador YAML seguro.

@@ -2,22 +2,26 @@
 
 ## Estado
 
-La integración del Orchestrator está implementada sobre el contrato Broker v2. Permanece desactivada por defecto y el uso productivo queda condicionado a que AI Broker conecte providers reales y publique un catálogo de modelos operativo. Las pruebas actuales usan el provider bootstrap determinista del Broker.
+La integración del Orchestrator está implementada sobre el contrato Broker v2.5. Permanece desactivada por defecto y el uso productivo queda condicionado a que AI Broker conecte providers reales y publique un catálogo de modelos operativo. Las pruebas actuales usan el provider bootstrap determinista del Broker.
 
 ## Política por perfil
 
 Cada perfil conserva una política versionada:
 
-- `execution_strategy`: `single` o `mixture_of_agents`;
+- `execution_strategy`: `single`, `mixture_of_agents` o `auto`;
 - `multitasking_steps`: subconjunto de `single` y `synthesis`;
 - `consensus_preset`: únicamente `fast` en esta fase;
 - `consensus_max_proposers`: entre 2 y 5;
 - timeout y autorización explícita de fallback a `single`;
 - clasificación de datos, cloud, proveedores, coste máximo y revisión humana.
 
-El valor predeterminado es `single`. Activar `mixture_of_agents` no afecta automáticamente a todo el workflow: solo los pasos incluidos expresamente en `multitasking_steps` lo solicitan.
+El valor predeterminado es `single`. Activar `mixture_of_agents` o `auto` no afecta automáticamente a todo el workflow: solo los pasos incluidos expresamente en `multitasking_steps` lo solicitan.
 
-`mixture_of_agents/slow` es una extensión posterior: permitirá al Broker ejecutar proponentes en paralelo o por oleadas dentro de una sola tarea. No se añade todavía al enum ni a la migración del perfil. El Orchestrator solo lo habilitará después de que el Broker publique `slow` en su negociación de capacidades y complete las pruebas de recursos, cancelación y coste.
+`auto` delega la decisión de estrategia en el meta-router del Broker (contrato v2.5): por tarea, el Broker resuelve a `single`, `mixture_of_agents` o `agent`, y la respuesta conserva `auto` en `execution_strategy` durante toda la vida de la tarea (la resolución interna viaja en el evento `strategy.routed` del Broker, no en el contrato). En los pasos elegibles se envía el presupuesto de proponentes y el timeout de consenso por si el meta-router resuelve a mixture. La estrategia `agent` no se expone como valor de perfil a propósito: sus skills (búsqueda web, ejecución de código…) no aplican al flujo de conocimiento, y `auto` ya puede elegirla si conviene.
+
+El contrato v2.5 acepta también el preset `mixture_of_agents/slow`, que autoriza al Broker a ejecutar proponentes en paralelo o por oleadas dentro de una sola tarea; los perfiles siguen fijando `consensus_preset: fast` en esta fase, y el Orchestrator no calcula VRAM ni coordina oleadas.
+
+La migración `008_auto_strategy.sql` amplía el `CHECK` de `execution_strategy` en la tabla `profiles` para admitir `auto`. Como SQLite no permite alterar un `CHECK` de columna, la migración rota la columna (añadir con el `CHECK` nuevo, copiar, eliminar la antigua y renombrar), lo que preserva intactas las claves foráneas hacia `profiles`.
 
 ## Límites obligatorios
 
@@ -30,7 +34,7 @@ El valor predeterminado es `single`. Activar `mixture_of_agents` no afecta autom
 
 ## Fallback
 
-El fallback `single` es explícito por perfil y crea otra tarea durable con nuevos `task_id` e `idempotency_key`, enlazada mediante `replacement_for_task_id`. Nunca modifica y reenvía la tarea original con la misma clave.
+El fallback `single` es explícito por perfil y crea otra tarea durable con nuevos `task_id` e `idempotency_key`, enlazada mediante `replacement_for_task_id`. Nunca modifica y reenvía la tarea original con la misma clave. Cubre tanto las tareas `mixture_of_agents` como las `auto` que fallan por quorum o capacidad: el meta-router del Broker pudo resolver `auto` a mixture y fallar por lo mismo.
 
 Solo se permite para fallos de capacidad o consenso:
 
@@ -44,7 +48,7 @@ Errores de presupuesto, privacidad, contrato o contenido terminan el workflow. E
 
 ## Persistencia y progreso
 
-SQLite conserva estrategia, preset, selección, progreso, consenso, scheduling, uso, modelos, warnings y relación de reemplazo. Las fases internas del Broker se muestran como `PROCESSING` sin perder el detalle JSON necesario para la futura cola visual.
+SQLite conserva estrategia, preset, selección, progreso, consenso, scheduling, uso, modelos, warnings y relación de reemplazo. Las fases internas del Broker se muestran como `PROCESSING` sin perder el detalle JSON necesario para la futura cola visual; el estado `waiting_for_tools` (bucle `agent` del Broker esperando tool-calls del cliente) también se mapea a `PROCESSING`, pues no es terminal.
 
 ## Exclusión mutua en AI Broker
 

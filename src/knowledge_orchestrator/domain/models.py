@@ -122,6 +122,8 @@ class ProfileDefinition:
     data_classification: str = "local_only"
     max_cost_usd: float = 0.05
     human_review_required: bool = False
+    long_context: str = "fail"
+    prompt_compression: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

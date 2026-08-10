@@ -92,8 +92,8 @@ class BrokerContractTests(unittest.TestCase):
                 "broker_task_1",
             )
 
-    def test_accepts_v25_auto_strategy_round_trip(self) -> None:
-        # Contrato v2.5: la petición puede delegar en el meta-router del Broker
+    def test_accepts_v27_auto_strategy_round_trip(self) -> None:
+        # Contrato v2.7: la petición puede delegar en el meta-router del Broker
         # y las respuestas conservan "auto" en execution_strategy toda la vida
         # de la tarea (la resolución interna viaja en el evento strategy.routed).
         request = valid_request()
@@ -115,7 +115,7 @@ class BrokerContractTests(unittest.TestCase):
         }
         self.assertIs(validate_task_status_response(completed, "broker_task_1"), completed)
 
-    def test_accepts_v25_waiting_for_tools_and_slow_preset(self) -> None:
+    def test_accepts_v27_waiting_for_tools_and_slow_preset(self) -> None:
         waiting = {
             "task_id": "broker_task_1", "status": "waiting_for_tools", "request_id": "task_1",
             "created_at": "2026-07-19T10:00:00Z", "updated_at": "2026-07-19T10:01:00Z",
@@ -129,7 +129,36 @@ class BrokerContractTests(unittest.TestCase):
         request["execution"]["preset"] = "slow"
         self.assertIs(validate_create_task_request(request), request)
 
-    def test_still_rejects_unknown_strategies_and_statuses(self) -> None:
+    def test_v27_derives_data_boundary_when_legacy_fields_are_omitted(self) -> None:
+        request = valid_request()
+        request["risk"]["data_classification"] = "confidential"
+        request["model_requirements"].pop("cloud_allowed")
+        request["model_requirements"].pop("allowed_providers")
+        self.assertIs(validate_create_task_request(request), request)
+
+        request["model_requirements"]["cloud_allowed"] = True
+        with self.assertRaises(BrokerContractError):
+            validate_create_task_request(request)
+
+    def test_accepts_v27_ingestion_state_with_nullable_execution_fields(self) -> None:
+        payload = {
+            "task_id": "ingest_1", "kind": "ingestion", "status": "converting",
+            "created_at": "2026-07-26T10:00:00Z", "updated_at": "2026-07-26T10:01:00Z",
+            "execution_strategy": None, "execution_preset": None, "selection_mode": None,
+            "progress": {"phase": "converting"}, "result": None, "error": None,
+        }
+        self.assertIs(validate_task_status_response(payload, "ingest_1"), payload)
+
+    def test_accepts_v27_waiting_for_memory_as_non_terminal(self) -> None:
+        payload = {
+            "task_id": "broker_task_1", "kind": "inference", "status": "waiting_for_memory",
+            "created_at": "2026-07-28T10:00:00Z", "updated_at": "2026-07-28T10:01:00Z",
+            "execution_strategy": "single", "execution_preset": "fast", "selection_mode": "auto",
+            "progress": {"phase": "waiting_for_memory"}, "result": None, "error": None,
+        }
+        self.assertIs(validate_task_status_response(payload, "broker_task_1"), payload)
+
+    def test_rejects_unknown_request_strategy_but_accepts_new_intermediate_status(self) -> None:
         request = valid_request()
         request["execution"]["strategy"] = "swarm"
         with self.assertRaises(BrokerContractError):
@@ -138,8 +167,7 @@ class BrokerContractTests(unittest.TestCase):
             "task_id": "broker_task_1", "status": "hibernating", "created_at": "x",
             "updated_at": "x", "execution_strategy": "single", "progress": {},
         }
-        with self.assertRaises(BrokerContractError):
-            validate_task_status_response(unknown_status, "broker_task_1")
+        self.assertIs(validate_task_status_response(unknown_status, "broker_task_1"), unknown_status)
 
     def test_validates_complete_consensus_metadata_and_rejects_false_quorum(self) -> None:
         payload = {

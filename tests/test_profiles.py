@@ -99,6 +99,20 @@ class ProfileServiceTests(unittest.TestCase):
                 allowed_providers=("deepseek",),
             ))
 
+    def test_persists_v27_context_policy_and_allows_broker_model_selection(self) -> None:
+        created = self.service.save_profile(profile_definition(
+            name="Perfil 2.7",
+            preferred_model="",
+            execution_strategy="auto",
+            long_context="map_reduce",
+            prompt_compression="light",
+        ))
+        self.assertEqual(created.preferred_model, "")
+        self.assertEqual(created.long_context, "map_reduce")
+        self.assertEqual(created.prompt_compression, "light")
+        with self.assertRaisesRegex(ProfileValidationError, "map_reduce"):
+            self.service.save_profile(replace(created, execution_strategy="mixture_of_agents"))
+
 
 if __name__ == "__main__":
     unittest.main()

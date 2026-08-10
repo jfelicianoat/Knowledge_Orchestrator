@@ -129,7 +129,6 @@ class SemanticMaintenanceService:
                 "preferred_model": preferred_model,
                 "fallback_allowed": True,
                 "allowed_providers": ["ollama"],
-                "cloud_allowed": False,
                 "max_cost_usd": max_cost_usd,
             },
             "execution": {

@@ -63,6 +63,7 @@ class BrokerTaskRecord:
     attempt: int
     next_retry_at: str | None
     status_url: str | None
+    cancel_url: str | None
     result_json: str | None
     error_code: str | None
     error_message: str | None

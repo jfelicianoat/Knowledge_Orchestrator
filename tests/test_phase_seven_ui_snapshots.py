@@ -8,7 +8,7 @@ from pathlib import Path
 from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.runtime import build_runtime
 from knowledge_orchestrator.services.file_stability import FileStabilityChecker
-from knowledge_orchestrator.ui.dashboard import data_root_label
+from knowledge_orchestrator.ui.dashboard import available_profile_strategies, data_root_label
 from knowledge_orchestrator.ui.snapshots import UiSnapshotService
 from tests.helpers import generic_markdown
 
@@ -87,6 +87,26 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
         self.assertGreaterEqual(queue[0].elapsed_seconds, 0)
         self.assertNotIn("%", queue[0].progress_text)
 
+        self.runtime.workflow_repository.apply_status(task.task_id, {
+            "task_id": "broker_ui_queue",
+            "status": "waiting_for_memory",
+            "result": None,
+            "error": None,
+        })
+        waiting = self.snapshots.queue()[0]
+        self.assertEqual(waiting.status, "QUEUED")
+        self.assertEqual(waiting.phase, "Esperando memoria")
+        self.assertIn("automáticamente", waiting.progress_text)
+        self.assertTrue(self.runtime.workflow_repository.request_cancel(task.task_id))
+        self.runtime.workflow_repository.apply_status(task.task_id, {
+            "task_id": "broker_ui_queue",
+            "status": "queued",
+            "progress": {"phase": "queued"},
+            "result": None,
+            "error": None,
+        })
+        self.assertEqual(self.runtime.workflow_repository.get_task(task.task_id).status.value, "CANCEL_REQUESTED")
+
     def test_dashboard_and_review_snapshots_are_read_only_and_actionable(self) -> None:
         old_text = "La versión estable de Producto X es 1.0."
         new_text = "La versión estable de Producto X es 2.0."
@@ -122,6 +142,7 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
 
         self.assertTrue(any(topic.name == "_inbox" for topic in topics))
         self.assertTrue(any(profile.name == "Técnico Profundo" for profile in profiles))
+        self.assertTrue(all(profile.long_context in {"fail", "map_reduce"} for profile in profiles))
         with closing(self.runtime.database.connect()) as connection:
             profile_count = connection.execute("SELECT COUNT(*) FROM profiles").fetchone()[0]
         self.assertEqual(len(profiles), profile_count)
@@ -129,3 +150,13 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
     def test_dashboard_uses_existing_pipeline_paths_without_root_attribute(self) -> None:
         self.assertFalse(hasattr(self.runtime.paths, "root"))
         self.assertEqual(data_root_label(self.runtime), str(self.root))
+
+    def test_profile_strategies_follow_negotiated_broker_capabilities(self) -> None:
+        self.assertEqual(
+            available_profile_strategies({"strategies": ["single", "agent", "auto"]}),
+            ("single", "auto"),
+        )
+        self.assertEqual(
+            available_profile_strategies({}),
+            ("single", "mixture_of_agents", "auto"),
+        )

@@ -450,19 +450,16 @@ class SemanticRepository:
 
     def update_job_status(self, job_id: str, payload: dict) -> tuple[SemanticJob, str | None] | None:
         broker_status = payload["status"]
-        if broker_status in {"queued"}:
+        if broker_status in {"queued", "waiting_for_memory"}:
             target = "QUEUED"
-        elif broker_status in {
-            "routing", "planning", "resource_planning", "generating", "proposing", "evaluating",
-            "debating", "synthesizing", "verifying", "processing",
-        }:
-            target = "PROCESSING"
         elif broker_status in {"completed", "success"}:
             target = "SUCCESS"
         elif broker_status in {"failed", "error", "cancelled"}:
             target = "ERROR"
         else:
-            raise ValueError(f"Estado Broker desconocido: {broker_status}")
+            # Todas las fases no terminales, incluidas las que el Broker añada
+            # en el futuro, se tratan como trabajo en curso.
+            target = "PROCESSING"
         with self.database.transaction(immediate=True) as connection:
             current = connection.execute("SELECT * FROM semantic_jobs WHERE job_id = ?", (job_id,)).fetchone()
             if current is None or current["status"] in {"SUCCESS", "ERROR"}:

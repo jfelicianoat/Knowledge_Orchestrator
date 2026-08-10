@@ -36,6 +36,7 @@ def _task(row: sqlite3.Row) -> BrokerTaskRecord:
         attempt=row["attempt"],
         next_retry_at=row["next_retry_at"],
         status_url=row["status_url"],
+        cancel_url=row["cancel_url"],
         result_json=row["result_json"],
         error_code=row["error_code"],
         error_message=row["error_message"],
@@ -376,9 +377,29 @@ class WorkflowRepository:
             ).fetchall()
             return [_task(row) for row in rows]
 
+    def request_cancel(self, task_id: str) -> bool:
+        with self.database.transaction(immediate=True) as connection:
+            cursor = connection.execute(
+                "UPDATE tasks SET status = 'CANCEL_REQUESTED', "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE task_id = ? AND status IN ('QUEUED', 'PROCESSING')",
+                (task_id,),
+            )
+            return cursor.rowcount == 1
+
+    def list_cancel_requested(self) -> list[BrokerTaskRecord]:
+        with closing(self.database.connect()) as connection:
+            rows = connection.execute(
+                "SELECT * FROM tasks WHERE status = 'CANCEL_REQUESTED' ORDER BY updated_at"
+            ).fetchall()
+            return [_task(row) for row in rows]
+
     def apply_status(self, task_id: str, payload: dict[str, Any]) -> bool:
         status_map = {
             "queued": TaskStatus.QUEUED,
+            # Contrato 2.7: espera pasiva y autorrecuperable. Conserva el sitio
+            # en cola; no ha empezado a ejecutar ni debe consumir reintentos.
+            "waiting_for_memory": TaskStatus.QUEUED,
             "processing": TaskStatus.PROCESSING,
             "routing": TaskStatus.PROCESSING,
             "planning": TaskStatus.PROCESSING,
@@ -400,13 +421,19 @@ class WorkflowRepository:
             "cancel_requested": TaskStatus.CANCEL_REQUESTED,
             "cancelled": TaskStatus.CANCELLED,
         }
-        target = status_map[payload["status"]]
+        # Los estados terminales son contrato; las fases intermedias pueden
+        # crecer de forma aditiva y todas equivalen a "sigue trabajando".
+        target = status_map.get(payload["status"], TaskStatus.PROCESSING)
         with self.database.transaction(immediate=True) as connection:
             current = connection.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
             if current is None:
                 raise ValueError("Tarea inexistente")
             if current["status"] in {"SUCCESS", "ERROR", "CANCELLED"}:
                 return False
+            if current["status"] == "CANCEL_REQUESTED" and target in {
+                TaskStatus.QUEUED, TaskStatus.PROCESSING
+            }:
+                target = TaskStatus.CANCEL_REQUESTED
             broker_result = payload.get("result")
             models_used = (broker_result or {}).get("models_used") or []
             model_used = models_used[-1].get("model") if models_used and isinstance(models_used[-1], dict) else None
@@ -420,6 +447,8 @@ class WorkflowRepository:
                         "broker_result": broker_result,
                     }
             broker_error = payload.get("error") or {}
+            progress = dict(payload.get("progress") or {})
+            progress.setdefault("phase", payload["status"])
             error = {
                 "code": broker_error.get("code", "BROKER_TASK_FAILED"),
                 "message": broker_error.get("message", broker_error.get("code", "Broker task failed")),
@@ -442,7 +471,7 @@ class WorkflowRepository:
                     payload.get("updated_at")
                     if target in {TaskStatus.SUCCESS, TaskStatus.ERROR, TaskStatus.CANCELLED}
                     else None,
-                    json.dumps(payload.get("progress") or {}, ensure_ascii=False),
+                    json.dumps(progress, ensure_ascii=False),
                     json.dumps({
                         key: (broker_result or {}).get(key)
                         for key in ("consensus", "scheduling", "usage", "models_used")

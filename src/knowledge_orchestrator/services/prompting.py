@@ -114,6 +114,19 @@ def build_chat_request(
         + user_content
         + "\n</user_request>"
     )
+    model_requirements: dict[str, Any] = {
+        "preferred_model": profile.preferred_model or None,
+        "fallback_allowed": profile.fallback_allowed,
+        "max_cost_usd": profile.max_cost_usd,
+    }
+    # Contrato 2.7: la clasificación deriva la frontera de nube. Conservamos
+    # los controles legacy solo para perfiles no restringidos que imponen una
+    # política más estrecha. confidential/local_only dependen exclusivamente
+    # de la frontera derivada y no pueden reabrirse por una configuración vieja.
+    if profile.data_classification in {"public", "internal"}:
+        model_requirements["allowed_providers"] = list(profile.allowed_providers)
+        if not profile.cloud_allowed:
+            model_requirements["cloud_allowed"] = False
     return {
         "idempotency_key": idempotency_key,
         "request_id": task_id,
@@ -127,16 +140,11 @@ def build_chat_request(
             "temperature": profile.temperature,
             "max_output_tokens": profile.max_output_tokens,
         },
-        "model_requirements": {
-            "preferred_model": profile.preferred_model,
-            "fallback_allowed": profile.fallback_allowed,
-            "cloud_allowed": profile.cloud_allowed,
-            "allowed_providers": list(profile.allowed_providers),
-            "max_cost_usd": profile.max_cost_usd,
-        },
+        "model_requirements": model_requirements,
         "execution": {
             "strategy": strategy,
             "preset": profile.consensus_preset if use_consensus else "fast",
+            "long_context": profile.long_context,
             "scheduling": "adaptive",
             "max_proposers": proposer_count,
             "max_judges": 0,
@@ -158,4 +166,5 @@ def build_chat_request(
             "human_review_required": profile.human_review_required,
         },
         "priority": 100,
+        "prompt_compression": profile.prompt_compression,
     }

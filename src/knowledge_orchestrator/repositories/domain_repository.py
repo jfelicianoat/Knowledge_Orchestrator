@@ -41,6 +41,8 @@ def _profile(row: sqlite3.Row) -> ProfileDefinition:
         data_classification=row["data_classification"],
         max_cost_usd=float(row["max_cost_usd"]),
         human_review_required=bool(row["human_review_required"]),
+        long_context=row["long_context"],
+        prompt_compression=row["prompt_compression"],
     )
 
 
@@ -95,8 +97,8 @@ class DomainRepository:
                     "enabled, revision, execution_strategy, multitasking_steps_json, consensus_preset, "
                     "consensus_max_proposers, consensus_timeout_seconds, consensus_fallback_to_single, "
                     "cloud_allowed, allowed_providers_json, data_classification, max_cost_usd, "
-                    "human_review_required) VALUES "
-                    "(?, '{}', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "human_review_required, long_context, prompt_compression) VALUES "
+                    "(?, '{}', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         profile.name,
                         profile.system_prompt,
@@ -119,6 +121,8 @@ class DomainRepository:
                         profile.data_classification,
                         profile.max_cost_usd,
                         int(profile.human_review_required),
+                        profile.long_context,
+                        profile.prompt_compression,
                     ),
                 )
                 profile_id = int(cursor.lastrowid or 0)
@@ -129,7 +133,8 @@ class DomainRepository:
                     "max_output_tokens = ?, enabled = ?, execution_strategy = ?, multitasking_steps_json = ?, "
                     "consensus_preset = ?, consensus_max_proposers = ?, consensus_timeout_seconds = ?, "
                     "consensus_fallback_to_single = ?, cloud_allowed = ?, allowed_providers_json = ?, "
-                    "data_classification = ?, max_cost_usd = ?, human_review_required = ?, revision = revision + 1, "
+                    "data_classification = ?, max_cost_usd = ?, human_review_required = ?, "
+                    "long_context = ?, prompt_compression = ?, revision = revision + 1, "
                     "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
                     "WHERE profile_id = ? AND revision = ?",
                     (
@@ -154,6 +159,8 @@ class DomainRepository:
                         profile.data_classification,
                         profile.max_cost_usd,
                         int(profile.human_review_required),
+                        profile.long_context,
+                        profile.prompt_compression,
                         profile.profile_id,
                         profile.revision,
                     ),

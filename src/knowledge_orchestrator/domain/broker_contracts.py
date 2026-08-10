@@ -10,12 +10,13 @@ UNRESOLVED_PLACEHOLDER = re.compile(
     r"chunk|chunk_index|chunk_count|partial_results)\}"
 )
 IDENTIFIER = re.compile(r"^[A-Za-z0-9._:-]{1,240}$")
-# Espejo del contrato v2.5 del Broker (GET /api/v1/capabilities). Debe ampliarse
-# en el mismo cambio que el Broker: un estado o estrategia desconocidos hacen
-# que el poller marque la tarea como CONTRACT_VALIDATION_FAILED y la pierda.
+# Estados publicados por el contrato 2.7. Los intermedios son informativos y
+# aditivos: el cliente debe aceptar otros nuevos y seguir sondeando.
 BROKER_STATUSES = {
-    "queued", "routing", "planning", "resource_planning", "chunking", "generating",
+    "queued", "waiting_for_memory", "routing", "planning", "resource_planning", "chunking", "generating",
     "proposing", "evaluating", "debating", "synthesizing", "verifying",
+    # Carril de ingesta de ficheros.
+    "converting",
     # Estrategia agent con tool-calls del cliente pendientes (no terminal).
     "waiting_for_tools",
     "completed", "failed", "cancelled",
@@ -32,7 +33,7 @@ class BrokerContractIssue:
     boundary: str
     field: str
     reason: str
-    contract_version: str | None = "2.5"
+    contract_version: str | None = "2.7"
     code: str = "CONTRACT_VALIDATION_FAILED"
 
 
@@ -95,13 +96,16 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
         _string(requirements.get("preferred_model"), boundary, "model_requirements.preferred_model")
     if not isinstance(requirements.get("fallback_allowed"), bool):
         _fail(boundary, "model_requirements.fallback_allowed", "debe ser boolean")
-    if not isinstance(requirements.get("cloud_allowed"), bool):
-        _fail(boundary, "model_requirements.cloud_allowed", "debe ser boolean")
+    cloud_allowed = requirements.get("cloud_allowed")
+    if cloud_allowed is not None and not isinstance(cloud_allowed, bool):
+        _fail(boundary, "model_requirements.cloud_allowed", "debe ser boolean o null")
     providers = requirements.get("allowed_providers")
-    if not isinstance(providers, list) or not providers or any(
-        not isinstance(item, str) or not item for item in providers
+    if providers is not None and (
+        not isinstance(providers, list) or not providers or any(
+            not isinstance(item, str) or not item for item in providers
+        )
     ):
-        _fail(boundary, "model_requirements.allowed_providers", "debe ser una lista no vacía")
+        _fail(boundary, "model_requirements.allowed_providers", "debe ser una lista no vacía o null")
     cost = requirements.get("max_cost_usd")
     if cost is not None and (not isinstance(cost, (int, float)) or isinstance(cost, bool) or cost < 0):
         _fail(boundary, "model_requirements.max_cost_usd", "debe ser número no negativo o null")
@@ -133,6 +137,10 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
     proposer_count = selection.get("proposer_count")
     if not isinstance(proposer_count, int) or isinstance(proposer_count, bool) or not 1 <= proposer_count <= 5:
         _fail(boundary, "execution.selection.proposer_count", "debe estar entre 1 y 5")
+    if execution.get("long_context", "fail") not in {"fail", "map_reduce"}:
+        _fail(boundary, "execution.long_context", "política no permitida")
+    if execution.get("long_context") == "map_reduce" and execution.get("strategy") not in {"single", "auto"}:
+        _fail(boundary, "execution.long_context", "map_reduce solo admite single o auto")
 
     risk = _mapping(payload.get("risk"), boundary, "risk")
     if risk.get("data_classification") not in {"public", "internal", "confidential", "local_only"}:
@@ -141,22 +149,24 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
         _fail(boundary, "risk.human_review_required", "debe ser boolean")
     if not isinstance(payload.get("priority"), int) or not 0 <= payload["priority"] <= 1000:
         _fail(boundary, "priority", "debe estar entre 0 y 1000")
+    if payload.get("prompt_compression") not in {None, "off", "light", "medium", "aggressive"}:
+        _fail(boundary, "prompt_compression", "política no permitida")
     cloudish = {"deepseek", "ollama_cloud", "openai", "anthropic", "google"}
-    normalized_providers = {provider.lower() for provider in providers}
-    if not requirements["cloud_allowed"] and normalized_providers & cloudish:
+    normalized_providers = {provider.lower() for provider in providers or []}
+    if cloud_allowed is False and normalized_providers & cloudish:
         _fail(boundary, "model_requirements.allowed_providers", "incluye cloud con cloud_allowed=false")
-    if risk["data_classification"] == "local_only" and (
-        requirements["cloud_allowed"] or normalized_providers != {"ollama"}
-    ):
-        _fail(boundary, "risk.data_classification", "local_only exige únicamente ollama local")
+    if risk["data_classification"] in {"confidential", "local_only"}:
+        if cloud_allowed is True:
+            _fail(boundary, "risk.data_classification", "la clasificación no permite cloud")
+        if normalized_providers & cloudish:
+            _fail(boundary, "model_requirements.allowed_providers", "incluye cloud para datos restringidos")
     return payload
 
 
 def validate_accepted_response(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     boundary = "broker_to_orchestrator_v2"
     _string(payload.get("task_id"), boundary, "task_id")
-    if payload.get("status") not in BROKER_STATUSES:
-        _fail(boundary, "status", "estado no permitido")
+    _string(payload.get("status"), boundary, "status")
     if payload.get("execution_strategy") not in BROKER_STRATEGIES:
         _fail(boundary, "execution_strategy", "estrategia no permitida")
     if payload.get("execution_preset") not in BROKER_PRESETS:
@@ -173,19 +183,29 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
     boundary = "broker_to_orchestrator_v2"
     if payload.get("task_id") != expected_task_id:
         _fail(boundary, "task_id", "no coincide con la tarea del Broker")
-    status = payload.get("status")
-    if status not in BROKER_STATUSES:
-        _fail(boundary, "status", "estado no permitido")
+    # El Broker garantiza los estados terminales, pero puede incorporar fases
+    # intermedias sin subir la versión del contrato. Cualquier string no vacío
+    # que no sea terminal se conserva como estado de trabajo.
+    status = _string(payload.get("status"), boundary, "status")
     _string(payload.get("created_at"), boundary, "created_at")
     _string(payload.get("updated_at"), boundary, "updated_at")
     _mapping(payload.get("progress", {}), boundary, "progress")
+    kind = payload.get("kind", "inference")
+    if kind not in {"inference", "ingestion"}:
+        _fail(boundary, "kind", "tipo de tarea no permitido")
     strategy = payload.get("execution_strategy")
-    if strategy not in BROKER_STRATEGIES:
+    if kind == "inference" and strategy not in BROKER_STRATEGIES:
         _fail(boundary, "execution_strategy", "estrategia no permitida")
+    if kind == "ingestion":
+        for field in ("execution_strategy", "execution_preset", "selection_mode"):
+            if payload.get(field) is not None:
+                _fail(boundary, field, "debe ser null para tareas de ingesta")
     if status == "completed":
         result = _mapping(payload.get("result"), boundary, "result")
-        _string(result.get("result_markdown"), boundary, "result.result_markdown")
-        if strategy == "mixture_of_agents":
+        if kind == "inference":
+            assistant_content = result.get("assistant_content", result.get("result_markdown"))
+            _string(assistant_content, boundary, "result.assistant_content")
+        if kind == "inference" and strategy == "mixture_of_agents":
             consensus = _mapping(result.get("consensus"), boundary, "result.consensus")
             completed = consensus.get("proposers_completed")
             if not isinstance(completed, int) or completed < 2:
