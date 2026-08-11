@@ -17,13 +17,19 @@ from knowledge_orchestrator.config import (
 
 
 class PipelinePathsEnvironmentOverrideTests(unittest.TestCase):
-    def test_defaults_without_environment_overrides_use_hardcoded_paths(self) -> None:
+    def test_defaults_without_environment_overrides_use_per_user_writable_paths(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
             paths = PipelinePaths.defaults(home=Path("C:/Users/example"))
 
-        self.assertEqual(paths.staging, Path("C:/YT-Pipeline/staging"))
+        self.assertEqual(
+            paths.staging,
+            Path("C:/Users/example/AppData/Local/Knowledge Orchestrator/data/staging"),
+        )
         self.assertEqual(paths.inbox, Path("C:/Users/example/Downloads/YT-Knowledge-Inbox"))
-        self.assertEqual(paths.obsidian_vault, Path("C:/ObsidianVault/Knowledge"))
+        self.assertEqual(
+            paths.obsidian_vault,
+            Path("C:/Users/example/Documents/Knowledge Orchestrator/Knowledge"),
+        )
 
     def test_environment_variables_override_root_inbox_and_vault(self) -> None:
         overrides = {

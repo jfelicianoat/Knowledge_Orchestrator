@@ -173,6 +173,39 @@ class CaptureRepository:
         with self.database.transaction(immediate=True) as connection:
             self._insert_event(connection, capture_id, event_type, message, details or {})
 
+    def record_ingestion_incident(self, path: Path, code: str, message: str) -> int:
+        normalized = str(Path(path).resolve())
+        with self.database.transaction(immediate=True) as connection:
+            connection.execute(
+                "INSERT INTO ingestion_incidents(path, filename, error_code, message) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(path) DO UPDATE SET error_code = excluded.error_code, "
+                "message = excluded.message, status = 'OPEN', "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+                (normalized, Path(path).name, code, message),
+            )
+            row = connection.execute(
+                "SELECT incident_id FROM ingestion_incidents WHERE path = ?", (normalized,)
+            ).fetchone()
+            return int(row["incident_id"])
+
+    def resolve_ingestion_incident(self, path: Path) -> None:
+        with self.database.transaction(immediate=True) as connection:
+            connection.execute(
+                "UPDATE ingestion_incidents SET status = 'RESOLVED', "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE path = ? AND status = 'OPEN'",
+                (str(Path(path).resolve()),),
+            )
+
+    def ignore_ingestion_incident(self, incident_id: int) -> bool:
+        with self.database.transaction(immediate=True) as connection:
+            cursor = connection.execute(
+                "UPDATE ingestion_incidents SET status = 'IGNORED', "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE incident_id = ? AND status = 'OPEN'",
+                (incident_id,),
+            )
+            return cursor.rowcount == 1
+
     @staticmethod
     def _insert_event(
         connection: sqlite3.Connection,

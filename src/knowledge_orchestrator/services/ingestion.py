@@ -78,9 +78,11 @@ class IngestionService:
             self.repository.record_event("INGESTION_CANCELLED", str(error), details={"path": str(source)})
             return IngestionResult(False, None, None, "INGESTION_CANCELLED", str(error))
         except FileLockedError as error:
+            self.repository.record_ingestion_incident(source, "FILE_LOCKED", str(error))
             self.repository.record_event("FILE_LOCKED", str(error), details={"path": str(source)})
             return IngestionResult(False, None, None, "FILE_LOCKED", str(error))
         except FileStabilityError as error:
+            self.repository.record_ingestion_incident(source, "FILE_UNSTABLE", str(error))
             self.repository.record_event("FILE_UNSTABLE", str(error), details={"path": str(source)})
             return IngestionResult(False, None, None, "FILE_UNSTABLE", str(error))
 
@@ -176,6 +178,7 @@ class IngestionService:
                     capture_id=capture_id,
                     details={"capture_id": capture_id},
                 )
+        self.repository.resolve_ingestion_incident(source)
         return IngestionResult(True, capture_id, CaptureStatus.PENDING)
 
     def _reject(

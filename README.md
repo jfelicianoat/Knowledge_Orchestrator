@@ -48,21 +48,18 @@ Orquestador de escritorio que conecta la captura de contenido con el procesamien
 - **Sistema de revisión**: aceptar/rechazar notas, reprocesar desde original, revisión de candidatos de actualización semántica
 - **Recuperación al arranque**: reconcilia SQLite con filesystem, reanuda tareas sin duplicar
 
-## UI (Ventana Única con Menú Lateral)
+## UI (Centro de operaciones)
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Knowledge Orchestrator                          [─][□][✕]   │
-├──────────────┬───────────────────────────────────────────────┤
-│  📊 Dashboard│  [Contenido de la pestaña activa]             │
-│  🔄 Cola     │                                               │
-│  📝 Revisión │  (notas + candidatos de actualización)        │
-│  🗂️ Temas    │                                               │
-│  ⚙️ Config   │                                               │
-├──────────────┤                                               │
-│ 🟢 Broker OK │                                               │
-│ 3 pendientes │                                               │
-└──────────────┴───────────────────────────────────────────────┘
+│ Knowledge Orchestrator   Inicio  Trabajo  Revisión  Temas    │
+├──────────────────────────────────────────────────────────────┤
+│ Importar documentos   Abrir carpeta vigilada   Broker        │
+├──────────────────────────────┬───────────────────────────────┤
+│ Filtros y búsqueda           │ Documento seleccionado        │
+│ Lista de trabajos            │ Estado y recuperación         │
+│ Estado · edad · actualización│ Línea de tiempo · acciones    │
+└──────────────────────────────┴───────────────────────────────┘
 ```
 
 ## Flujo de datos
@@ -96,7 +93,7 @@ STAGED → PENDING → SUBMITTING → QUEUED → PROCESSING → COMPLETED → (p
 - Toda propuesta de actualización semántica debe citar evidencia local con `source_id` y span. El conocimiento interno del LLM no es evidencia
 - `manual_lock: true` en un claim impide su sustitución automática
 - Comunicación con Broker via HTTP en LAN privada, sin autenticación (MVP)
-- Base SQLite en `C:/YT-Pipeline/state/orchestrator.db` con modo WAL
+- Base SQLite por usuario en `%LOCALAPPDATA%/Knowledge Orchestrator/data/state/orchestrator.db` con modo WAL
 - Integridad mediante estados durables y operaciones idempotentes; no existe transacción única SQLite+NTFS
 
 ## Desarrollo
@@ -158,7 +155,7 @@ Para ejecutar únicamente recuperación + ingesta y terminar:
 knowledge-orchestrator --once
 ```
 
-Para probar sin escribir en `C:/YT-Pipeline`:
+Para probar sin escribir en la carpeta de datos habitual:
 
 ```powershell
 knowledge-orchestrator --once --root "$env:TEMP\knowledge-orchestrator-test"
@@ -207,7 +204,7 @@ Las comparaciones generan relación, confianza, impacto, patch y diff. Ningún c
 
 Véase [`docs/Phase_6_Semantic_Maintenance.md`](docs/Phase_6_Semantic_Maintenance.md).
 
-### Fase 7 — Cola visual y revisión
+### Fase 7 — Centro de trabajo y revisión
 
 La interfaz se abre con:
 
@@ -216,7 +213,7 @@ $env:PYTHONPATH='src'
 python -m knowledge_orchestrator.app --ui
 ```
 
-Incluye Dashboard, Cola, Revisión, Temas y Configuración. La UI refresca cada 2 segundos desde snapshots SQLite de solo lectura, drena eventos del worker únicamente en el hilo principal y muestra posición, estado, fase, modelo, tiempo transcurrido e intentos sin inventar porcentajes.
+Incluye Inicio, Trabajo, Revisión, Temas y Configuración. Trabajo es una vista maestro-detalle con filtros, búsqueda, cronología y acciones contextuales. Permite importar Markdown, abrir la carpeta vigilada, reintentar tareas fallidas con una clave idempotente nueva, cancelar trabajos activos y cerrar incidencias sin borrar su historial. La UI refresca cada 2 segundos desde snapshots SQLite de solo lectura, drena eventos del worker únicamente en el hilo principal y muestra estado, fase, modelo, tiempo transcurrido e intentos sin inventar porcentajes.
 
 La pestaña Revisión muestra candidatos semánticos `PENDING_REVIEW` con diff y rationale, y permite aprobar o rechazar usando los servicios atómicos existentes. Véase [`docs/Phase_7_UI.md`](docs/Phase_7_UI.md).
 
@@ -237,6 +234,8 @@ Build Windows:
 ```powershell
 .\scripts\build_windows.ps1 -Clean
 ```
+
+El script crea una aplicación gráfica portable en `dist\Knowledge-Orchestrator`. Si Inno Setup 6 está instalado, también genera `dist\installer\Knowledge-Orchestrator-Setup.exe`, con accesos directos y desinstalador por usuario. El ejecutable empaquetado abre la interfaz directamente.
 
 Véase [`docs/Phase_8_Operations.md`](docs/Phase_8_Operations.md).
 

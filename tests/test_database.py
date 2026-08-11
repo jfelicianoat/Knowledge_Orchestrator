@@ -28,12 +28,13 @@ class DatabaseTests(unittest.TestCase):
                         "captures", "tasks", "events", "notes", "topics", "profiles", "schema_migrations",
                         "knowledge_claims", "evidence_links", "claim_embeddings", "update_candidates",
                         "note_revisions", "knowledge_claims_fts",
+                        "ingestion_incidents",
                     }
                     <= tables
                 )
                 self.assertEqual(
                     connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
-                9,
+                10,
                 )
                 self.assertEqual(connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
 
@@ -63,7 +64,7 @@ class DatabaseTests(unittest.TestCase):
                 self.assertIsNone(row["topic_id"])
                 self.assertEqual(
                     connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
-                9,
+                10,
                 )
 
 

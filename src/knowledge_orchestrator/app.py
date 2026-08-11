@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from knowledge_orchestrator.config import PipelinePaths
@@ -38,7 +39,7 @@ def main() -> None:
     elif arguments.once:
         report = runtime.recover_once(ingest_inbox=True)
         print(f"Recuperación e ingesta completadas: {report}")
-    elif arguments.ui:
+    elif arguments.ui or getattr(sys, "frozen", False):
         run_dashboard(runtime)
     else:
         runtime.run_forever()

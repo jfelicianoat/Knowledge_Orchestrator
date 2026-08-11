@@ -136,6 +136,63 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
         self.assertEqual(reviews[0].candidate_id, candidate_id)
         self.assertIn("-" + old_text, reviews[0].diff_text)
 
+    def test_work_view_exposes_real_status_detail_timeline_and_manual_recovery(self) -> None:
+        workflow_id = self.ingest_and_plan("ui_work_detail")
+        task = self.runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
+        original_key = task.idempotency_key
+        self.assertIsNotNone(self.runtime.workflow_repository.claim_submission(task.task_id))
+        self.runtime.workflow_repository.mark_accepted(task.task_id, {
+            "task_id": "broker_ui_work_detail",
+            "status": "queued",
+            "status_url": "/api/v1/tasks/broker_ui_work_detail",
+            "cancel_url": "/api/v1/tasks/broker_ui_work_detail/cancel",
+            "execution_strategy": "single",
+            "execution_preset": "fast",
+            "selection_mode": "auto",
+        })
+        self.runtime.workflow_repository.apply_status(task.task_id, {
+            "task_id": "broker_ui_work_detail",
+            "status": "failed",
+            "result": None,
+            "error": {"code": "MODEL_UNAVAILABLE", "message": "Modelo no disponible", "retryable": True},
+        })
+
+        item = next(item for item in self.snapshots.work_items() if item.capture_id == "ui_work_detail")
+        self.assertEqual(item.category, "attention")
+        self.assertEqual(item.status_label, "Error")
+        self.assertEqual(item.error_code, "MODEL_UNAVAILABLE")
+        self.assertIn("Modelo no disponible", item.error_message)
+        self.assertTrue(self.snapshots.work_events(item.capture_id))
+
+        self.assertTrue(self.runtime.workflow_repository.retry_failed_task(task.task_id))
+        retried = self.runtime.workflow_repository.get_task(task.task_id)
+        self.assertEqual(retried.status.value, "READY")
+        self.assertNotEqual(retried.idempotency_key, original_key)
+        self.assertEqual(self.runtime.repository.get(item.capture_id).status.value, "PENDING")
+
+        self.assertIsNotNone(self.runtime.workflow_repository.claim_submission(task.task_id))
+        self.runtime.workflow_repository.mark_submission_error(task.task_id, "BROKER_OFFLINE", "Broker no disponible")
+        self.assertTrue(self.runtime.workflow_repository.ignore_failed_capture(item.capture_id))
+        self.assertEqual(self.runtime.repository.get(item.capture_id).status.value, "CANCELLED")
+        ignored = next(item for item in self.snapshots.work_items() if item.capture_id == "ui_work_detail")
+        self.assertEqual(ignored.category, "completed")
+
+    def test_ingestion_incident_is_visible_retryable_and_can_be_closed(self) -> None:
+        path = self.runtime.paths.inbox / "bloqueado.md"
+        path.write_text("contenido temporal", encoding="utf-8")
+        incident_id = self.runtime.repository.record_ingestion_incident(
+            path, "FILE_LOCKED", "El archivo está siendo usado por otro proceso"
+        )
+
+        incident = next(item for item in self.snapshots.work_items() if item.incident_id == incident_id)
+        self.assertEqual(incident.category, "attention")
+        self.assertEqual(incident.status_label, "Archivo bloqueado")
+        self.assertEqual(incident.path, str(path.resolve()))
+        self.assertTrue(incident.retryable)
+
+        self.assertTrue(self.runtime.repository.ignore_ingestion_incident(incident_id))
+        self.assertFalse(any(item.incident_id == incident_id for item in self.snapshots.work_items()))
+
     def test_topics_and_profiles_snapshots_support_phase_seven_tabs(self) -> None:
         topics = self.snapshots.topics()
         profiles = self.snapshots.profiles()

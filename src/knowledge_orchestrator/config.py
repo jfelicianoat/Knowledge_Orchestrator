@@ -31,7 +31,20 @@ class PipelinePaths:
     @classmethod
     def defaults(cls, home: Path | None = None) -> PipelinePaths:
         user_home = home or Path.home()
-        root = Path(os.environ.get(ENV_ROOT) or "C:/YT-Pipeline")
+        local_app_data = (
+            Path(os.environ["LOCALAPPDATA"])
+            if home is None and os.environ.get("LOCALAPPDATA")
+            else user_home / "AppData" / "Local"
+        )
+        configured_root = os.environ.get(ENV_ROOT)
+        legacy_root = Path("C:/YT-Pipeline")
+        root = (
+            Path(configured_root)
+            if configured_root
+            else legacy_root
+            if home is None and legacy_root.exists()
+            else local_app_data / "Knowledge Orchestrator" / "data"
+        )
         inbox = os.environ.get(ENV_INBOX)
         vault = os.environ.get(ENV_OBSIDIAN_VAULT)
         return cls(
@@ -45,7 +58,13 @@ class PipelinePaths:
             logs=root / "logs",
             backups=root / "backups",
             diagnostics=root / "diagnostics",
-            obsidian_vault=Path(vault) if vault else Path("C:/ObsidianVault/Knowledge"),
+            obsidian_vault=(
+                Path(vault)
+                if vault
+                else Path("C:/ObsidianVault/Knowledge")
+                if home is None and Path("C:/ObsidianVault/Knowledge").exists()
+                else user_home / "Documents" / "Knowledge Orchestrator" / "Knowledge"
+            ),
         )
 
     @classmethod

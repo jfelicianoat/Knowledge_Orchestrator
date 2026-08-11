@@ -42,6 +42,37 @@ class QueueItem:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkItem:
+    capture_id: str
+    incident_id: int | None
+    task_id: str | None
+    title: str
+    filename: str
+    path: str
+    status: str
+    status_label: str
+    category: str
+    phase: str
+    model: str
+    elapsed_seconds: int
+    updated_at: str
+    updated_label: str
+    attempt: int
+    error_code: str | None
+    error_message: str
+    retryable: bool
+    progress_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class WorkEvent:
+    event_type: str
+    message: str
+    created_at: str
+    created_label: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewItem:
     candidate_id: int
     status: str
@@ -130,6 +161,46 @@ class UiSnapshotService:
                 ACTIVE_TASK_STATUSES,
             ).fetchall()
         return [self._queue_item(position, row) for position, row in enumerate(rows, start=1)]
+
+    def work_items(self) -> list[WorkItem]:
+        with closing(self.database.connect(readonly=True)) as connection:
+            rows = connection.execute(
+                "SELECT c.capture_id, c.title, c.original_filename, c.status AS capture_status, "
+                "c.source_path, c.staging_path, c.processing_path, c.archive_path, "
+                "c.rejected_source_path, c.last_error_code, c.last_error_message, c.created_at, "
+                "c.updated_at, t.task_id, t.status AS task_status, t.progress_json, t.model_used, "
+                "t.error_code AS task_error_code, t.error_message AS task_error_message, "
+                "t.error_retryable, t.attempt, t.created_at AS task_created_at, "
+                "t.queued_at, t.started_at "
+                "FROM captures c LEFT JOIN tasks t ON t.task_id = ("
+                "SELECT latest.task_id FROM tasks latest WHERE latest.capture_id = c.capture_id "
+                "ORDER BY latest.updated_at DESC, latest.created_at DESC, latest.task_id DESC LIMIT 1"
+                ") ORDER BY c.updated_at DESC, c.created_at DESC, c.capture_id DESC"
+            ).fetchall()
+            incidents = connection.execute(
+                "SELECT incident_id, path, filename, error_code, message, created_at, updated_at "
+                "FROM ingestion_incidents WHERE status = 'OPEN' ORDER BY updated_at DESC, incident_id DESC"
+            ).fetchall()
+        items = [self._work_item(row) for row in rows]
+        items.extend(self._incident_item(row) for row in incidents)
+        return sorted(items, key=lambda item: item.updated_at, reverse=True)
+
+    def work_events(self, capture_id: str, *, limit: int = 8) -> list[WorkEvent]:
+        with closing(self.database.connect(readonly=True)) as connection:
+            rows = connection.execute(
+                "SELECT event_type, message, created_at FROM events WHERE capture_id = ? "
+                "ORDER BY created_at DESC, event_id DESC LIMIT ?",
+                (capture_id, max(1, limit)),
+            ).fetchall()
+        return [
+            WorkEvent(
+                event_type=str(row["event_type"]),
+                message=str(row["message"]),
+                created_at=str(row["created_at"]),
+                created_label=_clock_label(row["created_at"]),
+            )
+            for row in reversed(rows)
+        ]
 
     def reviews(self) -> list[ReviewItem]:
         with closing(self.database.connect(readonly=True)) as connection:
@@ -232,6 +303,86 @@ class UiSnapshotService:
             ),
         )
 
+    @staticmethod
+    def _work_item(row: Any) -> WorkItem:
+        progress = _safe_json(row["progress_json"])
+        task_status = str(row["task_status"] or "")
+        capture_status = str(row["capture_status"])
+        status = task_status if task_status in ACTIVE_TASK_STATUSES or task_status == "ERROR" else capture_status
+        error_code = row["task_error_code"] or row["last_error_code"]
+        error_message = str(row["task_error_message"] or row["last_error_message"] or "")
+        category = _work_category(capture_status, task_status, error_code)
+        phase = str(progress.get("phase") or progress.get("status") or status).lower()
+        if phase == "waiting_for_memory":
+            phase = "Esperando memoria"
+        path_candidates = (
+            (row["archive_path"], row["processing_path"], row["source_path"], row["staging_path"])
+            if capture_status == "COMPLETED"
+            else (row["rejected_source_path"], row["archive_path"], row["source_path"])
+            if capture_status == "REJECTED"
+            else (row["processing_path"], row["staging_path"], row["source_path"], row["archive_path"])
+        )
+        path = next(
+            (
+                str(value)
+                for value in path_candidates
+                if value
+            ),
+            "",
+        )
+        started_at = row["started_at"] or row["queued_at"] or row["task_created_at"] or row["created_at"]
+        return WorkItem(
+            capture_id=str(row["capture_id"]),
+            incident_id=None,
+            task_id=str(row["task_id"]) if row["task_id"] else None,
+            title=str(row["title"]),
+            filename=str(row["original_filename"]),
+            path=path,
+            status=status,
+            status_label=_status_label(status, phase),
+            category=category,
+            phase=phase,
+            model=str(row["model_used"] or "Automático"),
+            elapsed_seconds=_elapsed_seconds(started_at),
+            updated_at=str(row["updated_at"]),
+            updated_label=_clock_label(row["updated_at"]),
+            attempt=int(row["attempt"] or 0),
+            error_code=str(error_code) if error_code else None,
+            error_message=error_message,
+            retryable=bool(row["error_retryable"]) or task_status == "ERROR",
+            progress_text=(
+                "El Broker reanudará la tarea automáticamente cuando haya memoria disponible."
+                if phase == "Esperando memoria"
+                else _progress_text(progress)
+            ),
+        )
+
+    @staticmethod
+    def _incident_item(row: Any) -> WorkItem:
+        code = str(row["error_code"])
+        label = "Archivo bloqueado" if code == "FILE_LOCKED" else "Archivo inestable"
+        return WorkItem(
+            capture_id=f"incident:{row['incident_id']}",
+            incident_id=int(row["incident_id"]),
+            task_id=None,
+            title=str(row["filename"]),
+            filename=str(row["filename"]),
+            path=str(row["path"]),
+            status="INGESTION_ERROR",
+            status_label=label,
+            category="attention",
+            phase="Validación de entrada",
+            model="—",
+            elapsed_seconds=_elapsed_seconds(row["created_at"]),
+            updated_at=str(row["updated_at"]),
+            updated_label=_clock_label(row["updated_at"]),
+            attempt=0,
+            error_code=code,
+            error_message=str(row["message"]),
+            retryable=True,
+            progress_text="El archivo sigue en la carpeta vigilada y puede reintentarse de forma segura.",
+        )
+
 
 def _safe_json(value: str | None) -> dict[str, Any]:
     if not value:
@@ -262,3 +413,42 @@ def _elapsed_seconds(value: str | None) -> int:
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
     return max(0, int((datetime.now(timezone.utc) - started.astimezone(timezone.utc)).total_seconds()))
+
+
+def _work_category(capture_status: str, task_status: str, error_code: str | None) -> str:
+    if capture_status in {"COMPLETED", "REJECTED", "CANCELLED"} or task_status == "CANCELLED":
+        return "completed"
+    if error_code or capture_status == "FAILED" or task_status == "ERROR":
+        return "attention"
+    return "active"
+
+
+def _status_label(status: str, phase: str) -> str:
+    if phase == "Esperando memoria":
+        return phase
+    labels = {
+        "STAGED": "Preparando",
+        "PENDING": "En cola local",
+        "READY": "Listo para enviar",
+        "SUBMITTING": "Enviando",
+        "QUEUED": "En cola del Broker",
+        "PROCESSING": "Procesando",
+        "CANCEL_REQUESTED": "Cancelando",
+        "SUCCESS": "Procesado",
+        "COMPLETED": "Completado",
+        "FAILED": "Error",
+        "ERROR": "Error",
+        "REJECTED": "Rechazado",
+        "CANCELLED": "Cancelado",
+    }
+    return labels.get(status, status.replace("_", " ").capitalize())
+
+
+def _clock_label(value: str | None) -> str:
+    if not value:
+        return "—"
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(value)
+    return parsed.astimezone().strftime("%H:%M:%S")
