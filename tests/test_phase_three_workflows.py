@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from knowledge_orchestrator.config import PipelinePaths
@@ -179,6 +180,37 @@ class PhaseThreeWorkflowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(mapped.status, TaskStatus.SUCCESS)
             self.assertEqual(json.loads(mapped.result_json)["assistant_content"], "# Resultado v2")
             self.assertEqual(json.loads(mapped.progress_json)["invocations_completed"], 1)
+
+    async def test_degraded_consensus_uses_advertised_winning_model_and_preserves_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = self.make_runtime(Path(temporary), capture_id="degraded_consensus", transcript="Texto breve.")
+            workflow_id = runtime.workflow_planner.plan_capture("degraded_consensus")
+            task = runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
+            runtime.workflow_repository.apply_status(task.task_id, {
+                "task_id": task.task_id, "status": "completed",
+                "created_at": "2026-08-12T10:00:00Z", "updated_at": "2026-08-12T10:01:00Z",
+                "result": {
+                    "assistant_content": "Mejor propuesta",
+                    "model_used": {"provider": "ollama", "deployment": "local", "model": "proposer-a"},
+                    "models_used": [{"model": "proposer-a"}, {"model": "proposer-b"}],
+                    "consensus": {"proposers_completed": 2, "synthesized": False},
+                    "arbiter_failures": [
+                        {"model": {"model": "arbiter-a"}, "code": "PROMPT_ECHOED", "message": "eco"},
+                    ],
+                },
+                "error": None,
+            })
+
+            mapped = runtime.workflow_repository.get_task(task.task_id)
+            self.assertEqual(mapped.status, TaskStatus.SUCCESS)
+            with closing(runtime.database.connect(readonly=True)) as connection:
+                row = connection.execute(
+                    "SELECT model_used, broker_metadata_json FROM tasks WHERE task_id = ?", (task.task_id,)
+                ).fetchone()
+            self.assertEqual(row["model_used"], "proposer-a")
+            metadata = json.loads(row["broker_metadata_json"])
+            self.assertFalse(metadata["consensus"]["synthesized"])
+            self.assertEqual(metadata["arbiter_failures"][0]["code"], "PROMPT_ECHOED")
 
     async def test_startup_upgrades_unsent_v1_chat_request_to_v2(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

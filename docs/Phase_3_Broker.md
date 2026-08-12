@@ -25,6 +25,8 @@ Se reintentan timeouts, errores de conexión, `401`/`403` por credencial admin c
 
 El `map_reduce` del Broker 2.7 solo actúa sobre documentos ingeridos y adjuntados como `broker_file`. Como el flujo actual de Knowledge Orchestrator envía las capturas como texto inline, los documentos grandes se siguen dividiendo localmente en tareas durables y cada petición al Broker declara `long_context: fail`. Esto evita delegar un troceo que el Broker no podría aplicar y terminar en `CONTEXT_LIMIT_EXCEEDED`.
 
+Una tarea `mixture_of_agents` puede finalizar correctamente sin síntesis si fallan todos los árbitros. El resultado se acepta cuando conserva el quorum de proponentes, `consensus.synthesized` es `false` y `arbiter_failures` explica los descartes. Knowledge Orchestrator usa `result.model_used` como modelo ganador y conserva tanto el indicador degradado como los fallos de árbitro en los metadatos de la tarea; no presenta esa respuesta como si la hubiera sintetizado un árbitro.
+
 El catálogo de modelos se consulta periódicamente en `GET /api/v1/models` y se conserva en SQLite. Además, el Orchestrator consulta proactivamente `/health` y publica eventos solo cuando cambia la disponibilidad. El worker usa `asyncio` en un hilo separado: no bloquea el watcher ni el hilo principal de la futura UI. La indisponibilidad del Broker genera eventos, pero no detiene la ingestión.
 
 Valores predeterminados de `BrokerSettings`: Broker `http://broker-machine.local:8765`, polling 2 s, health check 10 s, dispatcher 0,5 s, descubrimiento 300 s, backoff 30/60/120 s y contexto estimado de 16 000 tokens.

@@ -232,6 +232,35 @@ class BrokerContractTests(unittest.TestCase):
         with self.assertRaises(BrokerContractError):
             validate_task_status_response(payload, "broker_consensus")
 
+    def test_accepts_degraded_consensus_when_arbiters_failed(self) -> None:
+        payload = {
+            "task_id": "broker_degraded", "status": "completed", "request_id": "local_degraded",
+            "created_at": "2026-08-12T10:00:00Z", "updated_at": "2026-08-12T10:01:00Z",
+            "execution_strategy": "mixture_of_agents", "execution_preset": "fast", "selection_mode": "auto",
+            "progress": {"phase": "completed", "invocations_completed": 4, "invocations_total": 4},
+            "result": {
+                "assistant_content": "Mejor propuesta disponible",
+                "model_used": {"provider": "ollama", "deployment": "local", "model": "proposer-a"},
+                "models_used": [{"model": "proposer-a"}, {"model": "proposer-b"}],
+                "consensus": {
+                    "proposers_completed": 2, "synthesized": False,
+                    "warnings": ["No fue posible sintetizar"],
+                },
+                "scheduling": {"mode_used": "sequential"},
+                "usage": {"invocations": 4, "cost_usd": 0.01},
+                "arbiter_failures": [
+                    {"model": {"model": "arbiter-a"}, "code": "PROMPT_ECHOED", "message": "eco"},
+                    {"model": {"model": "arbiter-b"}, "code": "DEGENERATE_OUTPUT", "message": "repetición"},
+                ],
+            },
+            "error": None,
+        }
+        self.assertIs(validate_task_status_response(payload, "broker_degraded"), payload)
+
+        payload["result"]["arbiter_failures"] = []
+        with self.assertRaisesRegex(BrokerContractError, "arbiter_failures"):
+            validate_task_status_response(payload, "broker_degraded")
+
 
 if __name__ == "__main__":
     unittest.main()

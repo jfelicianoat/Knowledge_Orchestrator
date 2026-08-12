@@ -215,15 +215,32 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
             completed = consensus.get("proposers_completed")
             if not isinstance(completed, int) or completed < 2:
                 _fail(boundary, "result.consensus.proposers_completed", "debe indicar quorum de al menos 2")
+            synthesized = consensus.get("synthesized", True)
+            if not isinstance(synthesized, bool):
+                _fail(boundary, "result.consensus.synthesized", "debe ser boolean")
             scheduling = _mapping(result.get("scheduling"), boundary, "result.scheduling")
             if scheduling.get("mode_used") not in {"parallel", "waves", "sequential"}:
                 _fail(boundary, "result.scheduling.mode_used", "modo no permitido")
             usage = _mapping(result.get("usage"), boundary, "result.usage")
-            if not isinstance(usage.get("invocations"), int) or usage["invocations"] < 3:
-                _fail(boundary, "result.usage.invocations", "no corresponde a un consenso completo")
+            minimum_invocations = 3 if synthesized else completed
+            if not isinstance(usage.get("invocations"), int) or usage["invocations"] < minimum_invocations:
+                _fail(boundary, "result.usage.invocations", "no corresponde a la ejecución del consenso")
             models = result.get("models_used")
-            if not isinstance(models, list) or len(models) < 3:
-                _fail(boundary, "result.models_used", "debe contener participantes y árbitro")
+            minimum_models = 3 if synthesized else completed
+            if not isinstance(models, list) or len(models) < minimum_models:
+                _fail(boundary, "result.models_used", "no contiene los participantes esperados")
+            arbiter_failures = result.get("arbiter_failures", [])
+            if not isinstance(arbiter_failures, list):
+                _fail(boundary, "result.arbiter_failures", "debe ser una lista")
+            if not synthesized and not arbiter_failures:
+                _fail(boundary, "result.arbiter_failures", "debe explicar por qué no hubo síntesis")
+            for index, failure in enumerate(arbiter_failures):
+                item = _mapping(failure, boundary, f"result.arbiter_failures[{index}]")
+                if item.get("model") is None:
+                    _fail(boundary, f"result.arbiter_failures[{index}].model", "es obligatorio")
+                _string(item.get("code"), boundary, f"result.arbiter_failures[{index}].code")
+                if not isinstance(item.get("message"), str):
+                    _fail(boundary, f"result.arbiter_failures[{index}].message", "debe ser string")
         if payload.get("error") is not None:
             _fail(boundary, "error", "debe ser null en completed")
     elif status == "failed":

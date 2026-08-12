@@ -508,7 +508,14 @@ class WorkflowRepository:
                 target = TaskStatus.CANCEL_REQUESTED
             broker_result = payload.get("result")
             models_used = (broker_result or {}).get("models_used") or []
-            model_used = models_used[-1].get("model") if models_used and isinstance(models_used[-1], dict) else None
+            advertised_model = (broker_result or {}).get("model_used")
+            model_used = (
+                advertised_model.get("model")
+                if isinstance(advertised_model, dict)
+                else models_used[-1].get("model")
+                if models_used and isinstance(models_used[-1], dict)
+                else None
+            )
             result = None
             if target is TaskStatus.SUCCESS:
                 if "assistant_content" in (broker_result or {}):
@@ -546,7 +553,9 @@ class WorkflowRepository:
                     json.dumps(progress, ensure_ascii=False),
                     json.dumps({
                         key: (broker_result or {}).get(key)
-                        for key in ("consensus", "scheduling", "usage", "models_used")
+                        for key in (
+                            "consensus", "scheduling", "usage", "model_used", "models_used", "arbiter_failures"
+                        )
                         if key in (broker_result or {})
                     }, ensure_ascii=False),
                     task_id,
