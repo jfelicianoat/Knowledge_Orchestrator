@@ -19,7 +19,11 @@ Si el proceso cae con una tarea `SUBMITTING`, el arranque la devuelve a `READY` 
 
 ## Reintentos y operación
 
-Se reintentan timeouts, errores de conexión, `401`/`403` por credencial admin caducada, `429`, `502`, `503` y `504`, con backoff configurable. Los errores permanentes y los incumplimientos de contrato terminan el workflow. Un fallo al consultar `capabilities` genera una advertencia, pero no bloquea la planificación ni el envío: el `409` del endpoint de tareas sigue siendo la autoridad para una capacidad concreta.
+Se reintentan timeouts, errores de conexión, `401`/`403` por credencial admin caducada, `429`, `502`, `503` y `504`, con backoff configurable. El cliente conserva el código HTTP y el código funcional (`ADMIN_AUTH_REQUIRED`, `ADMIN_AUTH_BACKEND_UNAVAILABLE`, etc.) para que la capa de operación pueda distinguir una credencial rotada de un fallo del llavero. Los errores permanentes y los incumplimientos de contrato terminan el workflow. Un fallo al consultar `capabilities` genera una advertencia, pero no bloquea la planificación ni el envío: el `409` del endpoint de tareas sigue siendo la autoridad para una capacidad concreta.
+
+`capabilities` se normaliza de forma tolerante: `presets`, `scheduling_by_preset` e `ingestion_formats` se tratan como mapas de listas; los campos futuros se conservan y los campos opcionales ausentes o mal formados reciben valores conservadores. Así una ampliación del contrato no inutiliza toda la negociación.
+
+El `map_reduce` del Broker 2.7 solo actúa sobre documentos ingeridos y adjuntados como `broker_file`. Como el flujo actual de Knowledge Orchestrator envía las capturas como texto inline, los documentos grandes se siguen dividiendo localmente en tareas durables y cada petición al Broker declara `long_context: fail`. Esto evita delegar un troceo que el Broker no podría aplicar y terminar en `CONTEXT_LIMIT_EXCEEDED`.
 
 El catálogo de modelos se consulta periódicamente en `GET /api/v1/models` y se conserva en SQLite. Además, el Orchestrator consulta proactivamente `/health` y publica eventos solo cuando cambia la disponibilidad. El worker usa `asyncio` en un hilo separado: no bloquea el watcher ni el hilo principal de la futura UI. La indisponibilidad del Broker genera eventos, pero no detiene la ingestión.
 

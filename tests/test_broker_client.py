@@ -103,6 +103,7 @@ class BrokerClientTests(unittest.IsolatedAsyncioTestCase):
             await client.close()
         self.assertEqual(capabilities["contract_version"], "2.7")
         self.assertIn("auto", capabilities["strategies"])
+        self.assertEqual(capabilities["work_lanes"], ["inference"])
 
     async def test_capabilities_version_mismatch_is_reported_without_blocking_client(self) -> None:
         client = BrokerClient(
@@ -134,6 +135,8 @@ class BrokerClientTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await client.close()
         self.assertIn("token caducado", str(caught.exception))
+        self.assertEqual(caught.exception.status_code, 403)
+        self.assertEqual(caught.exception.code, "ADMIN_AUTH_REQUIRED")
 
     async def test_cancels_through_advertised_url_with_delete(self) -> None:
         seen: list[tuple[str, str]] = []

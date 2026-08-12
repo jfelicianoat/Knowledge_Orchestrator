@@ -70,7 +70,7 @@ class MultitaskingPolicyTests(unittest.TestCase):
             refreshed = runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
             self.assertIs(refreshed.status, TaskStatus.PROCESSING)
 
-    def test_v27_map_reduce_delegates_long_context_without_local_chunking(self) -> None:
+    def test_v27_map_reduce_keeps_local_chunking_for_inline_documents(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             runtime = self.make_runtime(Path(temporary), "document_map_reduce", "hecho " * 20_000)
             profile = runtime.profiles.list_profiles(enabled_only=True)[0]
@@ -84,9 +84,9 @@ class MultitaskingPolicyTests(unittest.TestCase):
             workflow = runtime.workflow_repository.get_workflow(workflow_id)
             tasks = runtime.workflow_repository.list_workflow_tasks(workflow_id)
             request = json.loads(tasks[0].request_json)
-            self.assertEqual(workflow.strategy, "single")
-            self.assertEqual(len(tasks), 1)
-            self.assertEqual(request["execution"]["long_context"], "map_reduce")
+            self.assertEqual(workflow.strategy, "chunked")
+            self.assertGreater(len(tasks), 1)
+            self.assertEqual(request["execution"]["long_context"], "fail")
             self.assertEqual(request["prompt_compression"], "light")
 
     def test_chunks_remain_single_and_only_synthesis_uses_consensus(self) -> None:

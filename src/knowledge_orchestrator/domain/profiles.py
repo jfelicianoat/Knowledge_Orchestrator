@@ -57,8 +57,8 @@ def prompt_fields(template: str, field_name: str) -> set[str]:
 def validate_profile(profile: ProfileDefinition) -> ProfileDefinition:
     if not profile.name.strip() or len(profile.name) > 100:
         raise ProfileValidationError("name debe contener entre 1 y 100 caracteres")
-    if len(profile.preferred_model) > 200:
-        raise ProfileValidationError("preferred_model no puede superar 200 caracteres")
+    if len(profile.preferred_model) > 128:
+        raise ProfileValidationError("preferred_model no puede superar 128 caracteres")
     if not 0 <= profile.temperature <= 2:
         raise ProfileValidationError("temperature debe estar entre 0 y 2")
     if not 1 <= profile.max_output_tokens <= 100_000:

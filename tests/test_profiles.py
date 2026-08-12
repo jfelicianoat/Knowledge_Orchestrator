@@ -113,6 +113,10 @@ class ProfileServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ProfileValidationError, "map_reduce"):
             self.service.save_profile(replace(created, execution_strategy="mixture_of_agents"))
 
+    def test_preferred_model_respects_broker_v27_length_limit(self) -> None:
+        with self.assertRaisesRegex(ProfileValidationError, "128"):
+            self.service.save_profile(profile_definition(preferred_model="m" * 129))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from knowledge_orchestrator.domain.broker_contracts import (
     BrokerContractError,
+    normalize_capabilities_response,
     validate_accepted_response,
     validate_create_task_request,
     validate_task_status_response,
@@ -120,7 +121,16 @@ class BrokerContractTests(unittest.TestCase):
             "task_id": "broker_task_1", "status": "waiting_for_tools", "request_id": "task_1",
             "created_at": "2026-07-19T10:00:00Z", "updated_at": "2026-07-19T10:01:00Z",
             "execution_strategy": "agent", "execution_preset": "fast", "selection_mode": "auto",
-            "progress": {"phase": "waiting_for_tools"}, "result": None, "error": None,
+            "progress": {
+                "phase": "waiting_for_tools", "agent_iteration": 2, "agent_max_iterations": 6,
+            },
+            "result": {
+                "status": "waiting_for_tools",
+                "pending_tool_calls": [
+                    {"id": "call_1", "name": "consultar_stock", "arguments": {"sku": "A-1"}},
+                ],
+            },
+            "error": None,
         }
         self.assertIs(validate_task_status_response(waiting, "broker_task_1"), waiting)
 
@@ -165,9 +175,42 @@ class BrokerContractTests(unittest.TestCase):
             validate_create_task_request(request)
         unknown_status = {
             "task_id": "broker_task_1", "status": "hibernating", "created_at": "x",
-            "updated_at": "x", "execution_strategy": "single", "progress": {},
+            "updated_at": "x", "execution_strategy": "single", "progress": {"phase": "hibernating"},
         }
         self.assertIs(validate_task_status_response(unknown_status, "broker_task_1"), unknown_status)
+
+    def test_requires_v27_failure_retryability_and_tool_call_details(self) -> None:
+        failed = {
+            "task_id": "broker_task_1", "status": "failed", "created_at": "x", "updated_at": "x",
+            "execution_strategy": "single", "progress": {"phase": "failed"},
+            "result": None, "error": {"code": "PROVIDER_UNAVAILABLE", "message": "caído"},
+        }
+        with self.assertRaisesRegex(BrokerContractError, "error.retryable"):
+            validate_task_status_response(failed, "broker_task_1")
+
+        waiting = {
+            "task_id": "broker_task_1", "status": "waiting_for_tools", "created_at": "x", "updated_at": "x",
+            "execution_strategy": "agent",
+            "progress": {"phase": "waiting_for_tools", "agent_iteration": 1, "agent_max_iterations": 6},
+            "result": {"status": "waiting_for_tools", "pending_tool_calls": []}, "error": None,
+        }
+        with self.assertRaisesRegex(BrokerContractError, "pending_tool_calls"):
+            validate_task_status_response(waiting, "broker_task_1")
+
+    def test_normalizes_v27_capability_maps_and_preserves_future_fields(self) -> None:
+        normalized = normalize_capabilities_response({
+            "contract_version": "2.7",
+            "strategies": ["single", "auto"],
+            "presets": {"single": ["fast"], "broken": "slow"},
+            "scheduling_by_preset": {"fast": ["sequential"]},
+            "ingestion_formats": {"text": [".md", ".txt"]},
+            "work_lanes": "inference",
+            "future_field": {"kept": True},
+        })
+        self.assertEqual(normalized["presets"], {"single": ["fast"]})
+        self.assertEqual(normalized["ingestion_formats"]["text"], [".md", ".txt"])
+        self.assertEqual(normalized["work_lanes"], ["inference"])
+        self.assertEqual(normalized["future_field"], {"kept": True})
 
     def test_validates_complete_consensus_metadata_and_rejects_false_quorum(self) -> None:
         payload = {

@@ -6,6 +6,7 @@ import httpx
 
 from knowledge_orchestrator.config import BrokerSettings
 from knowledge_orchestrator.domain.broker_contracts import (
+    normalize_capabilities_response,
     validate_accepted_response,
     validate_create_task_request,
     validate_models_response,
@@ -14,7 +15,16 @@ from knowledge_orchestrator.domain.broker_contracts import (
 
 
 class BrokerClientError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        code: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
 
 
 class TransientBrokerError(BrokerClientError):
@@ -93,7 +103,7 @@ class BrokerClient:
             self._raise_for_status(response)
         # Capabilities es aditivo: se ignoran campos desconocidos y la versión
         # se expone al worker para advertir, sin bloquear el envío de tareas.
-        return dict(self._json(response))
+        return normalize_capabilities_response(self._json(response))
 
     async def health(self) -> dict[str, Any]:
         response = await self._request("GET", "/health")
@@ -121,6 +131,7 @@ class BrokerClient:
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         message = f"Broker HTTP {response.status_code}"
+        code: str | None = None
         try:
             body = response.json()
             if isinstance(body, dict):
@@ -129,15 +140,19 @@ class BrokerClient:
                 if isinstance(detail, dict):
                     nested = detail
                 if isinstance(nested, dict):
+                    raw_code = nested.get("code")
+                    code = str(raw_code) if raw_code else None
                     message = str(
                         nested.get("message") or nested.get("code") or body.get("message") or message
                     )
                 else:
+                    raw_code = body.get("code")
+                    code = str(raw_code) if raw_code else None
                     message = str(
                         body.get("error_message") or body.get("message") or body.get("code") or message
                     )
         except ValueError:
             pass
         if response.status_code in self.TRANSIENT_STATUSES:
-            raise TransientBrokerError(message)
-        raise PermanentBrokerError(message)
+            raise TransientBrokerError(message, status_code=response.status_code, code=code)
+        raise PermanentBrokerError(message, status_code=response.status_code, code=code)

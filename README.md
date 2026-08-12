@@ -178,7 +178,7 @@ tests/
 
 ### Fase 3 — Frontera con el Broker
 
-La fase 3 implementa el cliente HTTP asíncrono y la validación inmediata del contrato Broker v2.7, con identificadores locales separados de los `task_id` asignados por el Broker. Incluye workflows durables simples o por chunks, síntesis con dependencias, creación `202`, replay idempotente `200`, detección de conflictos `409`, dispatcher y poller independientes, espera no terminal `waiting_for_memory`, cancelación idempotente, reintentos transitorios, recuperación tras reinicio y descubrimiento periódico de modelos.
+La fase 3 implementa el cliente HTTP asíncrono y la validación inmediata del contrato Broker v2.7, con identificadores locales separados de los `task_id` asignados por el Broker. Incluye workflows durables simples o por chunks, síntesis con dependencias, creación `202`, replay idempotente `200`, detección de conflictos `409`, dispatcher y poller independientes, espera no terminal `waiting_for_memory`, cancelación idempotente, reintentos transitorios, recuperación tras reinicio y descubrimiento periódico de modelos. La negociación de capacidades admite los mapas de presets, planificación y formatos de ingesta de 2.7 sin rechazar futuras ampliaciones. Los documentos enviados inline conservan el chunking local; el `map_reduce` del Broker queda reservado para futuros flujos que adjunten un `broker_file` ya ingerido.
 
 El dispatcher envía todos los chunks disponibles sin esperar resultados. En el baseline `single`, el Broker procesa una inferencia a la vez. La futura opción Multitasking_LLM mantendrá un solo workflow Broker activo, aunque podrá ejecutar invocaciones internas mediante planificación adaptativa. El worker de red está separado del watcher y del hilo principal.
 

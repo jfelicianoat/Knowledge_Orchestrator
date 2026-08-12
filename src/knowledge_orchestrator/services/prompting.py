@@ -144,7 +144,9 @@ def build_chat_request(
         "execution": {
             "strategy": strategy,
             "preset": profile.consensus_preset if use_consensus else "fast",
-            "long_context": profile.long_context,
+            # No hay attachments broker_file en este flujo: cualquier división
+            # necesaria ya la ha hecho WorkflowPlanner de forma durable.
+            "long_context": "fail",
             "scheduling": "adaptive",
             "max_proposers": proposer_count,
             "max_judges": 0,

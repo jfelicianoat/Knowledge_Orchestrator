@@ -70,8 +70,11 @@ class WorkflowPlanner:
         workflow_revision = revision or self.workflows.next_revision(capture_id)
         workflow_id = f"wf_{capture_id}_r{workflow_revision}"
         tasks: list[PlannedTask] = []
-        broker_handles_long_context = profile.long_context == "map_reduce"
-        if estimate_tokens(system + user) <= input_budget or broker_handles_long_context:
+        # El map_reduce 2.7 del Broker solo trocea documentos ingeridos y
+        # referenciados como broker_file. Knowledge Orchestrator envía ahora la
+        # captura como texto inline, por lo que debe conservar su chunking local.
+        # Delegarlo aquí produciría CONTEXT_LIMIT_EXCEEDED en documentos grandes.
+        if estimate_tokens(system + user) <= input_budget:
             strategy = "single"
             task = self._task(
                 capture_id=capture_id,
@@ -135,6 +138,7 @@ class WorkflowPlanner:
                 "max_context_tokens": self.max_context_tokens,
                 "input_budget": input_budget,
                 "long_context": profile.long_context,
+                "long_context_execution": "local_chunks" if strategy == "chunked" else "not_needed",
             },
             tasks=tasks,
         )

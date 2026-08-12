@@ -93,7 +93,11 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
 
     requirements = _mapping(payload.get("model_requirements"), boundary, "model_requirements")
     if requirements.get("preferred_model") is not None:
-        _string(requirements.get("preferred_model"), boundary, "model_requirements.preferred_model")
+        preferred_model = _string(
+            requirements.get("preferred_model"), boundary, "model_requirements.preferred_model"
+        )
+        if len(preferred_model) > 128:
+            _fail(boundary, "model_requirements.preferred_model", "supera 128 caracteres")
     if not isinstance(requirements.get("fallback_allowed"), bool):
         _fail(boundary, "model_requirements.fallback_allowed", "debe ser boolean")
     cloud_allowed = requirements.get("cloud_allowed")
@@ -189,7 +193,8 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
     status = _string(payload.get("status"), boundary, "status")
     _string(payload.get("created_at"), boundary, "created_at")
     _string(payload.get("updated_at"), boundary, "updated_at")
-    _mapping(payload.get("progress", {}), boundary, "progress")
+    progress = _mapping(payload.get("progress", {}), boundary, "progress")
+    _string(progress.get("phase"), boundary, "progress.phase")
     kind = payload.get("kind", "inference")
     if kind not in {"inference", "ingestion"}:
         _fail(boundary, "kind", "tipo de tarea no permitido")
@@ -224,9 +229,86 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
     elif status == "failed":
         error = _mapping(payload.get("error"), boundary, "error")
         _string(error.get("code"), boundary, "error.code")
+        if not isinstance(error.get("message"), str):
+            _fail(boundary, "error.message", "debe ser string")
+        if not isinstance(error.get("retryable"), bool):
+            _fail(boundary, "error.retryable", "debe ser boolean")
+    elif status == "waiting_for_tools":
+        result = _mapping(payload.get("result"), boundary, "result")
+        if result.get("status") != "waiting_for_tools":
+            _fail(boundary, "result.status", "debe ser waiting_for_tools")
+        calls = result.get("pending_tool_calls")
+        if not isinstance(calls, list) or not calls:
+            _fail(boundary, "result.pending_tool_calls", "debe ser una lista no vacía")
+        for index, call in enumerate(calls):
+            item = _mapping(call, boundary, f"result.pending_tool_calls[{index}]")
+            _string(item.get("id"), boundary, f"result.pending_tool_calls[{index}].id")
+            _string(item.get("name"), boundary, f"result.pending_tool_calls[{index}].name")
+            _mapping(item.get("arguments"), boundary, f"result.pending_tool_calls[{index}].arguments")
+        if strategy == "agent":
+            for field in ("agent_iteration", "agent_max_iterations"):
+                value = progress.get(field)
+                if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                    _fail(boundary, f"progress.{field}", "debe ser integer positivo")
     elif status == "cancelled" and payload.get("result") is not None:
         _fail(boundary, "result", "debe ser null en cancelled")
     return payload
+
+
+def normalize_capabilities_response(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Normaliza el bloque aditivo de capacidades sin rechazar campos futuros.
+
+    Los campos conocidos con una forma inesperada caen a un valor conservador.
+    Así un cambio aditivo o una capacidad opcional mal formada no inutiliza el
+    resto de la negociación ni bloquea el envío de tareas.
+    """
+
+    boundary = "broker_to_orchestrator_capabilities_v2"
+    source = _mapping(payload, boundary, "capabilities")
+    normalized = dict(source)
+
+    def string_list(field: str, default: list[str]) -> None:
+        value = source.get(field)
+        normalized[field] = (
+            list(value)
+            if isinstance(value, list) and all(isinstance(item, str) and item for item in value)
+            else list(default)
+        )
+
+    def string_list_map(field: str) -> None:
+        value = source.get(field)
+        if not isinstance(value, Mapping):
+            normalized[field] = {}
+            return
+        normalized[field] = {
+            key: list(items)
+            for key, items in value.items()
+            if isinstance(key, str)
+            and isinstance(items, list)
+            and all(isinstance(item, str) and item for item in items)
+        }
+
+    string_list("strategies", [])
+    string_list("agent_skills", [])
+    string_list("work_lanes", ["inference"])
+    string_list_map("presets")
+    string_list_map("scheduling_by_preset")
+    string_list_map("ingestion_formats")
+
+    for field in (
+        "derived_data_boundary",
+        "sandbox_run_code",
+        "file_ingestion",
+        "long_context_map_reduce",
+    ):
+        value = source.get(field)
+        normalized[field] = value if isinstance(value, bool) else False
+
+    max_active = source.get("max_active_workflows")
+    normalized["max_active_workflows"] = (
+        max_active if isinstance(max_active, int) and not isinstance(max_active, bool) and max_active >= 1 else 1
+    )
+    return normalized
 
 
 def validate_models_response(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
