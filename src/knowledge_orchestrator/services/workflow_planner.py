@@ -70,7 +70,7 @@ class WorkflowPlanner:
         workflow_revision = revision or self.workflows.next_revision(capture_id)
         workflow_id = f"wf_{capture_id}_r{workflow_revision}"
         tasks: list[PlannedTask] = []
-        # El map_reduce 2.7 del Broker solo trocea documentos ingeridos y
+        # El map_reduce 2.8 del Broker solo trocea documentos ingeridos y
         # referenciados como broker_file. Knowledge Orchestrator envía ahora la
         # captura como texto inline, por lo que debe conservar su chunking local.
         # Delegarlo aquí produciría CONTEXT_LIMIT_EXCEEDED en documentos grandes.

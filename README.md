@@ -1,6 +1,6 @@
 # Knowledge Orchestrator — Desktop Pipeline
 
-Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows de conocimiento — chunking, síntesis, extracción de afirmaciones y comparación semántica — mientras que el AI Broker ejecuta la estrategia técnica: `single`, `mixture_of_agents`/Multitasking_LLM o, delegando la decisión en el meta-router del Broker, `auto` (contrato v2.7).
+Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows de conocimiento — chunking, síntesis, extracción de afirmaciones y comparación semántica — mientras que el AI Broker ejecuta la estrategia técnica: `single`, `mixture_of_agents`/Multitasking_LLM o, delegando la decisión en el meta-router del Broker, `auto` (contrato v2.8).
 
 ## Arquitectura del Ecosistema
 
@@ -178,7 +178,7 @@ tests/
 
 ### Fase 3 — Frontera con el Broker
 
-La fase 3 implementa el cliente HTTP asíncrono y la validación inmediata del contrato Broker v2.7, con identificadores locales separados de los `task_id` asignados por el Broker. Incluye workflows durables simples o por chunks, síntesis con dependencias, creación `202`, replay idempotente `200`, detección de conflictos `409`, dispatcher y poller independientes, espera no terminal `waiting_for_memory`, cancelación idempotente, reintentos transitorios, recuperación tras reinicio y descubrimiento periódico de modelos. La negociación de capacidades admite los mapas de presets, planificación y formatos de ingesta de 2.7 sin rechazar futuras ampliaciones. Los documentos enviados inline conservan el chunking local; el `map_reduce` del Broker queda reservado para futuros flujos que adjunten un `broker_file` ya ingerido.
+La fase 3 implementa el cliente HTTP asíncrono y la validación inmediata del contrato Broker v2.8, con identificadores locales separados de los `task_id` asignados por el Broker. Incluye workflows durables simples o por chunks, síntesis con dependencias, creación `202`, replay idempotente `200`, detección de conflictos `409`, dispatcher y poller independientes, esperas no terminales `waiting_for_memory` y `waiting_for_dependencies`, cancelación idempotente, reintentos transitorios, recuperación tras reinicio y descubrimiento periódico de modelos. La negociación de capacidades admite dependencias, skills con salida de red, mapas de presets, planificación y formatos de ingesta sin rechazar futuras ampliaciones. Los avisos del resultado y las citas sin respaldo se conservan y aparecen en la cronología. Los documentos enviados inline conservan el chunking local; el `map_reduce` del Broker queda reservado para futuros flujos que adjunten un `broker_file` ya ingerido.
 
 El dispatcher envía todos los chunks disponibles sin esperar resultados. En el baseline `single`, el Broker procesa una inferencia a la vez. La futura opción Multitasking_LLM mantendrá un solo workflow Broker activo, aunque podrá ejecutar invocaciones internas mediante planificación adaptativa. El worker de red está separado del watcher y del hilo principal.
 
@@ -192,7 +192,7 @@ El rechazo retira nota y fuente a `rejected` sin destruirlas. El reprocesado cop
 
 ### Fase 5 — Multitasking_LLM
 
-La integración con `mixture_of_agents/fast` y con `auto` (meta-router del Broker, contrato v2.7) está implementada mediante una política versionada por perfil y paso. `single` sigue siendo el valor predeterminado; los chunks permanecen en `single` y las estrategias pesadas se reservan para síntesis o pasos `single` habilitados expresamente.
+La integración con `mixture_of_agents/fast` y con `auto` (meta-router del Broker, contrato v2.8) está implementada mediante una política versionada por perfil y paso. `single` sigue siendo el valor predeterminado; los chunks permanecen en `single` y las estrategias pesadas se reservan para síntesis o pasos `single` habilitados expresamente.
 
 La integración incluye validación de metadata de consenso, progreso durable y fallback `single` restringido a fallos de quorum/capacidad. AI Broker ya dispone de providers reales y catálogo; la activación por defecto sigue esperando el benchmark representativo. Véanse [`docs/Phase_5_Multitasking.md`](docs/Phase_5_Multitasking.md) y [`docs/Study_Multitasking_LLM.md`](docs/Study_Multitasking_LLM.md).
 

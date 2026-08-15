@@ -53,7 +53,7 @@ class MultitaskingPolicyTests(unittest.TestCase):
             workflow_id = runtime.workflow_planner.plan_capture("document_auto_single")
             task = runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
             request = json.loads(task.request_json)
-            # El contrato v2.7 viaja con "auto": el Broker resuelve la estrategia.
+            # El contrato v2.8 viaja con "auto": el Broker resuelve la estrategia.
             self.assertEqual(request["execution"]["strategy"], "auto")
             # local_only deriva la frontera; no duplicamos cloud_allowed.
             self.assertNotIn("cloud_allowed", request["model_requirements"])

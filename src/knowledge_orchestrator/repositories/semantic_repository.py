@@ -450,7 +450,7 @@ class SemanticRepository:
 
     def update_job_status(self, job_id: str, payload: dict) -> tuple[SemanticJob, str | None] | None:
         broker_status = payload["status"]
-        if broker_status in {"queued", "waiting_for_memory"}:
+        if broker_status in {"queued", "waiting_for_memory", "waiting_for_dependencies"}:
             target = "QUEUED"
         elif broker_status in {"completed", "success"}:
             target = "SUCCESS"

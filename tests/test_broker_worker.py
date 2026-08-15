@@ -16,7 +16,7 @@ class _UnavailableCapabilitiesClient:
 
 class _FutureCapabilitiesClient:
     async def capabilities(self) -> dict:
-        return {"contract_version": "2.8", "strategies": ["single"], "future_field": True}
+        return {"contract_version": "2.9", "strategies": ["single"], "future_field": True}
 
 
 class BrokerWorkerCapabilitiesTests(unittest.IsolatedAsyncioTestCase):
@@ -45,7 +45,7 @@ class BrokerWorkerCapabilitiesTests(unittest.IsolatedAsyncioTestCase):
 
         await worker._refresh_capabilities()
 
-        self.assertEqual(worker.capabilities_snapshot()["contract_version"], "2.8")
+        self.assertEqual(worker.capabilities_snapshot()["contract_version"], "2.9")
         events = [worker.events.get_nowait(), worker.events.get_nowait()]
         self.assertEqual([event.event_type for event in events], [
             "BROKER_CONTRACT_WARNING",

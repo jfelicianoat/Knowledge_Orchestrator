@@ -102,6 +102,14 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(persisted.status, "QUEUED")
         self.assertIsNone(result_text)
 
+        change = self.runtime.semantic_repository.update_job_status(candidate.job_id, {
+            "status": "waiting_for_dependencies",
+            "progress": {"phase": "waiting_for_dependencies"},
+            "result": None,
+            "error": None,
+        })
+        self.assertEqual((change or (None, None))[0].status, "QUEUED")
+
     def test_semantic_job_accepts_future_non_terminal_phase(self) -> None:
         self.publish("semantic_future_phase", "# Estado\n\nDato local.\n")
         candidate = self.runtime.semantic_repository.list_dispatchable_jobs()[0]

@@ -88,35 +88,39 @@ class BrokerClientTests(unittest.IsolatedAsyncioTestCase):
             await client.close()
         self.assertEqual(seen_headers, [None])
 
-    async def test_reads_v27_capabilities(self) -> None:
+    async def test_reads_v28_capabilities(self) -> None:
         client = BrokerClient(
             BrokerSettings(base_url="http://broker.test"),
             transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={
-                "contract_version": "2.7",
+                "contract_version": "2.8",
                 "strategies": ["single", "auto"],
                 "work_lanes": ["inference"],
+                "agent_skills_egress": ["web_search"],
+                "task_dependencies": True,
             })),
         )
         try:
             capabilities = await client.capabilities()
         finally:
             await client.close()
-        self.assertEqual(capabilities["contract_version"], "2.7")
+        self.assertEqual(capabilities["contract_version"], "2.8")
         self.assertIn("auto", capabilities["strategies"])
         self.assertEqual(capabilities["work_lanes"], ["inference"])
+        self.assertEqual(capabilities["agent_skills_egress"], ["web_search"])
+        self.assertTrue(capabilities["task_dependencies"])
 
     async def test_capabilities_version_mismatch_is_reported_without_blocking_client(self) -> None:
         client = BrokerClient(
             BrokerSettings(base_url="http://broker.test"),
             transport=httpx.MockTransport(
-                lambda _request: httpx.Response(200, json={"contract_version": "2.8", "future_field": True})
+                lambda _request: httpx.Response(200, json={"contract_version": "2.9", "future_field": True})
             ),
         )
         try:
             capabilities = await client.capabilities()
         finally:
             await client.close()
-        self.assertEqual(capabilities["contract_version"], "2.8")
+        self.assertEqual(capabilities["contract_version"], "2.9")
         self.assertTrue(capabilities["future_field"])
 
     async def test_treats_rotated_admin_token_as_recoverable(self) -> None:

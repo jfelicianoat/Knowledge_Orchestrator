@@ -469,9 +469,10 @@ class WorkflowRepository:
     def apply_status(self, task_id: str, payload: dict[str, Any]) -> bool:
         status_map = {
             "queued": TaskStatus.QUEUED,
-            # Contrato 2.7: espera pasiva y autorrecuperable. Conserva el sitio
+            # Contrato 2.8: esperas pasivas y autorrecuperables. Conservan el sitio
             # en cola; no ha empezado a ejecutar ni debe consumir reintentos.
             "waiting_for_memory": TaskStatus.QUEUED,
+            "waiting_for_dependencies": TaskStatus.QUEUED,
             "processing": TaskStatus.PROCESSING,
             "routing": TaskStatus.PROCESSING,
             "planning": TaskStatus.PROCESSING,
@@ -554,7 +555,9 @@ class WorkflowRepository:
                     json.dumps({
                         key: (broker_result or {}).get(key)
                         for key in (
-                            "consensus", "scheduling", "usage", "model_used", "models_used", "arbiter_failures"
+                            "consensus", "scheduling", "usage", "model_used", "models_used",
+                            "arbiter_failures", "warnings", "agent", "long_context",
+                            "fallback_used", "inference_kind", "output_format",
                         )
                         if key in (broker_result or {})
                     }, ensure_ascii=False),
@@ -568,6 +571,32 @@ class WorkflowRepository:
                     (current["capture_id"],),
                 )
             if target is TaskStatus.SUCCESS:
+                for warning in (broker_result or {}).get("warnings", []):
+                    connection.execute(
+                        "INSERT INTO events(capture_id, event_type, message, details_json) "
+                        "VALUES (?, 'BROKER_RESULT_WARNING', ?, ?)",
+                        (
+                            current["capture_id"],
+                            warning,
+                            json.dumps({"task_id": task_id}, ensure_ascii=False),
+                        ),
+                    )
+                unsupported = (
+                    ((broker_result or {}).get("agent") or {}).get("citations") or {}
+                ).get("unsupported", [])
+                if unsupported:
+                    connection.execute(
+                        "INSERT INTO events(capture_id, event_type, message, details_json) "
+                        "VALUES (?, 'BROKER_CITATION_WARNING', ?, ?)",
+                        (
+                            current["capture_id"],
+                            f"El Broker detectó {len(unsupported)} enlace(s) citado(s) sin respaldo en las fuentes consultadas.",
+                            json.dumps(
+                                {"task_id": task_id, "unsupported": unsupported},
+                                ensure_ascii=False,
+                            ),
+                        ),
+                    )
                 connection.execute(
                     "UPDATE workflows SET completed_steps = completed_steps + 1, "
                     "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE workflow_id = ?",

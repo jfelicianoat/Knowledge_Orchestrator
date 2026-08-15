@@ -119,7 +119,7 @@ def build_chat_request(
         "fallback_allowed": profile.fallback_allowed,
         "max_cost_usd": profile.max_cost_usd,
     }
-    # Contrato 2.7: la clasificación deriva la frontera de nube. Conservamos
+    # Contrato 2.8: la clasificación deriva la frontera de nube. Conservamos
     # los controles legacy solo para perfiles no restringidos que imponen una
     # política más estrecha. confidential/local_only dependen exclusivamente
     # de la frontera derivada y no pueden reabrirse por una configuración vieja.

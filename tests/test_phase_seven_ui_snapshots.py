@@ -97,6 +97,16 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
         self.assertEqual(waiting.status, "QUEUED")
         self.assertEqual(waiting.phase, "Esperando memoria")
         self.assertIn("automáticamente", waiting.progress_text)
+        self.runtime.workflow_repository.apply_status(task.task_id, {
+            "task_id": "broker_ui_queue",
+            "status": "waiting_for_dependencies",
+            "result": None,
+            "error": None,
+        })
+        waiting = self.snapshots.queue()[0]
+        self.assertEqual(waiting.status, "QUEUED")
+        self.assertEqual(waiting.phase, "Esperando dependencias")
+        self.assertIn("dependencias", waiting.progress_text)
         self.assertTrue(self.runtime.workflow_repository.request_cancel(task.task_id))
         self.runtime.workflow_repository.apply_status(task.task_id, {
             "task_id": "broker_ui_queue",

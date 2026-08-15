@@ -212,6 +212,39 @@ class PhaseThreeWorkflowTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(metadata["consensus"]["synthesized"])
             self.assertEqual(metadata["arbiter_failures"][0]["code"], "PROMPT_ECHOED")
 
+    async def test_v28_warnings_and_unsupported_citations_are_persisted_and_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = self.make_runtime(Path(temporary), capture_id="broker_warnings", transcript="Texto breve.")
+            workflow_id = runtime.workflow_planner.plan_capture("broker_warnings")
+            task = runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
+            runtime.workflow_repository.apply_status(task.task_id, {
+                "task_id": task.task_id, "status": "completed",
+                "created_at": "2026-08-15T10:00:00Z", "updated_at": "2026-08-15T10:01:00Z",
+                "result": {
+                    "assistant_content": "Resultado",
+                    "warnings": ["Una dependencia no aportó resultado"],
+                    "agent": {
+                        "final_turn": True, "stop_reason": "completed",
+                        "citations": {"cited": 1, "unsupported": ["https://invalid.example"]},
+                    },
+                },
+                "error": None,
+            })
+
+            with closing(runtime.database.connect(readonly=True)) as connection:
+                row = connection.execute(
+                    "SELECT broker_metadata_json FROM tasks WHERE task_id = ?", (task.task_id,)
+                ).fetchone()
+                events = connection.execute(
+                    "SELECT event_type FROM events WHERE capture_id = ?", ("broker_warnings",)
+                ).fetchall()
+            metadata = json.loads(row["broker_metadata_json"])
+            self.assertEqual(metadata["warnings"], ["Una dependencia no aportó resultado"])
+            self.assertEqual(metadata["agent"]["citations"]["unsupported"], ["https://invalid.example"])
+            event_types = {event["event_type"] for event in events}
+            self.assertIn("BROKER_RESULT_WARNING", event_types)
+            self.assertIn("BROKER_CITATION_WARNING", event_types)
+
     async def test_startup_upgrades_unsent_v1_chat_request_to_v2(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             runtime = self.make_runtime(

@@ -278,7 +278,7 @@ class UiSnapshotService:
     def _queue_item(position: int, row: Any) -> QueueItem:
         progress = _safe_json(row["progress_json"])
         raw_phase = str(progress.get("phase") or progress.get("status") or row["status"]).lower()
-        phase = "Esperando memoria" if raw_phase == "waiting_for_memory" else raw_phase
+        phase = _phase_label(raw_phase)
         started_at = row["started_at"] or row["queued_at"] or row["created_at"]
         model = row["model_used"] or row["preferred_model"] or "auto"
         return QueueItem(
@@ -299,6 +299,8 @@ class UiSnapshotService:
             progress_text=(
                 "El Broker reanudará la tarea automáticamente cuando haya memoria disponible."
                 if raw_phase == "waiting_for_memory"
+                else "El Broker iniciará la tarea cuando terminen sus dependencias."
+                if raw_phase == "waiting_for_dependencies"
                 else _progress_text(progress)
             ),
         )
@@ -313,8 +315,7 @@ class UiSnapshotService:
         error_message = str(row["task_error_message"] or row["last_error_message"] or "")
         category = _work_category(capture_status, task_status, error_code)
         phase = str(progress.get("phase") or progress.get("status") or status).lower()
-        if phase == "waiting_for_memory":
-            phase = "Esperando memoria"
+        phase = _phase_label(phase)
         path_candidates = (
             (row["archive_path"], row["processing_path"], row["source_path"], row["staging_path"])
             if capture_status == "COMPLETED"
@@ -353,6 +354,8 @@ class UiSnapshotService:
             progress_text=(
                 "El Broker reanudará la tarea automáticamente cuando haya memoria disponible."
                 if phase == "Esperando memoria"
+                else "El Broker iniciará la tarea cuando terminen sus dependencias."
+                if phase == "Esperando dependencias"
                 else _progress_text(progress)
             ),
         )
@@ -424,7 +427,7 @@ def _work_category(capture_status: str, task_status: str, error_code: str | None
 
 
 def _status_label(status: str, phase: str) -> str:
-    if phase == "Esperando memoria":
+    if phase in {"Esperando memoria", "Esperando dependencias"}:
         return phase
     labels = {
         "STAGED": "Preparando",
@@ -442,6 +445,13 @@ def _status_label(status: str, phase: str) -> str:
         "CANCELLED": "Cancelado",
     }
     return labels.get(status, status.replace("_", " ").capitalize())
+
+
+def _phase_label(phase: str) -> str:
+    return {
+        "waiting_for_memory": "Esperando memoria",
+        "waiting_for_dependencies": "Esperando dependencias",
+    }.get(phase, phase)
 
 
 def _clock_label(value: str | None) -> str:

@@ -10,10 +10,11 @@ UNRESOLVED_PLACEHOLDER = re.compile(
     r"chunk|chunk_index|chunk_count|partial_results)\}"
 )
 IDENTIFIER = re.compile(r"^[A-Za-z0-9._:-]{1,240}$")
-# Estados publicados por el contrato 2.7. Los intermedios son informativos y
+# Estados publicados por el contrato 2.8. Los intermedios son informativos y
 # aditivos: el cliente debe aceptar otros nuevos y seguir sondeando.
 BROKER_STATUSES = {
-    "queued", "waiting_for_memory", "routing", "planning", "resource_planning", "chunking", "generating",
+    "queued", "waiting_for_memory", "waiting_for_dependencies", "routing", "planning",
+    "resource_planning", "chunking", "generating",
     "proposing", "evaluating", "debating", "synthesizing", "verifying",
     # Carril de ingesta de ficheros.
     "converting",
@@ -33,7 +34,7 @@ class BrokerContractIssue:
     boundary: str
     field: str
     reason: str
-    contract_version: str | None = "2.7"
+    contract_version: str | None = "2.8"
     code: str = "CONTRACT_VALIDATION_FAILED"
 
 
@@ -67,6 +68,22 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
     request_id = _string(payload.get("request_id"), boundary, "request_id")
     if len(request_id) > 240:
         _fail(boundary, "request_id", "supera 240 caracteres")
+
+    group = payload.get("group")
+    if group is not None:
+        _string(group, boundary, "group")
+    depends_on = payload.get("depends_on", [])
+    if not isinstance(depends_on, list) or len(depends_on) > 64:
+        _fail(boundary, "depends_on", "debe ser una lista de hasta 64 task_id")
+    for index, dependency in enumerate(depends_on):
+        _string(dependency, boundary, f"depends_on[{index}]")
+    if len(set(depends_on)) != len(depends_on):
+        _fail(boundary, "depends_on", "no debe contener task_id duplicados")
+    depends_on_group = payload.get("depends_on_group")
+    if depends_on_group is not None:
+        _string(depends_on_group, boundary, "depends_on_group")
+    if group is not None and group == depends_on_group:
+        _fail(boundary, "depends_on_group", "una tarea no puede depender de su propio grupo")
 
     content = _mapping(payload.get("content"), boundary, "content")
     prompt = _string(content.get("prompt"), boundary, "content.prompt")
@@ -207,6 +224,27 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
                 _fail(boundary, field, "debe ser null para tareas de ingesta")
     if status == "completed":
         result = _mapping(payload.get("result"), boundary, "result")
+        warnings = result.get("warnings", [])
+        if not isinstance(warnings, list) or any(not isinstance(item, str) for item in warnings):
+            _fail(boundary, "result.warnings", "debe ser una lista de strings")
+        agent = result.get("agent")
+        if agent is not None:
+            agent = _mapping(agent, boundary, "result.agent")
+            citations = agent.get("citations")
+            if citations is not None:
+                citations = _mapping(citations, boundary, "result.agent.citations")
+                cited = citations.get("cited")
+                if not isinstance(cited, int) or isinstance(cited, bool) or cited < 0:
+                    _fail(boundary, "result.agent.citations.cited", "debe ser integer no negativo")
+                unsupported = citations.get("unsupported")
+                if not isinstance(unsupported, list) or any(
+                    not isinstance(item, str) for item in unsupported
+                ):
+                    _fail(boundary, "result.agent.citations.unsupported", "debe ser una lista de strings")
+            if "final_turn" in agent and not isinstance(agent["final_turn"], bool):
+                _fail(boundary, "result.agent.final_turn", "debe ser boolean")
+            if "stop_reason" in agent:
+                _string(agent["stop_reason"], boundary, "result.agent.stop_reason")
         if kind == "inference":
             assistant_content = result.get("assistant_content", result.get("result_markdown"))
             _string(assistant_content, boundary, "result.assistant_content")
@@ -218,6 +256,18 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
             synthesized = consensus.get("synthesized", True)
             if not isinstance(synthesized, bool):
                 _fail(boundary, "result.consensus.synthesized", "debe ser boolean")
+            rounds = consensus.get("rounds")
+            if rounds is not None and (
+                not isinstance(rounds, int) or isinstance(rounds, bool) or not 1 <= rounds <= 2
+            ):
+                _fail(boundary, "result.consensus.rounds", "debe estar entre 1 y 2")
+            confidence = consensus.get("confidence")
+            if confidence is not None and (
+                not isinstance(confidence, (int, float))
+                or isinstance(confidence, bool)
+                or not 0 <= confidence <= 1
+            ):
+                _fail(boundary, "result.consensus.confidence", "debe estar entre 0 y 1 o ser null")
             scheduling = _mapping(result.get("scheduling"), boundary, "result.scheduling")
             if scheduling.get("mode_used") not in {"parallel", "waves", "sequential"}:
                 _fail(boundary, "result.scheduling.mode_used", "modo no permitido")
@@ -307,6 +357,7 @@ def normalize_capabilities_response(payload: Mapping[str, Any]) -> dict[str, Any
 
     string_list("strategies", [])
     string_list("agent_skills", [])
+    string_list("agent_skills_egress", [])
     string_list("work_lanes", ["inference"])
     string_list_map("presets")
     string_list_map("scheduling_by_preset")
@@ -317,6 +368,7 @@ def normalize_capabilities_response(payload: Mapping[str, Any]) -> dict[str, Any
         "sandbox_run_code",
         "file_ingestion",
         "long_context_map_reduce",
+        "task_dependencies",
     ):
         value = source.get(field)
         normalized[field] = value if isinstance(value, bool) else False

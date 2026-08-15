@@ -93,8 +93,8 @@ class BrokerContractTests(unittest.TestCase):
                 "broker_task_1",
             )
 
-    def test_accepts_v27_auto_strategy_round_trip(self) -> None:
-        # Contrato v2.7: la petición puede delegar en el meta-router del Broker
+    def test_accepts_v28_auto_strategy_round_trip(self) -> None:
+        # Contrato v2.8: la petición puede delegar en el meta-router del Broker
         # y las respuestas conservan "auto" en execution_strategy toda la vida
         # de la tarea (la resolución interna viaja en el evento strategy.routed).
         request = valid_request()
@@ -168,6 +168,28 @@ class BrokerContractTests(unittest.TestCase):
         }
         self.assertIs(validate_task_status_response(payload, "broker_task_1"), payload)
 
+    def test_accepts_v28_dependencies_and_waiting_state(self) -> None:
+        request = valid_request()
+        request.update({
+            "group": "capture:1",
+            "depends_on": ["broker_parent_1", "broker_parent_2"],
+            "depends_on_group": "previous_batch",
+        })
+        self.assertIs(validate_create_task_request(request), request)
+
+        waiting = {
+            "task_id": "broker_task_1", "kind": "inference",
+            "status": "waiting_for_dependencies",
+            "created_at": "2026-08-15T10:00:00Z", "updated_at": "2026-08-15T10:01:00Z",
+            "execution_strategy": "single", "execution_preset": "fast", "selection_mode": "auto",
+            "progress": {"phase": "waiting_for_dependencies"}, "result": None, "error": None,
+        }
+        self.assertIs(validate_task_status_response(waiting, "broker_task_1"), waiting)
+
+        request["depends_on"] = [f"task_{index}" for index in range(65)]
+        with self.assertRaisesRegex(BrokerContractError, "depends_on"):
+            validate_create_task_request(request)
+
     def test_rejects_unknown_request_strategy_but_accepts_new_intermediate_status(self) -> None:
         request = valid_request()
         request["execution"]["strategy"] = "swarm"
@@ -197,10 +219,12 @@ class BrokerContractTests(unittest.TestCase):
         with self.assertRaisesRegex(BrokerContractError, "pending_tool_calls"):
             validate_task_status_response(waiting, "broker_task_1")
 
-    def test_normalizes_v27_capability_maps_and_preserves_future_fields(self) -> None:
+    def test_normalizes_v28_capabilities_and_preserves_future_fields(self) -> None:
         normalized = normalize_capabilities_response({
-            "contract_version": "2.7",
+            "contract_version": "2.8",
             "strategies": ["single", "auto"],
+            "agent_skills_egress": ["web_search", "fetch_url"],
+            "task_dependencies": True,
             "presets": {"single": ["fast"], "broken": "slow"},
             "scheduling_by_preset": {"fast": ["sequential"]},
             "ingestion_formats": {"text": [".md", ".txt"]},
@@ -210,7 +234,38 @@ class BrokerContractTests(unittest.TestCase):
         self.assertEqual(normalized["presets"], {"single": ["fast"]})
         self.assertEqual(normalized["ingestion_formats"]["text"], [".md", ".txt"])
         self.assertEqual(normalized["work_lanes"], ["inference"])
+        self.assertEqual(normalized["agent_skills_egress"], ["web_search", "fetch_url"])
+        self.assertTrue(normalized["task_dependencies"])
         self.assertEqual(normalized["future_field"], {"kept": True})
+
+    def test_accepts_v28_result_warnings_agent_citations_and_second_round(self) -> None:
+        payload = {
+            "task_id": "broker_consensus", "status": "completed",
+            "created_at": "2026-08-15T10:00:00Z", "updated_at": "2026-08-15T10:01:00Z",
+            "execution_strategy": "mixture_of_agents", "execution_preset": "verified",
+            "selection_mode": "auto", "progress": {"phase": "completed"},
+            "result": {
+                "assistant_content": "Resultado con revisión",
+                "warnings": ["Una dependencia terminó con avisos"],
+                "agent": {
+                    "final_turn": True, "stop_reason": "completed",
+                    "citations": {"cited": 2, "unsupported": ["https://invalid.example"]},
+                },
+                "consensus": {
+                    "proposers_completed": 2, "synthesized": True,
+                    "rounds": 2, "confidence": 0.84,
+                },
+                "scheduling": {"mode_used": "parallel"},
+                "usage": {"invocations": 3},
+                "models_used": [{"model": "a"}, {"model": "b"}, {"model": "arbiter"}],
+            },
+            "error": None,
+        }
+        self.assertIs(validate_task_status_response(payload, "broker_consensus"), payload)
+
+        payload["result"]["consensus"]["confidence"] = 1.2
+        with self.assertRaisesRegex(BrokerContractError, "confidence"):
+            validate_task_status_response(payload, "broker_consensus")
 
     def test_validates_complete_consensus_metadata_and_rejects_false_quorum(self) -> None:
         payload = {

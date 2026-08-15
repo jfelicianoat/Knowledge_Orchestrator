@@ -156,11 +156,11 @@ class BrokerWorker:
         with self._capabilities_lock:
             self._capabilities = dict(capabilities)
         contract_version = capabilities.get("contract_version")
-        if contract_version != "2.7":
+        if contract_version != "2.8":
             self._emit(
                 "BROKER_CONTRACT_WARNING",
-                f"Contrato Broker anunciado: {contract_version or 'desconocido'}; esperado: 2.7",
-                {"contract_version": contract_version, "expected_contract_version": "2.7"},
+                f"Contrato Broker anunciado: {contract_version or 'desconocido'}; esperado: 2.8",
+                {"contract_version": contract_version, "expected_contract_version": "2.8"},
             )
         self._emit(
             "BROKER_CAPABILITIES_UPDATED",

@@ -1081,6 +1081,8 @@ class OrchestratorDashboard(tk.Tk):
             "BROKER_TASK_ACCEPTED": "Broker aceptó la tarea", "CAPTURE_PROCESSING": "Procesamiento iniciado",
             "CAPTURE_COMPLETED": "Trabajo completado", "MANUAL_RETRY_REQUESTED": "Reintento solicitado",
             "CAPTURE_IGNORED": "Incidencia ignorada",
+            "BROKER_RESULT_WARNING": "Aviso del Broker",
+            "BROKER_CITATION_WARNING": "Revisión de citas necesaria",
         }
         return labels.get(event_type, event_type.replace("_", " ").capitalize())
 
