@@ -116,6 +116,52 @@ class BrokerContractTests(unittest.TestCase):
         }
         self.assertIs(validate_task_status_response(completed, "broker_task_1"), completed)
 
+    def test_accepts_v29_determinism_and_learning_exclusion(self) -> None:
+        # Contrato v2.9: `generation.seed`, `generation.top_p` y
+        # `exclude_from_model_learning`. Los tres son OPCIONALES y el
+        # orquestador no los envía hoy: sirve peticiones reales, no mediciones.
+        # El espejo los valida igualmente para que un futuro modo de
+        # diagnóstico falle aquí, con el campo señalado, y no con un 422 del
+        # Broker a mitad de un flujo.
+        request = valid_request()
+        request["generation"]["seed"] = 1234
+        request["generation"]["top_p"] = 0.9
+        request["exclude_from_model_learning"] = True
+        self.assertIs(validate_create_task_request(request), request)
+
+        # Y una petición sin ellos sigue siendo válida: son aditivos.
+        sin_novedades = valid_request()
+        self.assertIs(validate_create_task_request(sin_novedades), sin_novedades)
+
+    def test_rejects_malformed_v29_fields(self) -> None:
+        for campo, valor, esperado in (
+            ("seed", "mil", "generation.seed"),
+            ("seed", True, "generation.seed"),
+            ("top_p", 1.5, "generation.top_p"),
+            ("top_p", -0.1, "generation.top_p"),
+        ):
+            with self.subTest(campo=campo, valor=valor):
+                request = valid_request()
+                request["generation"][campo] = valor
+                with self.assertRaises(BrokerContractError) as capturado:
+                    validate_create_task_request(request)
+                self.assertEqual(capturado.exception.issue.field, esperado)
+
+        request = valid_request()
+        request["exclude_from_model_learning"] = "si"
+        with self.assertRaises(BrokerContractError) as capturado:
+            validate_create_task_request(request)
+        self.assertEqual(capturado.exception.issue.field, "exclude_from_model_learning")
+
+    def test_contract_version_reported_matches_the_broker(self) -> None:
+        # La versión viaja en cada incidencia: si se queda atrás, los informes
+        # de error señalan a un contrato que ya no es el que hay enfrente.
+        request = valid_request()
+        request["generation"]["temperature"] = 9
+        with self.assertRaises(BrokerContractError) as capturado:
+            validate_create_task_request(request)
+        self.assertEqual(capturado.exception.issue.contract_version, "2.9")
+
     def test_accepts_v27_waiting_for_tools_and_slow_preset(self) -> None:
         waiting = {
             "task_id": "broker_task_1", "status": "waiting_for_tools", "request_id": "task_1",

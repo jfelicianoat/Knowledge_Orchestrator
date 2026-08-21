@@ -590,7 +590,8 @@ class WorkflowRepository:
                         "VALUES (?, 'BROKER_CITATION_WARNING', ?, ?)",
                         (
                             current["capture_id"],
-                            f"El Broker detectó {len(unsupported)} enlace(s) citado(s) sin respaldo en las fuentes consultadas.",
+                            f"El Broker detectó {len(unsupported)} enlace(s) citado(s) "
+                            "sin respaldo en las fuentes consultadas.",
                             json.dumps(
                                 {"task_id": task_id, "unsupported": unsupported},
                                 ensure_ascii=False,

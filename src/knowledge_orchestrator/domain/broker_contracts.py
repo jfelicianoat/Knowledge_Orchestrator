@@ -10,8 +10,14 @@ UNRESOLVED_PLACEHOLDER = re.compile(
     r"chunk|chunk_index|chunk_count|partial_results)\}"
 )
 IDENTIFIER = re.compile(r"^[A-Za-z0-9._:-]{1,240}$")
-# Estados publicados por el contrato 2.8. Los intermedios son informativos y
+# Estados publicados por el contrato 2.9. Los intermedios son informativos y
 # aditivos: el cliente debe aceptar otros nuevos y seguir sondeando.
+#
+# **Esta lista es documentación, no una validación**, y no se usa en ningún
+# sitio a propósito. Si el sondeo rechazara un estado que no estuviera aquí,
+# cualquier etapa nueva del Broker mataría tareas sanas con
+# CONTRACT_VALIDATION_FAILED. Solo los terminales son contrato; el resto se
+# trata como "sigue trabajando".
 BROKER_STATUSES = {
     "queued", "waiting_for_memory", "waiting_for_dependencies", "routing", "planning",
     "resource_planning", "chunking", "generating",
@@ -34,7 +40,7 @@ class BrokerContractIssue:
     boundary: str
     field: str
     reason: str
-    contract_version: str | None = "2.8"
+    contract_version: str | None = "2.9"
     code: str = "CONTRACT_VALIDATION_FAILED"
 
 
@@ -107,6 +113,30 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
     tokens = generation.get("max_output_tokens")
     if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens < 1:
         _fail(boundary, "generation.max_output_tokens", "debe ser integer positivo")
+    # Contrato 2.9: control de determinismo. Ambos son OPCIONALES y el
+    # orquestador no los envía hoy, pero el espejo los valida por si alguna vez
+    # los envía: más vale que falle aquí, con el campo señalado, que con un 422
+    # del Broker a mitad de un flujo.
+    #
+    # Ojo con lo que `seed` significa: es una condición de control, no una
+    # garantía de determinismo. Hardware, runtime o paralelismo pueden dar
+    # salidas distintas con la misma semilla.
+    seed = generation.get("seed")
+    if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool)):
+        _fail(boundary, "generation.seed", "debe ser integer o null")
+    top_p = generation.get("top_p")
+    if top_p is not None and (
+        not isinstance(top_p, (int, float)) or isinstance(top_p, bool) or not 0 <= top_p <= 1
+    ):
+        _fail(boundary, "generation.top_p", "debe estar entre 0 y 1, o null")
+
+    # Contrato 2.9: marca el tráfico que NO debe alimentar al router adaptativo
+    # ni a la cuarentena del Broker. El orquestador sirve peticiones reales, así
+    # que no lo envía: quien lo usa es una app de medición. Se valida por si
+    # alguna vez se añade un modo de diagnóstico.
+    excluir = payload.get("exclude_from_model_learning")
+    if excluir is not None and not isinstance(excluir, bool):
+        _fail(boundary, "exclude_from_model_learning", "debe ser boolean o null")
 
     requirements = _mapping(payload.get("model_requirements"), boundary, "model_requirements")
     if requirements.get("preferred_model") is not None:

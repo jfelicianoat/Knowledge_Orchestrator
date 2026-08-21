@@ -6,11 +6,13 @@ import tkinter as tk
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from typing import Any
 
 from knowledge_orchestrator.runtime import OrchestratorRuntime
-from knowledge_orchestrator.ui.snapshots import ReviewItem, UiSnapshotService, WorkItem
+from knowledge_orchestrator.ui.snapshots import ProfileItem, ReviewItem, UiSnapshotService, WorkItem
 
 
 class OrchestratorDashboard(tk.Tk):
@@ -53,7 +55,7 @@ class OrchestratorDashboard(tk.Tk):
 
         self._selected_review: ReviewItem | None = None
         self._review_items: dict[str, ReviewItem] = {}
-        self._profile_items = {}
+        self._profile_items: dict[int, ProfileItem] = {}
         self._selected_profile_id: int | None = None
         self._work_items: dict[str, WorkItem] = {}
         self._selected_work_id: str | None = None
@@ -199,7 +201,7 @@ class OrchestratorDashboard(tk.Tk):
             ("topics", "Temas"), ("config", "Configuración"),
         ):
             button = tk.Button(
-                navigation, text=label, command=lambda page=key: self._show_page(page),
+                navigation, text=label, command=partial(self._show_page, key),
                 bg=self.colors["header"], fg=self.colors["muted"],
                 activebackground=self.colors["raised"], activeforeground=self.colors["text"],
                 relief="flat", borderwidth=0, padx=18, pady=16, cursor="hand2",
@@ -264,7 +266,12 @@ class OrchestratorDashboard(tk.Tk):
             ("En curso", "active"), ("Requieren atención", "failed"),
             ("Pendientes de revisión", "review"), ("Notas publicadas", "published"),
         )):
-            card = tk.Frame(metrics, bg=self.colors["raised"], highlightbackground=self.colors["border"], highlightthickness=1)
+            card = tk.Frame(
+            metrics,
+            bg=self.colors["raised"],
+            highlightbackground=self.colors["border"],
+            highlightthickness=1,
+        )
             card.grid(row=0, column=index, sticky="ew", padx=6, ipady=12)
             tk.Label(card, textvariable=self.dashboard_vars[key], bg=self.colors["raised"], fg=self.colors["text"],
                      font=("Segoe UI Semibold", 22), anchor="w").pack(fill="x", padx=16)
@@ -314,7 +321,7 @@ class OrchestratorDashboard(tk.Tk):
         for key, label in (("active", "En curso"), ("attention", "Atención"),
                            ("completed", "Completados"), ("all", "Todos")):
             button = tk.Button(
-                filter_row, text=label, command=lambda value=key: self._set_work_filter(value),
+                filter_row, text=label, command=partial(self._set_work_filter, key),
                 bg=self.colors["surface"], fg=self.colors["muted"], activebackground=self.colors["raised"],
                 activeforeground=self.colors["text"], relief="flat", borderwidth=1,
                 highlightthickness=1, highlightbackground=self.colors["border"], padx=13, pady=8,
@@ -391,7 +398,11 @@ class OrchestratorDashboard(tk.Tk):
         self.issue_message_var = tk.StringVar(value="Elige un documento de la lista para consultar su estado.")
         tk.Label(self.issue_frame, textvariable=self.issue_title_var, bg=self.colors["raised"], fg=self.colors["text"],
                  font=("Segoe UI Semibold", 11), anchor="w").pack(fill="x", padx=16, pady=(14, 5))
-        tk.Label(self.issue_frame, textvariable=self.issue_message_var, bg=self.colors["raised"], fg=self.colors["muted"],
+        tk.Label(
+            self.issue_frame,
+            textvariable=self.issue_message_var,
+            bg=self.colors["raised"],
+            fg=self.colors["muted"],
                  font=("Segoe UI", 9), anchor="w", justify="left", wraplength=640).pack(
             fill="x", padx=16, pady=(0, 14)
         )
@@ -414,7 +425,9 @@ class OrchestratorDashboard(tk.Tk):
         action_buttons = tk.Frame(actions, bg=self.colors["surface"])
         action_buttons.pack(fill="x")
         action_buttons.columnconfigure((0, 1), weight=1)
-        self.retry_button = ttk.Button(action_buttons, text="Reintentar", style="Accent.TButton", command=self._retry_selected)
+        self.retry_button = ttk.Button(
+            action_buttons, text="Reintentar", style="Accent.TButton", command=self._retry_selected
+        )
         self.retry_button.grid(row=0, column=0, sticky="ew", padx=(0, 5), pady=(0, 8))
         self.open_location_button = ttk.Button(
             action_buttons, text="Abrir ubicación", style="Secondary.TButton", command=self._open_selected_location
@@ -424,8 +437,8 @@ class OrchestratorDashboard(tk.Tk):
             action_buttons, text="Ignorar este archivo", style="Danger.TButton", command=self._cancel_or_ignore_selected
         )
         self.ignore_button.grid(row=1, column=0, columnspan=2, sticky="ew")
-        for button in (self.retry_button, self.open_location_button, self.ignore_button):
-            button.state(["disabled"])
+        for accion in (self.retry_button, self.open_location_button, self.ignore_button):
+            accion.state(["disabled"])
 
         self.technical_var = tk.StringVar(value="Detalles técnicos: —")
         self._technical_visible = False
@@ -463,8 +476,12 @@ class OrchestratorDashboard(tk.Tk):
         self.review_detail.grid(row=3, column=0, sticky="ew", padx=24, pady=(12, 0))
         buttons = tk.Frame(page, bg=self.colors["surface"])
         buttons.grid(row=4, column=0, sticky="e", padx=24, pady=16)
-        ttk.Button(buttons, text="Aprobar cambio", style="Accent.TButton", command=self._approve_selected).pack(side="left", padx=4)
-        ttk.Button(buttons, text="Rechazar", style="Danger.TButton", command=self._reject_selected).pack(side="left", padx=4)
+        ttk.Button(
+            buttons, text="Aprobar cambio", style="Accent.TButton", command=self._approve_selected
+        ).pack(side="left", padx=4)
+        ttk.Button(
+            buttons, text="Rechazar", style="Danger.TButton", command=self._reject_selected
+        ).pack(side="left", padx=4)
 
     def _build_topics(self) -> None:
         page = self._new_page("topics")
@@ -473,7 +490,10 @@ class OrchestratorDashboard(tk.Tk):
         self._page_heading(page, "Temas", "Consulta cómo se clasifica y publica el conocimiento.")
         columns = ("pos", "nombre", "carpeta", "perfil", "activo")
         self.topics_tree = ttk.Treeview(page, columns=columns, show="headings", style="Dark.Treeview")
-        for column, text in {"pos": "#", "nombre": "Tema", "carpeta": "Carpeta", "perfil": "Perfil", "activo": "Activo"}.items():
+        cabeceras_temas = {
+            "pos": "#", "nombre": "Tema", "carpeta": "Carpeta", "perfil": "Perfil", "activo": "Activo",
+        }
+        for column, text in cabeceras_temas.items():
             self.topics_tree.heading(column, text=text)
             self.topics_tree.column(column, width=90 if column in {"pos", "activo"} else 260)
         self.topics_tree.grid(row=2, column=0, sticky="nsew", padx=24, pady=(0, 24))
@@ -506,8 +526,14 @@ class OrchestratorDashboard(tk.Tk):
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(0, weight=1)
         columns = ("nombre", "modelo", "estrategia", "datos", "activo")
-        self.profiles_tree = ttk.Treeview(list_frame, columns=columns, show="headings", style="Dark.Treeview", height=15)
-        for column, text in {"nombre": "Perfil", "modelo": "Modelo", "estrategia": "Estrategia", "datos": "Datos", "activo": "Activo"}.items():
+        self.profiles_tree = ttk.Treeview(
+            list_frame, columns=columns, show="headings", style="Dark.Treeview", height=15
+        )
+        cabeceras_perfiles = {
+            "nombre": "Perfil", "modelo": "Modelo", "estrategia": "Estrategia",
+            "datos": "Datos", "activo": "Activo",
+        }
+        for column, text in cabeceras_perfiles.items():
             self.profiles_tree.heading(column, text=text)
             self.profiles_tree.column(column, width=145 if column != "nombre" else 190)
         self.profiles_tree.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
@@ -544,11 +570,17 @@ class OrchestratorDashboard(tk.Tk):
             row=6, column=0, columnspan=2, sticky="w", pady=(10, 6)
         )
         tk.Label(
-            editor, text="La clasificación controla si el contenido puede salir a la nube. Los cambios solo afectan a tareas nuevas.",
+            editor,
+            text=(
+                "La clasificación controla si el contenido puede salir a la nube. "
+                "Los cambios solo afectan a tareas nuevas."
+            ),
             bg=self.colors["surface"], fg=self.colors["muted"], font=("Segoe UI", 9), wraplength=430,
             justify="left",
         ).grid(row=7, column=0, columnspan=2, sticky="ew", pady=(8, 14))
-        self.save_profile_button = ttk.Button(editor, text="Guardar política", style="Accent.TButton", command=self._save_profile)
+        self.save_profile_button = ttk.Button(
+            editor, text="Guardar política", style="Accent.TButton", command=self._save_profile
+        )
         self.save_profile_button.grid(row=8, column=1, sticky="e")
         self.save_profile_button.state(["disabled"])
         editor.columnconfigure(1, weight=1)
@@ -708,14 +740,22 @@ class OrchestratorDashboard(tk.Tk):
 
         if item.category == "attention":
             self.issue_title_var.set("No se pudo completar el trabajo.")
-            recovery = item.error_message or "Revisa el detalle técnico y vuelve a intentarlo cuando la causa esté resuelta."
-            self.issue_message_var.set(f"{recovery}\n\nTu archivo original se conserva; esta acción no modifica su contenido.")
+            recovery = item.error_message or (
+                "Revisa el detalle técnico y vuelve a intentarlo cuando la causa esté resuelta."
+            )
+            self.issue_message_var.set(
+                f"{recovery}\n\nTu archivo original se conserva; "
+                "esta acción no modifica su contenido."
+            )
         elif item.category == "completed":
             self.issue_title_var.set("Trabajo completado.")
             self.issue_message_var.set("El documento terminó el flujo y su historial permanece disponible.")
         else:
             self.issue_title_var.set("El documento sigue avanzando.")
-            self.issue_message_var.set(item.progress_text or f"Fase actual: {item.phase}. La vista se actualiza automáticamente.")
+            self.issue_message_var.set(
+                item.progress_text
+                or f"Fase actual: {item.phase}. La vista se actualiza automáticamente."
+            )
 
         events = self.snapshots.work_events(item.capture_id)
         self.timeline.configure(state="normal")
@@ -759,8 +799,8 @@ class OrchestratorDashboard(tk.Tk):
         self.timeline.delete("1.0", "end")
         self.timeline.configure(state="disabled")
         self.technical_var.set("Detalles técnicos: —")
-        for button in (self.retry_button, self.open_location_button, self.ignore_button):
-            button.state(["disabled"])
+        for accion in (self.retry_button, self.open_location_button, self.ignore_button):
+            accion.state(["disabled"])
 
     def _import_documents(self) -> None:
         selected = filedialog.askopenfilenames(
@@ -777,15 +817,14 @@ class OrchestratorDashboard(tk.Tk):
                 target = self._available_inbox_path(source.name)
                 if source.resolve() != target.resolve():
                     shutil.copy2(source, target)
-                if self.runtime.ingestion_worker.submit(target):
+                if self.runtime.worker.submit(target):
                     imported += 1
             except OSError as error:
                 failures.append(f"{source.name}: {error}")
         if failures:
             messagebox.showerror("Algunos documentos no se importaron", "\n".join(failures[:6]), parent=self)
-        self.status_var.set(
-            f"{imported} documento{'s' if imported != 1 else ''} añadido{'s' if imported != 1 else ''} a la carpeta vigilada."
-        )
+        plural = "s" if imported != 1 else ""
+        self.status_var.set(f"{imported} documento{plural} añadido{plural} a la carpeta vigilada.")
         self._show_page("work")
         self._work_filter = "active"
         self.after(250, lambda: self._refresh(force=True))
@@ -836,7 +875,7 @@ class OrchestratorDashboard(tk.Tk):
                     parent=self,
                 )
                 return
-            changed = self.runtime.ingestion_worker.retry(path)
+            changed = self.runtime.worker.retry(path)
         elif item.task_id:
             changed = self.runtime.workflow_repository.retry_failed_task(item.task_id)
         else:
@@ -846,7 +885,9 @@ class OrchestratorDashboard(tk.Tk):
             self._work_filter = "active"
             self._refresh(force=True)
         else:
-            messagebox.showinfo("El estado cambió", "La tarea ya no está fallida. La lista se actualizará.", parent=self)
+            messagebox.showinfo(
+                "El estado cambió", "La tarea ya no está fallida. La lista se actualizará.", parent=self
+            )
             self._refresh(force=True)
 
     def _cancel_or_ignore_selected(self) -> None:
@@ -894,7 +935,11 @@ class OrchestratorDashboard(tk.Tk):
     def _toggle_refresh(self) -> None:
         self._auto_refresh = not self._auto_refresh
         self.refresh_button.configure(text="Pausar actualización" if self._auto_refresh else "Reanudar actualización")
-        self.status_var.set("Actualización automática activa." if self._auto_refresh else "Actualización automática en pausa.")
+        self.status_var.set(
+            "Actualización automática activa."
+            if self._auto_refresh
+            else "Actualización automática en pausa."
+        )
         if self._auto_refresh:
             self._refresh(force=True)
 
@@ -939,8 +984,11 @@ class OrchestratorDashboard(tk.Tk):
         capabilities = self.runtime.broker_worker.capabilities_snapshot()
         strategies = available_profile_strategies(capabilities)
         self.profile_combos["strategy"].configure(values=strategies)
+        # Sin capacidades publicadas se ofrece todo y decide el Broker: mejor
+        # que esconder una opción que sí existe.
+        admite_troceo = not capabilities or capabilities.get("long_context_map_reduce")
         self.profile_combos["long_context"].configure(
-            values=("fail", "map_reduce") if not capabilities or capabilities.get("long_context_map_reduce") else ("fail",)
+            values=("fail", "map_reduce") if admite_troceo else ("fail",)
         )
         if not capabilities:
             self.capabilities_var.set("No hay capacidades publicadas. El Broker validará las peticiones nuevas.")
@@ -988,11 +1036,19 @@ class OrchestratorDashboard(tk.Tk):
                 raise ValueError("El Broker actual no ofrece map_reduce")
             updated = replace(
                 current,
-                preferred_model="" if self.profile_form["model"].get() == "Automático (Broker)" else self.profile_form["model"].get(),
+                preferred_model=(
+                ""
+                if self.profile_form["model"].get() == "Automático (Broker)"
+                else self.profile_form["model"].get()
+            ),
                 execution_strategy=strategy,
                 data_classification=self.profile_form["classification"].get(),
                 long_context=long_context,
-                prompt_compression=None if self.profile_form["compression"].get() == "default del Broker" else self.profile_form["compression"].get(),
+                prompt_compression=(
+                None
+                if self.profile_form["compression"].get() == "default del Broker"
+                else self.profile_form["compression"].get()
+            ),
                 max_cost_usd=max_cost,
                 human_review_required=bool(self.profile_form["human_review"].get()),
             )
@@ -1014,7 +1070,10 @@ class OrchestratorDashboard(tk.Tk):
         self.review_detail.configure(state="normal")
         self.review_detail.delete("1.0", "end")
         self.review_detail.insert(
-            "1.0", f"Motivo:\n{item.rationale}\n\nCambio propuesto:\n{item.diff_text}\n\nBloqueo: {item.blocked_reason or '—'}"
+            "1.0",
+            f"Motivo:\n{item.rationale}\n\n"
+            f"Cambio propuesto:\n{item.diff_text}\n\n"
+            f"Bloqueo: {item.blocked_reason or '—'}",
         )
         self.review_detail.configure(state="disabled")
 
@@ -1056,7 +1115,7 @@ class OrchestratorDashboard(tk.Tk):
         for row_id in current - incoming:
             tree.delete(row_id)
         for row_id, values in rows:
-            options = {"values": values}
+            options: dict[str, Any] = {"values": values}
             if texts is not None:
                 options["text"] = texts.get(row_id, "")
             if tags is not None:
