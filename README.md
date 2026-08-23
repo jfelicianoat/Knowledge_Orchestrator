@@ -1,6 +1,6 @@
 # Knowledge Orchestrator — Desktop Pipeline
 
-Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows de conocimiento — chunking, síntesis, extracción de afirmaciones y comparación semántica — mientras que el AI Broker ejecuta la estrategia técnica: `single`, `mixture_of_agents`/Multitasking_LLM o, delegando la decisión en el meta-router del Broker, `auto` (contrato v2.8).
+Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows de conocimiento —chunking, síntesis, extracción de afirmaciones y comparación semántica— mientras AI Broker ejecuta la estrategia técnica. El validador acepta el contrato aditivo 2.9 y conserva compatibilidad con 2.8; la deuda del aviso de versión exacta está documentada en [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
 
 ## Arquitectura del Ecosistema
 
@@ -21,7 +21,7 @@ Orquestador de escritorio que conecta la captura de contenido con el procesamien
 
 | Proyecto | Descripción | Repositorio |
 |----------|-------------|-------------|
-| **YT Capture Agent** | Extensión Chrome que captura metadata y transcripciones de YouTube, generando archivos `.md` estructurados | [jfelicianoat/YT_Capture_Agent](https://github.com/jfelicianoat/YT_Capture_Agent) |
+| **YT Capture Plugin** | Extensión Chrome/Edge que captura metadata y transcripciones de YouTube y genera Markdown contractual v1 | [proyecto local](../YT_Capture_Plugin) |
 | **AI Broker** | Gateway con cola durable, enrutamiento y ejecución opcional de consenso multi-LLM. Puede coordinar invocaciones técnicas internas, pero no contiene lógica de conocimiento ni workflows de Obsidian. | [jfelicianoat/AI_Broker](https://github.com/jfelicianoat/AI_Broker) |
 | **Knowledge Orchestrator** | Orquestador que valida entradas, decide temas, construye y encadena inferencias, interpreta respuestas, mantiene claims/diffs/versiones y publica en Obsidian **(este proyecto)** | [jfelicianoat/Knowledge_Orchestrator](https://github.com/jfelicianoat/Knowledge_Orchestrator) |
 
@@ -92,13 +92,14 @@ STAGED → PENDING → SUBMITTING → QUEUED → PROCESSING → COMPLETED → (p
 - Solo se usan fuentes introducidas por el usuario (videos capturados, documentos depositados, notas existentes). Sin RSS, vigilancia de documentación ni búsqueda web autónoma
 - Toda propuesta de actualización semántica debe citar evidencia local con `source_id` y span. El conocimiento interno del LLM no es evidencia
 - `manual_lock: true` en un claim impide su sustitución automática
-- Comunicación con Broker via HTTP en LAN privada, sin autenticación (MVP)
+- Comunicación HTTP con Broker; `KO_BROKER_ADMIN_TOKEN` añade `X-Admin-Token` cuando el despliegue lo exige. Sin token, la cabecera se omite.
 - Base SQLite por usuario en `%LOCALAPPDATA%/Knowledge Orchestrator/data/state/orchestrator.db` con modo WAL
 - Integridad mediante estados durables y operaciones idempotentes; no existe transacción única SQLite+NTFS
 
 ## Desarrollo
 
-La fase 1 implementa la frontera de ingesta y persistencia. Incluye:
+El estado funcional vigente se resume en [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
+La fase 1 implementó la frontera de ingesta y persistencia. Incluye:
 
 - validación segura del contrato Markdown v1 y límite de 20 MiB;
 - tres observaciones consecutivas de tamaño/mtime;

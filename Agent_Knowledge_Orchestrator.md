@@ -1,5 +1,10 @@
 # Agent: Knowledge Orchestrator (Desktop App)
 
+> **Especificación de diseño conservada.** Los bocetos iniciales se mantienen como
+> contexto, pero el estado implementado y las tecnologías vigentes están en
+> [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md). Ante una contradicción, prevalecen el
+> código, `Data_Contracts.md` y ese estado vigente.
+
 > **Precedencia:** la sección `Contrato Normativo del MVP` es obligatoria para la implementación.
 
 
@@ -8,7 +13,7 @@
 
 
 
-**UI Framework:** CustomTkinter (tema oscuro por defecto)
+**UI Framework implementado:** Tkinter/ttk
 
 **File Monitoring:** watchdog (detección de nuevos archivos)
 
@@ -124,7 +129,8 @@
 
 ### Concepto de "Bolas en Cañería"
 
-**Implementación:** Canvas de CustomTkinter con círculos conectados por líneas
+**Implementación vigente:** widgets Tkinter/ttk y snapshots de estado; el canvas animado de
+este boceto no es un contrato de producto.
 
 **Colores de Estado:** 
 
@@ -396,7 +402,10 @@ class FileWatcher:
 
 ## Comunicación con el Broker IA
 
-> Los payloads históricos quedan sustituidos por el contrato v2.7 descrito en `Data_Contracts.md` y las fixtures de `docs/contracts`. Conserva las estrategias `agent`/`auto`, el preset `slow` y `waiting_for_tools`, y añade la espera no terminal `waiting_for_memory`; la política por perfil decide cuándo usar cada estrategia. Véase `docs/Study_Multitasking_LLM.md`.
+> Los payloads históricos quedan sustituidos por el contrato vigente descrito en
+> `Data_Contracts.md`: baseline 2.8 con lectura aditiva 2.9. Conserva las estrategias
+> `agent`/`auto`, el preset `slow` y las esperas no terminales; la política por perfil
+> decide cuándo usar cada estrategia. Véase `docs/Study_Multitasking_LLM.md`.
 
 
 

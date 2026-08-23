@@ -1,6 +1,22 @@
 # Data Contracts & Communication Schemas
 
-> **Precedencia:** `Contratos Normativos v1` es el contrato interoperable del MVP. Las secciones 1-7 se conservan como ejemplos funcionales y contexto.
+> **Precedencia:** revisión 23 de agosto de 2026. `Contratos Normativos v1` define la
+> captura interoperable. Para Broker, el código de `domain/broker_contracts.py` es la
+> autoridad ejecutable: acepta el baseline 2.8 y campos aditivos 2.9. Las secciones 1-7 y
+> los apartados etiquetados como históricos se conservan solo como contexto.
+
+## 0. Matriz contractual vigente
+
+| Frontera | Versión/forma | Autoridad local |
+| --- | --- | --- |
+| Plugin -> Orchestrator | captura Markdown `contract_version: "1.0"` | `domain/contracts.py` y esquema del plugin |
+| Orchestrator -> Broker | petición baseline 2.8 con extensiones opcionales 2.9 | `domain/broker_contracts.py` |
+| Broker -> Orchestrator | estados y resultados 2.8/2.9, campos futuros aditivos | validadores de `domain/broker_contracts.py` |
+| Orchestrator -> Obsidian | nota, revisión, claims y publicación atómica | modelos y servicios de publicación/semántica |
+
+`KO_BROKER_ADMIN_TOKEN` habilita `X-Admin-Token`. La ausencia de la variable no significa
+que la instalación sea anónima: significa que la cabecera se omite y el despliegue decide
+si acepta la petición.
 
 
 
@@ -50,7 +66,7 @@ has_transcript: true
 
 extraction_method: "schema_jsonld"
 
-plugin_version: "1.0.0"
+plugin_version: "0.1.0"
 
 status: "pending"
 
@@ -836,7 +852,7 @@ channel_url: "https://..."
 duration_seconds: 1725
 extraction_method: "schema_jsonld"
 transcript_source: "manual"       # manual | automatic | null
-plugin_version: "1.0.0"
+plugin_version: "0.1.0"
 ---
 
 # Título descriptivo
@@ -896,7 +912,10 @@ Reglas:
 
 El Orchestrator renderiza el prompt final antes del POST. El Broker no conoce placeholders, fuentes, chunks, afirmaciones, Obsidian ni el objetivo del workflow. `content.metadata` solo contiene correlación allowlist y se trata como opaca.
 
-El contrato de embeddings se congelará antes de la fase que los utilice; no se simula mediante el formato Markdown.
+La implementación actual de mantenimiento semántico solicita un vector como JSON estricto
+mediante una tarea de chat. No equivale al `inference_kind=embedding` nativo del Broker y
+no debe documentarse como tal. La procedencia y el modelo del vector se conservan; FTS5 y
+las entidades siguen disponibles cuando no hay vectores comparables.
 
 Respuesta `202 Accepted`:
 
@@ -967,9 +986,9 @@ En `completed`, `result.result_markdown` contiene la salida y puede incluir uso,
 
 1. El Orchestrator puede realizar varios `POST /api/v1/tasks` sin esperar a que las tareas anteriores terminen.
 2. Cada `POST` válido devuelve rápidamente `202` y la tarea queda durablemente `queued`.
-3. En el contrato v1/baseline `single`, el Broker posee un único slot global. La fase 5 prevista mantendrá un solo workflow activo, pero permitirá invocaciones internas adaptativas dentro de una tarea `mixture_of_agents`.
+3. En el baseline `single`, el Broker posee un único workflow activo. La integración de fase 5 permite invocaciones internas adaptativas dentro de una tarea `mixture_of_agents` sin transferir el workflow de conocimiento.
 4. El dispatcher toma la primera tarea pendiente solo cuando no existe otro workflow activo y cambia su estado dentro de una transacción.
-5. En `single`, cada tarea representa exactamente una inferencia. En la futura estrategia `mixture_of_agents`, una tarea podrá representar un consenso técnico interno. En ambos casos, chunks, dependencias, pasos y síntesis del workflow de conocimiento pertenecen al Orchestrator.
+5. En `single`, cada tarea representa una inferencia. En `mixture_of_agents`, una tarea puede representar un consenso técnico interno. En ambos casos, chunks, dependencias, pasos y síntesis del workflow de conocimiento pertenecen al Orchestrator.
 6. El workflow activo se libera únicamente al persistir su estado terminal o al agotar el timeout aplicable.
 7. Una tarea lenta mantiene ocupado el workflow global y las posteriores continúan en `queued`. Solo sus invocaciones internas pueden solaparse cuando el planificador del Broker lo autoriza.
 8. El dashboard, las consultas de estado, la aceptación de nuevas tareas y las cancelaciones permanecen operativos mientras el slot está ocupado.
@@ -1033,9 +1052,12 @@ Estados de candidato: `PENDING_COMPARISON`, `PENDING_REVIEW`, `APPLYING`, `APPLI
 
 Toda propuesta debe citar fuentes y spans existentes en el repositorio local. El conocimiento interno del LLM no es evidencia. `manual_lock: true` impide incluso almacenar un patch. La aprobación conserva primero un snapshot en `note_revisions` y aplica mediante temporal sincronizado más `os.replace`.
 
-### 8.11 Contrato Broker v2.7 y base para Multitasking_LLM
+### 8.11 Compatibilidad Broker 2.8/2.9 y Multitasking_LLM
 
-El contrato está implementado para `single`, `mixture_of_agents` y `auto`; el cliente negocia y valida la revisión v2.7. La política por perfil decide qué pasos usan estrategias pesadas.
+El contrato está implementado para `single`, `mixture_of_agents` y `auto`. El cliente
+conserva el baseline 2.8 y valida los campos aditivos 2.9 que consume. La política por
+perfil decide qué pasos usan estrategias pesadas. El diagnóstico del worker que todavía
+espera literalmente `2.8` es una deuda conocida y no redefine al validador de dominio.
 
 AI Broker usa `idempotency_key`, `request_id`, `content`, `output`, `generation`, `model_requirements`, `execution`, `risk` y `priority`; genera su propio `task_id`; publica fases detalladas; termina en `completed`, `failed` o `cancelled`; y entrega `result_markdown` con metadata técnica. El Orchestrator adapta y valida este esquema y conserva por separado el ID local y el ID Broker.
 

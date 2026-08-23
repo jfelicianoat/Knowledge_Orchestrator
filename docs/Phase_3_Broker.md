@@ -1,5 +1,8 @@
 # Fase 3 — Frontera con AI Broker
 
+> **Registro histórico de entrega.** Conserva el baseline 2.8 de esta fase; el estado
+> compatible actual está en [CURRENT_STATE.md](CURRENT_STATE.md) y `Data_Contracts.md`.
+
 ## Responsabilidades
 
 El Orchestrator construye prompts, divide entradas, crea workflows, persiste dependencias, reintenta envíos y valida resultados. Esta fase implementa el baseline `single`: el Broker recibe una inferencia completa, la encola, elige el LLM y devuelve su resultado.

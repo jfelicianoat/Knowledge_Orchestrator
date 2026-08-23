@@ -1,5 +1,7 @@
 # Fase 5 — Integración opcional con Multitasking_LLM
 
+> **Registro histórico de entrega.** Estado vigente: [CURRENT_STATE.md](CURRENT_STATE.md).
+
 ## Estado
 
 La integración del Orchestrator está implementada sobre el contrato Broker v2.5. Permanece desactivada por defecto y el uso productivo queda condicionado a que AI Broker conecte providers reales y publique un catálogo de modelos operativo. Las pruebas actuales usan el provider bootstrap determinista del Broker.

@@ -1,5 +1,8 @@
 # Fase 7 — Cola visual y UX de espera
 
+> **Registro histórico de entrega.** La UI implementada usa Tkinter/ttk; estado vigente:
+> [CURRENT_STATE.md](CURRENT_STATE.md).
+
 ## Estado
 
 Primera entrega implementada y verificada. La UI Tk arranca con `--ui`, consume eventos solo desde el hilo principal, refresca snapshots cada 2 segundos y permite revisar candidatos semánticos pendientes.

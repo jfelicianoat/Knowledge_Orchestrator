@@ -1,6 +1,8 @@
 # System Architecture: YouTube Knowledge Pipeline
 
-> **Precedencia:** la sección `Arquitectura Normativa del MVP` resuelve cualquier contradicción con ejemplos anteriores.
+> **Estado documental:** revisado el 23 de agosto de 2026. La síntesis vigente está en
+> [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md). La sección `Arquitectura Normativa del
+> MVP` prevalece sobre los ejemplos históricos anteriores.
 
 
 
@@ -30,7 +32,7 @@ Sistema distribuido de 3 aplicaciones independientes que transforman contenido d
 
 **Responsabilidad:** Procesamiento inteligente, gestión de colas, aplicación de perfiles
 
-**Tecnología:** Python + CustomTkinter + File Watcher
+**Tecnología:** Python + Tkinter/ttk + watchdog
 
 **Características:** UI con cola visual animada, gestión de temas, sistema de revisión
 
@@ -140,7 +142,7 @@ C:/ObsidianVault/Knowledge/
 
 **Knowledge Orchestrator:**
 
-- Python 3.10+ con CustomTkinter (UI moderna)
+- Python 3.10+ con Tkinter/ttk
 
 - watchdog (monitorización de archivos)
 
@@ -196,7 +198,7 @@ Esta sección consolida las decisiones del hilo original y prevalece sobre ejemp
 
 - **YT Capture Agent:** captura metadata y transcripción sin procesarlas y descarga un Markdown v1 en la bandeja de entrada del navegador.
 - **Knowledge Orchestrator:** valida entradas, indexa Obsidian, decide tema y perfil, construye y encadena todas las inferencias, interpreta sus respuestas, mantiene evidencias/diffs/versiones y escribe el resultado.
-- **AI Broker:** recibe prompts finales, los encola y devuelve una respuesta técnica. Puede ejecutar `single`, coordinar internamente `mixture_of_agents` o `agent`, o resolver la estrategia por tarea cuando el Orchestrator envía `auto` (contrato v2.7). La espera `waiting_for_memory` conserva la tarea en cola hasta que haya memoria y no se interpreta como fallo. No contiene lógica de fuentes, conocimiento, Obsidian ni workflows del Orchestrator.
+- **AI Broker:** recibe prompts finales, los encola y devuelve una respuesta técnica. Puede ejecutar `single`, coordinar internamente `mixture_of_agents` o `agent`, o resolver la estrategia por tarea cuando el Orchestrator envía `auto` (baseline 2.8, campos aditivos 2.9). Las esperas de memoria, herramientas o dependencias son no terminales. No contiene lógica de fuentes, conocimiento, Obsidian ni workflows del Orchestrator.
 
 ### Flujo de datos definitivo
 

@@ -1,5 +1,7 @@
 # Fase 6 — Mantenimiento semántico de Obsidian
 
+> **Registro histórico de entrega.** Estado vigente: [CURRENT_STATE.md](CURRENT_STATE.md).
+
 ## Estado
 
 Implementada y verificada el 2026-06-24. La pantalla de revisión pertenece a la fase 7; la operación de dominio ya exige una llamada explícita a `approve(candidate_id)` y nunca aplica cambios desde el worker.

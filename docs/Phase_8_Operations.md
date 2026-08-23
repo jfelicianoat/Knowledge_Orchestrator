@@ -1,5 +1,7 @@
 # Fase 8 — Empaquetado y operación
 
+> **Registro histórico de entrega.** Estado vigente: [CURRENT_STATE.md](CURRENT_STATE.md).
+
 ## Estado
 
 Primera entrega implementada y verificada. El Orchestrator dispone de logging estructurado rotativo, backup consistente de SQLite, export diagnóstico sin secretos y script de build Windows.

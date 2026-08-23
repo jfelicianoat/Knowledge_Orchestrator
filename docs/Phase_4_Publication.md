@@ -1,5 +1,7 @@
 # Fase 4 — Publicación y revisión
 
+> **Registro histórico de entrega.** Estado vigente: [CURRENT_STATE.md](CURRENT_STATE.md).
+
 ## Alcance
 
 Esta fase transforma el resultado final validado de un workflow en una nota de Obsidian y conserva la fuente original. También implementa el rechazo reversible y el reprocesado versionado. La interfaz visual para invocar estas operaciones pertenece a la fase 7.

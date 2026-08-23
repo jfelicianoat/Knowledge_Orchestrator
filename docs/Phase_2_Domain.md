@@ -1,5 +1,8 @@
 # Fase 2 — Dominio, temas y perfiles
 
+> **Registro histórico de entrega.** Estado y compatibilidad vigentes:
+> [CURRENT_STATE.md](CURRENT_STATE.md).
+
 ## Fuentes admitidas
 
 `source_type` sigue siendo extensible, pero toda fuente conserva un origen controlado:
