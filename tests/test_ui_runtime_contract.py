@@ -18,24 +18,28 @@ from pathlib import Path
 
 from knowledge_orchestrator.runtime import OrchestratorRuntime
 
-PANEL = Path(__file__).resolve().parent.parent / "src" / "knowledge_orchestrator" / "ui" / "dashboard.py"
+#: El panel es un paquete por vistas, así que se revisan todos sus módulos.
+#: Mirar solo uno dejaría fuera justo la vista que alguien acaba de tocar.
+PANEL_DIR = Path(__file__).resolve().parent.parent / "src" / "knowledge_orchestrator" / "ui" / "dashboard"
+PANEL = sorted(PANEL_DIR.rglob("*.py"))
 
 
-def _atributos_de_runtime_usados(ruta: Path) -> set[str]:
-    """Todo lo que el módulo pide a `self.runtime`."""
-    arbol = ast.parse(ruta.read_text(encoding="utf-8"))
+def _atributos_de_runtime_usados(rutas: list[Path]) -> set[str]:
+    """Todo lo que el panel pide a `self.runtime`, mire donde mire."""
     usados: set[str] = set()
-    for nodo in ast.walk(arbol):
-        if not isinstance(nodo, ast.Attribute):
-            continue
-        objetivo = nodo.value
-        if (
-            isinstance(objetivo, ast.Attribute)
-            and objetivo.attr == "runtime"
-            and isinstance(objetivo.value, ast.Name)
-            and objetivo.value.id == "self"
-        ):
-            usados.add(nodo.attr)
+    for ruta in rutas:
+        arbol = ast.parse(ruta.read_text(encoding="utf-8"))
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, ast.Attribute):
+                continue
+            objetivo = nodo.value
+            if (
+                isinstance(objetivo, ast.Attribute)
+                and objetivo.attr == "runtime"
+                and isinstance(objetivo.value, ast.Name)
+                and objetivo.value.id == "self"
+            ):
+                usados.add(nodo.attr)
     return usados
 
 
@@ -59,7 +63,8 @@ class UiRuntimeContractTest(unittest.TestCase):
         """El nombre concreto del fallo, por si alguien lo reintroduce."""
         self.assertIn("worker", OrchestratorRuntime.__annotations__)
         self.assertNotIn("ingestion_worker", OrchestratorRuntime.__annotations__)
-        self.assertNotIn("ingestion_worker", PANEL.read_text(encoding="utf-8"))
+        codigo = "\n".join(ruta.read_text(encoding="utf-8") for ruta in PANEL)
+        self.assertNotIn("ingestion_worker", codigo)
 
 
 if __name__ == "__main__":
