@@ -13,13 +13,14 @@ El panel está partido por pantalla, que es como se piensa y como se cambia:
 
 - `estilo`            — paleta y estilos ttk.
 - `base`              — estado, páginas y utilidades compartidas.
-- `inicio`            — vista «Inicio».
-- `trabajo`           — vista «Trabajo»: lista, filtros y selección.
+- `inicio`            — vista «Resumen».
+- `trabajo`           — vista «Documentos»: lista, filtros y selección.
 - `trabajo_detalle`   — el panel derecho de esa vista.
 - `trabajo_acciones`  — importar, abrir, reintentar, ignorar.
+- `biblioteca`        — conocimiento publicado en los vaults.
 - `revision`          — vista «Revisión».
-- `temas`             — vista «Temas».
-- `configuracion`     — vista «Configuración».
+- `temas`             — vista «Organización».
+- `configuracion`     — vista «Ajustes».
 
 Este módulo es el ensamblaje: monta la cabecera, la barra de acciones y el pie,
 y coordina el ciclo de refresco. Todo lo que el resto del proyecto necesita del
@@ -30,7 +31,7 @@ from __future__ import annotations
 import tkinter as tk
 from datetime import datetime
 from functools import partial
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 from knowledge_orchestrator import __version__
 from knowledge_orchestrator.runtime import OrchestratorRuntime
@@ -61,9 +62,20 @@ class OrchestratorDashboard(ConfiguracionMixin):
         self.bind_all("<F5>", lambda _event: self._refresh(force=True))
 
     def start(self) -> None:
-        self.runtime.start()
-        self._refresh(force=True)
+        self.status_var.set("Preparando documentos en segundo plano…")
+        self._startup.start()
+        self.after(50, self._finish_startup)
         self.mainloop()
+
+    def _finish_startup(self) -> None:
+        if not self._startup.done:
+            self.after(50, self._finish_startup)
+            return
+        if self._startup.error is not None:
+            self.status_var.set(f"No se pudo iniciar el servicio: {self._startup.error}")
+            messagebox.showerror("No se pudo iniciar Knowledge Orchestrator", str(self._startup.error), parent=self)
+            return
+        self._refresh(force=True)
 
     # ---------------------------------------------------------- construcción
 
@@ -81,12 +93,13 @@ class OrchestratorDashboard(ConfiguracionMixin):
         self.pages = {}
         self._build_home()
         self._build_work()
+        self._build_library()
         self._build_review()
         self._build_topics()
         self._build_config()
 
         self._build_footer()
-        self._show_page("work")
+        self._show_page("home")
 
     def _build_header(self) -> None:
         header = tk.Frame(self, bg=self.colors["header"], height=56)
@@ -115,14 +128,14 @@ class OrchestratorDashboard(ConfiguracionMixin):
         navigation.grid(row=0, column=1, sticky="nsw")
         self.nav_buttons = {}
         for key, label in (
-            ("home", "Inicio"), ("work", "Trabajo"), ("review", "Revisión"),
-            ("topics", "Temas"), ("config", "Configuración"),
+            ("home", "Resumen"), ("work", "Documentos"), ("library", "Biblioteca"),
+            ("review", "Revisión"), ("topics", "Organización"), ("config", "Ajustes"),
         ):
             button = tk.Button(
                 navigation, text=label, command=partial(self._show_page, key),
                 bg=self.colors["header"], fg=self.colors["muted"],
                 activebackground=self.colors["raised"], activeforeground=self.colors["text"],
-                relief="flat", borderwidth=0, padx=18, pady=16, cursor="hand2",
+                relief="flat", borderwidth=0, padx=13, pady=16, cursor="hand2",
                 font=("Segoe UI", 10),
             )
             button.pack(side="left", fill="y")
@@ -130,17 +143,17 @@ class OrchestratorDashboard(ConfiguracionMixin):
 
     def _build_action_bar(self) -> None:
         bar = tk.Frame(
-            self, bg=self.colors["surface"], height=78,
+            self, bg=self.colors["surface"], height=66,
             highlightbackground=self.colors["border"], highlightthickness=1,
         )
         bar.grid(row=1, column=0, sticky="ew")
         bar.grid_propagate(False)
         bar.columnconfigure(2, weight=1)
         ttk.Button(bar, text="Importar documentos", style="Accent.TButton", command=self._import_documents).grid(
-            row=0, column=0, padx=(20, 10), pady=18
+            row=0, column=0, padx=(20, 10), pady=12
         )
         ttk.Button(bar, text="Abrir carpeta vigilada", style="Secondary.TButton", command=self._open_inbox).grid(
-            row=0, column=1, padx=(0, 12), pady=18
+            row=0, column=1, padx=(0, 12), pady=12
         )
         health = tk.Frame(bar, bg=self.colors["surface"])
         health.grid(row=0, column=3, sticky="e", padx=20)
@@ -186,6 +199,8 @@ class OrchestratorDashboard(ConfiguracionMixin):
             self._drain_events()
             self._refresh_dashboard()
             self._refresh_work()
+            if self._current_page == "library":
+                self._refresh_library()
             self._refresh_reviews()
             self._refresh_topics()
             self._refresh_profiles()

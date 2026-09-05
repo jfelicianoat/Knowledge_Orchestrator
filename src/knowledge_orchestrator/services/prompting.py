@@ -133,7 +133,12 @@ def build_chat_request(
         "content": {
             "prompt": prompt,
             "attachments": [],
-            "metadata": {"workflow_id": workflow_id, "step_id": step_id},
+            "metadata": {
+                "workflow_id": workflow_id,
+                "step_id": step_id,
+                "purpose": "study_notes",
+                "required_language": "es",
+            },
         },
         "output": {"format": "markdown", "json_schema": None, "language": "es"},
         "generation": {

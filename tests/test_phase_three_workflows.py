@@ -8,7 +8,7 @@ from pathlib import Path
 
 from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.domain.broker_contracts import validate_create_task_request
-from knowledge_orchestrator.domain.broker_models import StepKind, TaskStatus
+from knowledge_orchestrator.domain.broker_models import StepKind, TaskStatus, WorkflowStatus
 from knowledge_orchestrator.runtime import build_runtime
 from knowledge_orchestrator.services.broker_dispatch import BrokerDispatcher
 from knowledge_orchestrator.services.file_stability import FileStabilityChecker
@@ -180,6 +180,29 @@ class PhaseThreeWorkflowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(mapped.status, TaskStatus.SUCCESS)
             self.assertEqual(json.loads(mapped.result_json)["assistant_content"], "# Resultado v2")
             self.assertEqual(json.loads(mapped.progress_json)["invocations_completed"], 1)
+
+    async def test_instruction_request_is_rejected_before_it_reaches_the_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = self.make_runtime(Path(temporary), capture_id="bad_notes", transcript="Texto breve.")
+            workflow_id = runtime.workflow_planner.plan_capture("bad_notes")
+            task = runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
+
+            runtime.workflow_repository.apply_status(task.task_id, {
+                "task_id": task.task_id,
+                "status": "completed",
+                "result": {
+                    "assistant_content": (
+                        "It looks like you shared a transcript, but there is no specific request. "
+                        "What would you like me to do?"
+                    )
+                },
+                "error": None,
+            })
+
+            rejected = runtime.workflow_repository.get_task(task.task_id)
+            self.assertEqual(rejected.status, TaskStatus.ERROR)
+            self.assertEqual(rejected.error_code, "MISSING_EXECUTION")
+            self.assertEqual(runtime.workflow_repository.get_workflow(workflow_id).status, WorkflowStatus.ERROR)
 
     async def test_degraded_consensus_uses_advertised_winning_model_and_preserves_failures(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

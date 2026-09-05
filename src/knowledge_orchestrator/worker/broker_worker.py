@@ -44,6 +44,12 @@ class BrokerWorker:
         self._broker_online: bool | None = None
         self._capabilities_lock = threading.Lock()
         self._capabilities: dict = {}
+        self._settings_lock = threading.Lock()
+        self._pending_settings: BrokerSettings | None = None
+        self._settings_changed = threading.Event()
+        self._dispatch_lock = threading.Lock()
+        self._requested_task_ids: set[str] = set()
+        self._dispatch_requested = threading.Event()
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -67,6 +73,22 @@ class BrokerWorker:
     def request_cancel(self, task_id: str) -> bool:
         return self.poller.repository.request_cancel(task_id)
 
+    def reconfigure(self, settings: BrokerSettings) -> None:
+        """Solicita al hilo del worker que cambie la conexión en el siguiente ciclo."""
+
+        with self._settings_lock:
+            self.settings = settings
+            self._pending_settings = settings
+            self._settings_changed.set()
+
+    def request_dispatch(self, task_ids: list[str]) -> None:
+        """Prioriza el envío inmediato de las tareas seleccionadas en la UI."""
+
+        with self._dispatch_lock:
+            self._requested_task_ids.update(task_ids)
+            if self._requested_task_ids:
+                self._dispatch_requested.set()
+
     def _run(self) -> None:
         crash_backoff = 1.0
         while not self._stop.is_set():
@@ -88,23 +110,38 @@ class BrokerWorker:
         next_capabilities = 0.0
         consecutive_errors = 0
         while not self._stop.is_set():
+            if await self._apply_pending_settings():
+                next_poll = 0.0
+                next_discovery = 0.0
+                next_health = 0.0
+                next_capabilities = 0.0
+                consecutive_errors = 0
             now = time.monotonic()
             try:
-                # El contrato se negocia antes de planificar o enviar. Así nunca
-                # sale un payload 2.7 hacia un Broker antiguo durante el arranque.
-                if now >= next_capabilities:
-                    await self._refresh_capabilities()
-                    next_capabilities = now + self.settings.discovery_interval_seconds
-                await self._cancel_requested_tasks()
+                # La salud es la puerta de toda operación remota. En particular,
+                # nunca reclamamos una tarea READY ni intentamos un POST mientras
+                # el Broker siga desconectado.
+                if now >= next_health:
+                    await self._check_health()
+                    next_health = now + self.settings.health_interval_seconds
                 planned = self.planner.plan_unplanned()
-                accepted = await self.dispatcher.dispatch_once()
+                accepted = 0
+                if self._broker_online is True:
+                    # El contrato se negocia antes de enviar. Así nunca sale un
+                    # payload 2.7 hacia un Broker antiguo durante el arranque.
+                    if now >= next_capabilities:
+                        await self._refresh_capabilities()
+                        next_capabilities = now + self.settings.discovery_interval_seconds
+                    await self._cancel_requested_tasks()
+                    requested_task_ids = self._take_dispatch_request()
+                    accepted = await self.dispatcher.dispatch_once(requested_task_ids or None)
                 if planned or accepted:
                     self._emit(
                         "BROKER_QUEUE_UPDATED",
                         f"Workflows planificados: {len(planned)}; tareas aceptadas: {accepted}",
                         {"planned": len(planned), "accepted": accepted},
                     )
-                if now >= next_poll:
+                if self._broker_online is True and now >= next_poll:
                     updated = await self.poller.poll_once()
                     if updated:
                         self._emit("BROKER_TASKS_UPDATED", f"Tareas actualizadas: {updated}", {"updated": updated})
@@ -113,7 +150,7 @@ class BrokerWorker:
                     published = self.publisher.publish_ready()
                     if published:
                         self._emit("NOTES_PUBLISHED", f"Notas publicadas: {published}", {"published": published})
-                if self.semantic_processor is not None:
+                if self._broker_online is True and self.semantic_processor is not None:
                     semantic_accepted = await self.semantic_processor.dispatch_once()
                     semantic_updated = await self.semantic_processor.poll_once()
                     if semantic_accepted or semantic_updated:
@@ -122,16 +159,13 @@ class BrokerWorker:
                             f"Jobs semánticos aceptados: {semantic_accepted}; actualizados: {semantic_updated}",
                             {"accepted": semantic_accepted, "updated": semantic_updated},
                         )
-                if now >= next_discovery:
+                if self._broker_online is True and now >= next_discovery:
                     try:
                         count = await self.discovery.refresh()
                         self._emit("BROKER_MODELS_UPDATED", f"Modelos disponibles: {count}", {"count": count})
                     except BrokerClientError as error:
                         self._emit("BROKER_OFFLINE", str(error))
                     next_discovery = now + self.settings.discovery_interval_seconds
-                if now >= next_health:
-                    await self._check_health()
-                    next_health = now + self.settings.health_interval_seconds
             except BrokerClientError as error:
                 self._emit("BROKER_OFFLINE", str(error))
                 consecutive_errors += 1
@@ -144,6 +178,27 @@ class BrokerWorker:
 
         client = self.dispatcher.client
         await client.close()
+
+    async def _apply_pending_settings(self) -> bool:
+        with self._settings_lock:
+            settings = self._pending_settings
+            self._pending_settings = None
+            self._settings_changed.clear()
+        if settings is None:
+            return False
+        await self.dispatcher.client.reconfigure(settings)
+        with self._capabilities_lock:
+            self._capabilities = {}
+        self._broker_online = None
+        self._emit("BROKER_CONNECTION_UPDATED", f"Conexión activa: {settings.base_url}")
+        return True
+
+    def _take_dispatch_request(self) -> tuple[str, ...]:
+        with self._dispatch_lock:
+            task_ids = tuple(self._requested_task_ids)
+            self._requested_task_ids.clear()
+            self._dispatch_requested.clear()
+        return task_ids
 
     async def _refresh_capabilities(self) -> None:
         try:
@@ -195,13 +250,15 @@ class BrokerWorker:
     async def _check_health(self) -> None:
         try:
             await self.dispatcher.client.health()
+            authentication = await self.dispatcher.client.auth_check()
         except BrokerClientError as error:
             if self._broker_online is not False:
                 self._emit("BROKER_OFFLINE", str(error))
             self._broker_online = False
         else:
             if self._broker_online is not True:
-                self._emit("BROKER_ONLINE", "Broker disponible")
+                credential = "credencial válida" if authentication["auth_required"] else "sin credencial requerida"
+                self._emit("BROKER_ONLINE", f"Broker disponible · {credential}")
             self._broker_online = True
 
     async def _sleep_until_next_cycle(self, consecutive_errors: int = 0) -> None:
@@ -209,7 +266,12 @@ class BrokerWorker:
         if consecutive_errors:
             interval = min(interval * (2**consecutive_errors), self._MAX_CRASH_BACKOFF_SECONDS)
         deadline = time.monotonic() + interval
-        while not self._stop.is_set() and time.monotonic() < deadline:
+        while (
+            not self._stop.is_set()
+            and not self._settings_changed.is_set()
+            and not (self._dispatch_requested.is_set() and self._broker_online is True)
+            and time.monotonic() < deadline
+        ):
             await asyncio.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
 
     def _emit(self, event_type: str, message: str, details: dict | None = None) -> None:

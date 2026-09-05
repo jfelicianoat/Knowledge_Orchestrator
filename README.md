@@ -52,7 +52,7 @@ Orquestador de escritorio que conecta la captura de contenido con el procesamien
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ Knowledge Orchestrator   Inicio  Trabajo  Revisión  Temas    │
+│ Knowledge Orchestrator  Resumen Documentos Biblioteca Revisión │
 ├──────────────────────────────────────────────────────────────┤
 │ Importar documentos   Abrir carpeta vigilada   Broker        │
 ├──────────────────────────────┬───────────────────────────────┤
@@ -113,7 +113,7 @@ La fase 1 implementó la frontera de ingesta y persistencia. Incluye:
 - apagado cancelable sin borrar ficheros que aún estén esperando estabilidad;
 - cuarentena recuperable mediante intención durable, movimiento y sidecar.
 
-La UI inicial de fase 7 ya está implementada con Dashboard, Cola, Revisión, Temas y Configuración. El mantenimiento semántico durable está implementado en la fase 6.
+La UI documental está implementada con Resumen, Documentos, Biblioteca, Revisión, Organización y Ajustes. El mantenimiento semántico durable está implementado en la fase 6.
 
 La fase 2 añade:
 
@@ -214,9 +214,9 @@ $env:PYTHONPATH='src'
 python -m knowledge_orchestrator.app --ui
 ```
 
-Incluye Inicio, Trabajo, Revisión, Temas y Configuración. Trabajo es una vista maestro-detalle con filtros, búsqueda, cronología y acciones contextuales. Permite importar Markdown, abrir la carpeta vigilada, reintentar tareas fallidas con una clave idempotente nueva, cancelar trabajos activos y cerrar incidencias sin borrar su historial. La UI refresca cada 2 segundos desde snapshots SQLite de solo lectura, drena eventos del worker únicamente en el hilo principal y muestra estado, fase, modelo, tiempo transcurrido e intentos sin inventar porcentajes.
+Incluye Resumen, Documentos, Biblioteca, Revisión, Organización y Ajustes. Documentos es una vista maestro-detalle con filtros, búsqueda, cronología y acciones contextuales. Biblioteca consulta las notas publicadas y permite localizar cada resultado en Obsidian. La interfaz permite importar Markdown, marcar varios documentos y enviarlos en lote, reintentar tareas fallidas con una clave idempotente nueva, cancelar trabajos activos y cerrar incidencias sin borrar su historial. Refresca cada 2 segundos desde snapshots SQLite de solo lectura, conserva toda la selección válida y nunca cambia automáticamente el objetivo de una acción. La conexión y el token del Broker se aplican al guardarlos, sin reiniciar la aplicación.
 
-La pestaña Revisión muestra candidatos semánticos `PENDING_REVIEW` con diff y rationale, y permite aprobar o rechazar usando los servicios atómicos existentes. Véase [`docs/Phase_7_UI.md`](docs/Phase_7_UI.md).
+La pestaña Revisión presenta candidatos semánticos `PENDING_REVIEW` en lenguaje humano, confirma cada decisión y usa los servicios atómicos existentes. La API documental para otras aplicaciones es una evolución prevista y todavía no forma parte de esta versión. Véase [`docs/Phase_7_UI.md`](docs/Phase_7_UI.md).
 
 ### Fase 8 — Operación y empaquetado
 

@@ -9,6 +9,16 @@ from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.runtime import build_runtime
 from knowledge_orchestrator.services.file_stability import FileStabilityChecker
 from knowledge_orchestrator.ui.dashboard import available_profile_strategies, data_root_label
+from knowledge_orchestrator.ui.dashboard.configuracion import (
+    CLASSIFICATION_LABELS,
+    COMPRESSION_LABELS,
+    STRATEGY_LABELS,
+    ConfiguracionMixin,
+    _label_for,
+    _value_for,
+    profile_save_enabled,
+)
+from knowledge_orchestrator.ui.dashboard.trabajo import resolve_work_selection, resolve_work_selections
 from knowledge_orchestrator.ui.snapshots import UiSnapshotService
 from tests.helpers import generic_markdown
 
@@ -83,7 +93,7 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
         self.assertEqual(queue[0].position, 1)
         self.assertEqual(queue[0].status, "QUEUED")
         self.assertEqual(queue[0].phase, "queued")
-        self.assertEqual(queue[0].model, "llama3.1:8b")
+        self.assertEqual(queue[0].model, "auto")
         self.assertGreaterEqual(queue[0].elapsed_seconds, 0)
         self.assertNotIn("%", queue[0].progress_text)
 
@@ -144,7 +154,17 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
         self.assertEqual(dashboard.broker_status, "online")
         self.assertEqual(len(reviews), 1)
         self.assertEqual(reviews[0].candidate_id, candidate_id)
+        self.assertEqual(reviews[0].target_title, "Documento ui_old")
+        self.assertTrue(reviews[0].target_path.endswith(".md"))
         self.assertIn("-" + old_text, reviews[0].diff_text)
+
+        library = self.snapshots.library_items()
+        self.assertEqual(len(library), 2)
+        self.assertEqual({item.capture_id for item in library}, {"ui_old", "ui_new"})
+        self.assertTrue(all(item.title.startswith("Documento ui_") for item in library))
+        self.assertTrue(all(item.vault_path.endswith(".md") for item in library))
+        self.assertEqual([item.capture_id for item in self.snapshots.library_items("ui_new")], ["ui_new"])
+        self.assertEqual(len(self.snapshots.library_items(limit=1)), 1)
 
     def test_work_view_exposes_real_status_detail_timeline_and_manual_recovery(self) -> None:
         workflow_id = self.ingest_and_plan("ui_work_detail")
@@ -227,3 +247,36 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
             available_profile_strategies({}),
             ("single", "mixture_of_agents", "auto"),
         )
+
+    def test_work_selection_is_not_reassigned_by_background_refresh(self) -> None:
+        self.assertEqual(resolve_work_selection("doc-a", ["doc-a", "doc-b"], select_first=False), "doc-a")
+        self.assertIsNone(resolve_work_selection("doc-a", ["doc-b"], select_first=False))
+        self.assertIsNone(resolve_work_selection(None, ["doc-b"], select_first=False))
+        self.assertEqual(resolve_work_selection(None, ["doc-b"], select_first=True), "doc-b")
+
+    def test_multiple_work_selection_survives_refresh_and_filters_missing_rows(self) -> None:
+        self.assertEqual(
+            resolve_work_selections(("doc-c", "doc-a"), ["doc-a", "doc-b", "doc-c"], select_first=False),
+            ("doc-a", "doc-c"),
+        )
+        self.assertEqual(
+            resolve_work_selections(("doc-a", "doc-c"), ["doc-b", "doc-c"], select_first=False),
+            ("doc-c",),
+        )
+        self.assertEqual(resolve_work_selections((), ["doc-b"], select_first=True), ("doc-b",))
+        self.assertEqual(resolve_work_selections(("doc-a",), ["doc-b"], select_first=False), ())
+
+    def test_profile_policy_labels_round_trip_without_exposing_internal_values(self) -> None:
+        for mapping in (STRATEGY_LABELS, CLASSIFICATION_LABELS, COMPRESSION_LABELS):
+            for stored_value, visible_label in mapping.items():
+                self.assertEqual(_label_for(mapping, stored_value), visible_label)
+                self.assertEqual(_value_for(mapping, visible_label), stored_value)
+        self.assertEqual(_label_for(STRATEGY_LABELS, "future_strategy"), "future_strategy")
+
+    def test_profile_save_is_enabled_only_after_editing_a_selected_profile(self) -> None:
+        self.assertFalse(profile_save_enabled(None, dirty=True))
+        self.assertFalse(profile_save_enabled(7, dirty=False))
+        self.assertTrue(profile_save_enabled(7, dirty=True))
+
+    def test_settings_page_uses_vertical_scrolling_for_short_windows(self) -> None:
+        self.assertIn("_new_scrollable_page", ConfiguracionMixin._build_config.__code__.co_names)

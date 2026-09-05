@@ -117,6 +117,20 @@ class ProfileServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ProfileValidationError, "128"):
             self.service.save_profile(profile_definition(preferred_model="m" * 129))
 
+    def test_builtin_profile_contains_study_notes_workflow(self) -> None:
+        profile = next(item for item in self.service.list_profiles() if item.name == "Técnico Profundo")
+
+        self.assertGreater(len(profile.system_prompt), 1_000)
+        self.assertIn("Siempre en español", profile.system_prompt)
+        self.assertIn("No inventes", profile.system_prompt)
+        self.assertIn("Preguntas de repaso", profile.system_prompt)
+        self.assertIn("{transcript}", profile.user_prompt)
+        self.assertIn("{chunk}", profile.chunk_prompt)
+        self.assertIn("{partial_results}", profile.synthesis_prompt)
+        self.assertEqual(profile.preferred_model, "")
+        self.assertEqual(profile.execution_strategy, "auto")
+        self.assertEqual(profile.max_output_tokens, 8_000)
+
 
 if __name__ == "__main__":
     unittest.main()

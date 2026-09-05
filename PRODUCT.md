@@ -8,15 +8,15 @@ adaptive
 
 ## Users
 
-Una única persona técnica usa Knowledge Orchestrator en su propio equipo Windows para convertir documentos Markdown en conocimiento procesado y publicado mediante Broker AI.
+Una persona técnica usa Knowledge Orchestrator en su equipo Windows para convertir documentos Markdown en conocimiento procesado, revisado y publicado en el vault de Obsidian configurado.
 
 ## Product Purpose
 
-La aplicación vigila una carpeta de entrada, valida y organiza documentos, coordina su procesamiento con Broker AI y permite revisar el estado y resolver incidencias sin depender de una consola.
+La aplicación vigila una carpeta de entrada, valida y organiza documentos, coordina su procesamiento con Broker AI y permite consultar el conocimiento publicado, revisar cambios y resolver incidencias sin depender de una consola.
 
 ## Positioning
 
-Une en una sola herramienta de escritorio el seguimiento del ciclo completo del documento, la política de procesamiento y la revisión semántica, manteniendo el archivo original seguro y trazable.
+Une en una sola herramienta de escritorio el ciclo completo del documento, la biblioteca publicada, la política de procesamiento y la revisión semántica, manteniendo el archivo original seguro y trazable.
 
 ## Operating Context
 
@@ -31,7 +31,9 @@ Une en una sola herramienta de escritorio el seguimiento del ciclo completo del 
 - El formato de entrada admitido actualmente es Markdown con el contrato de captura de Knowledge Orchestrator.
 - El Broker procesa las tareas fuera del hilo de interfaz.
 - La interfaz no inventa porcentajes cuando el Broker no informa progreso cuantificable.
-- Deben conservarse Revisión, Temas y Configuración, además de mejorar Inicio y Trabajo.
+- La navegación separa operación (`Documentos`) de resultados (`Biblioteca`) y administración (`Organización`, `Ajustes`).
+- La futura API deberá exponer el conocimiento mediante una capa de consulta estable, sin acoplar consumidores externos a widgets, rutas internas o tablas SQLite.
+- La API documental es una evolución prevista, no una capacidad disponible en esta versión.
 
 ## Brand Commitments
 
@@ -52,6 +54,7 @@ Une en una sola herramienta de escritorio el seguimiento del ciclo completo del 
 - Mantener siempre trazabilidad entre documento, tarea y eventos.
 - Ofrecer acciones seguras y reversibles desde el contexto donde se necesitan.
 - Conservar la potencia técnica sin exigir que el usuario recuerde el modelo de datos.
+- Tratar la biblioteca publicada como la fuente de consulta para personas y, en el futuro, para aplicaciones consumidoras.
 
 ## Accessibility & Inclusion
 

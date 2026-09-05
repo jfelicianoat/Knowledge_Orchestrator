@@ -65,6 +65,12 @@ class BrokerClient:
             await self._client.aclose()
             self._client = None
 
+    async def reconfigure(self, settings: BrokerSettings) -> None:
+        """Cambia endpoint y credencial sin reutilizar conexiones con cabeceras antiguas."""
+
+        await self.close()
+        self.settings = settings
+
     async def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_create_task_request(payload)
         response = await self._request("POST", "/api/v1/tasks", json=payload)
@@ -110,6 +116,16 @@ class BrokerClient:
         if response.status_code != 200:
             self._raise_for_status(response)
         return dict(self._json(response))
+
+    async def auth_check(self) -> dict[str, Any]:
+        """Valida la credencial en el endpoint contractual, nunca mediante health."""
+        response = await self._request("GET", "/api/v1/auth/check")
+        if response.status_code != 200:
+            self._raise_for_status(response)
+        data = self._json(response)
+        if not isinstance(data.get("authenticated"), bool) or not isinstance(data.get("auth_required"), bool):
+            raise PermanentBrokerError("El Broker devolvió una validación de credencial inválida")
+        return dict(data)
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         await self.start()

@@ -11,6 +11,7 @@ from knowledge_orchestrator.repositories.domain_repository import DomainReposito
 from knowledge_orchestrator.repositories.publication_repository import PublicationRepository
 from knowledge_orchestrator.repositories.semantic_repository import SemanticRepository
 from knowledge_orchestrator.repositories.workflow_repository import WorkflowRepository
+from knowledge_orchestrator.services.broker_connection import load_broker_settings
 from knowledge_orchestrator.services.broker_dispatch import BrokerDispatcher, BrokerPoller
 from knowledge_orchestrator.services.classification import TopicClassifier
 from knowledge_orchestrator.services.domain_enrichment import DomainEnrichmentService
@@ -145,7 +146,7 @@ def build_runtime(
         worker,
         scan_interval_seconds=scan_interval_seconds,
     )
-    settings = broker_settings or BrokerSettings()
+    settings = broker_settings or load_broker_settings(pipeline_paths)
     broker_client = BrokerClient(settings)
     workflow_planner = WorkflowPlanner(
         repository,

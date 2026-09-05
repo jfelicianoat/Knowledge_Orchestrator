@@ -15,6 +15,7 @@ from typing import Any
 
 from knowledge_orchestrator.domain.broker_models import TaskStatus
 from knowledge_orchestrator.repositories.workflow_repository.control import ControlMixin
+from knowledge_orchestrator.services.output_quality import study_notes_quality_error, study_notes_quality_message
 
 #: Traducción del vocabulario del Broker al nuestro. Los estados terminales son
 #: contrato; las fases intermedias pueden crecer de forma aditiva y todas
@@ -117,6 +118,16 @@ class EstadoMixin(ControlMixin):
 
             broker_result = payload.get("result")
             error = error_de(payload) if target is TaskStatus.ERROR else {}
+            if target is TaskStatus.SUCCESS and current["step_kind"] in {"SINGLE", "SYNTHESIS"}:
+                result = resultado_de(broker_result)
+                quality_code = study_notes_quality_error(result["assistant_content"], final=True)
+                if quality_code:
+                    target = TaskStatus.ERROR
+                    error = {
+                        "code": quality_code,
+                        "message": study_notes_quality_message(quality_code),
+                        "retryable": True,
+                    }
             self._escribir_tarea(connection, task_id, payload, target, broker_result, error)
 
             if target is TaskStatus.PROCESSING:

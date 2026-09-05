@@ -57,7 +57,7 @@ acepta ese acceso. Un 401/403 se trata como credencial rotada y recuperable.
 - tareas Broker durables, polling, cancelación, modelos y estrategias configurables;
 - publicación Obsidian con intención, hash y revisiones;
 - extracción de claims, FTS5, embeddings opcionales, comparación, diff y aprobación;
-- UI de Inicio, Trabajo, Revisión, Temas y Configuración;
+- UI de Resumen, Documentos, Biblioteca, Revisión, Organización y Ajustes;
 - backup SQLite, diagnóstico saneado y empaquetado Windows.
 
 ## Límites y evidencia pendiente
@@ -77,4 +77,3 @@ python -B -m unittest discover -s tests -v
 python -m ruff check src tests
 python -m mypy src
 ```
-

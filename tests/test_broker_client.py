@@ -88,6 +88,35 @@ class BrokerClientTests(unittest.IsolatedAsyncioTestCase):
             await client.close()
         self.assertEqual(seen_headers, [None])
 
+    async def test_reconfigure_replaces_endpoint_and_token_without_restart(self) -> None:
+        seen: list[tuple[str, str | None]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            endpoint = str(request.url.copy_with(path="", query=None)).rstrip("/")
+            seen.append((endpoint, request.headers.get("x-admin-token")))
+            return httpx.Response(200, json={"authenticated": True, "auth_required": True})
+
+        client = BrokerClient(
+            BrokerSettings(base_url="http://old-broker.test", admin_token="old-token"),
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            await client.auth_check()
+            await client.reconfigure(
+                BrokerSettings(base_url="http://new-broker.test:8765", admin_token="new-token")
+            )
+            await client.auth_check()
+        finally:
+            await client.close()
+
+        self.assertEqual(
+            seen,
+            [
+                ("http://old-broker.test", "old-token"),
+                ("http://new-broker.test:8765", "new-token"),
+            ],
+        )
+
     async def test_reads_v28_capabilities(self) -> None:
         client = BrokerClient(
             BrokerSettings(base_url="http://broker.test"),
@@ -108,6 +137,35 @@ class BrokerClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(capabilities["work_lanes"], ["inference"])
         self.assertEqual(capabilities["agent_skills_egress"], ["web_search"])
         self.assertTrue(capabilities["task_dependencies"])
+
+    async def test_validates_admin_token_against_auth_check(self) -> None:
+        seen: list[str | None] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.headers.get("x-admin-token"))
+            return httpx.Response(200, json={"authenticated": True, "auth_required": True})
+
+        client = BrokerClient(
+            BrokerSettings(base_url="http://broker.test", admin_token="secret-token"),
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            result = await client.auth_check()
+        finally:
+            await client.close()
+        self.assertTrue(result["authenticated"])
+        self.assertEqual(seen, ["secret-token"])
+
+    async def test_rejects_malformed_auth_check_response(self) -> None:
+        client = BrokerClient(
+            BrokerSettings(base_url="http://broker.test"),
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={"authenticated": "yes"})),
+        )
+        try:
+            with self.assertRaisesRegex(Exception, "validación de credencial inválida"):
+                await client.auth_check()
+        finally:
+            await client.close()
 
     async def test_capabilities_version_mismatch_is_reported_without_blocking_client(self) -> None:
         client = BrokerClient(

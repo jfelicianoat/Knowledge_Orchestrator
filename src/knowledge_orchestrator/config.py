@@ -12,6 +12,7 @@ ENV_INBOX = "KO_INBOX_DIR"
 ENV_OBSIDIAN_VAULT = "KO_OBSIDIAN_VAULT"
 ENV_BROKER_URL = "KO_BROKER_URL"
 ENV_BROKER_ADMIN_TOKEN = "KO_BROKER_ADMIN_TOKEN"
+DEFAULT_KNOWLEDGE_VAULT = Path("Y:/Mi unidad/Vaults/Conocimiento_Youtube")
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,18 +38,24 @@ class PipelinePaths:
             else user_home / "AppData" / "Local"
         )
         configured_root = os.environ.get(ENV_ROOT)
-        legacy_root = Path("C:/YT-Pipeline")
+        central_vault = DEFAULT_KNOWLEDGE_VAULT if home is None else None
         root = (
             Path(configured_root)
             if configured_root
-            else legacy_root
-            if home is None and legacy_root.exists()
+            else central_vault / ".knowledge-orchestrator"
+            if central_vault is not None
             else local_app_data / "Knowledge Orchestrator" / "data"
         )
         inbox = os.environ.get(ENV_INBOX)
         vault = os.environ.get(ENV_OBSIDIAN_VAULT)
         return cls(
-            inbox=Path(inbox) if inbox else user_home / "Downloads" / "YT-Knowledge-Inbox",
+            inbox=(
+                Path(inbox)
+                if inbox
+                else central_vault / ".knowledge-orchestrator" / "inbox"
+                if central_vault is not None
+                else user_home / "Downloads" / "YT-Knowledge-Inbox"
+            ),
             staging=root / "staging",
             processing=root / "processing",
             completed=root / "completed",
@@ -61,8 +68,8 @@ class PipelinePaths:
             obsidian_vault=(
                 Path(vault)
                 if vault
-                else Path("C:/ObsidianVault/Knowledge")
-                if home is None and Path("C:/ObsidianVault/Knowledge").exists()
+                else central_vault
+                if central_vault is not None
                 else user_home / "Documents" / "Knowledge Orchestrator" / "Knowledge"
             ),
         )
@@ -121,7 +128,7 @@ class PipelinePaths:
 
 def _default_broker_url() -> str:
     # El puerto por defecto del Broker cambió de 8080 a 8765 (contrato v2.5).
-    return os.environ.get(ENV_BROKER_URL) or "http://broker-machine.local:8765"
+    return os.environ.get(ENV_BROKER_URL) or "http://192.168.1.52:8765"
 
 
 def _default_admin_token() -> str | None:

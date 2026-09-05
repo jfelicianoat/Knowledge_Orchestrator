@@ -78,46 +78,71 @@ class AccionesMixin(DetalleMixin):
             messagebox.showerror("No se pudo abrir la ubicación", str(error), parent=self)
 
     def _retry_selected(self) -> None:
-        item = self._selected_item()
-        if not item:
+        items = tuple(item for item in self._selected_items() if self._can_send_item(item))
+        if not items:
             return
-        if item.incident_id is not None:
-            path = Path(item.path)
-            if not path.exists():
-                messagebox.showinfo(
-                    "El archivo ya no está disponible",
-                    "Vuelve a importarlo o cópialo de nuevo a la carpeta vigilada.",
-                    parent=self,
-                )
-                return
-            changed = self.runtime.worker.retry(path)
-        elif item.task_id:
-            changed = self.runtime.workflow_repository.retry_failed_task(item.task_id)
-        else:
-            changed = False
-        if changed:
-            self.status_var.set(f"Reintento solicitado para {item.title}.")
-            self._work_filter = "active"
-            self._refresh(force=True)
-        else:
-            messagebox.showinfo(
-                "El estado cambió", "La tarea ya no está fallida. La lista se actualizará.", parent=self
+
+        sent = 0
+        task_ids: list[str] = []
+        failures: list[str] = []
+        for item in items:
+            try:
+                if item.task_id and item.status == "READY":
+                    changed = True
+                elif item.incident_id is not None:
+                    path = Path(item.path)
+                    if not path.exists():
+                        failures.append(f"{item.title}: el archivo ya no está disponible")
+                        continue
+                    changed = self.runtime.worker.retry(path)
+                elif item.task_id:
+                    changed = self.runtime.workflow_repository.retry_failed_task(item.task_id)
+                else:
+                    changed = False
+            except OSError as error:
+                failures.append(f"{item.title}: {error}")
+            else:
+                sent += int(changed)
+                if changed and item.task_id:
+                    task_ids.append(item.task_id)
+                if not changed:
+                    failures.append(f"{item.title}: el estado cambió antes del envío")
+
+        if task_ids:
+            self.runtime.broker_worker.request_dispatch(task_ids)
+        if failures:
+            messagebox.showwarning(
+                "Algunos documentos no se enviaron",
+                "\n".join(failures[:6]),
+                parent=self,
             )
-            self._refresh(force=True)
+        if sent:
+            plural = "s" if sent != 1 else ""
+            self.status_var.set(f"{sent} documento{plural} puesto{plural} de nuevo en la cola de envío.")
+            self._work_filter = "active"
+        else:
+            self.status_var.set("No se pudo reenviar ningún documento seleccionado.")
+        self._selected_work_id = None
+        self._selected_work_ids = ()
+        self._refresh(force=True)
 
     def _cancel_or_ignore_selected(self) -> None:
         item = self._selected_item()
         if not item:
             return
         if item.category == "active" and item.task_id:
-            if not messagebox.askyesno("Cancelar tarea", "La tarea dejará de ejecutarse. ¿Continuar?", parent=self):
+            if not messagebox.askyesno(
+                "Cancelar procesamiento",
+                "El documento dejará de procesarse, pero el original se conservará. ¿Continuar?",
+                parent=self,
+            ):
                 return
             changed = self.runtime.broker_worker.request_cancel(item.task_id)
             message = "Cancelación solicitada." if changed else "La tarea ya cambió de estado."
         else:
             if not messagebox.askyesno(
                 "Ignorar incidencia",
-                "El trabajo se marcará como cancelado, pero se conservarán el archivo y el historial. ¿Continuar?",
+                "El documento se marcará como cancelado, pero se conservarán el archivo y el historial. ¿Continuar?",
                 parent=self,
             ):
                 return
@@ -126,6 +151,10 @@ class AccionesMixin(DetalleMixin):
                 if item.incident_id is not None
                 else self.runtime.workflow_repository.ignore_failed_capture(item.capture_id)
             )
-            message = "Incidencia cerrada; el historial se conserva." if changed else "El trabajo ya cambió de estado."
+            message = (
+                "Incidencia cerrada; el historial se conserva."
+                if changed
+                else "El documento ya cambió de estado."
+            )
         self.status_var.set(message)
         self._refresh(force=True)

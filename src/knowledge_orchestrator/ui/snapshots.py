@@ -80,9 +80,24 @@ class ReviewItem:
     confidence: float | None
     impact: str
     target_note_id: int
+    target_title: str
+    target_path: str
     rationale: str
     diff_text: str
     blocked_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryItem:
+    note_id: int
+    capture_id: str
+    title: str
+    topic: str
+    revision: int
+    status: str
+    vault_path: str
+    published_at: str
+    published_label: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,9 +220,13 @@ class UiSnapshotService:
     def reviews(self) -> list[ReviewItem]:
         with closing(self.database.connect(readonly=True)) as connection:
             rows = connection.execute(
-                "SELECT candidate_id, status, relation, confidence, impact, target_note_id, rationale, "
-                "diff_text, blocked_reason FROM update_candidates "
-                "WHERE status = 'PENDING_REVIEW' ORDER BY created_at, candidate_id"
+                "SELECT u.candidate_id, u.status, u.relation, u.confidence, u.impact, "
+                "u.target_note_id, u.rationale, u.diff_text, u.blocked_reason, "
+                "c.title AS target_title, n.vault_path AS target_path "
+                "FROM update_candidates u "
+                "JOIN notes n ON n.note_id = u.target_note_id "
+                "JOIN captures c ON c.capture_id = n.capture_id "
+                "WHERE u.status = 'PENDING_REVIEW' ORDER BY u.created_at, u.candidate_id"
             ).fetchall()
         return [
             ReviewItem(
@@ -217,9 +236,42 @@ class UiSnapshotService:
                 confidence=float(row["confidence"]) if row["confidence"] is not None else None,
                 impact=row["impact"] or "",
                 target_note_id=int(row["target_note_id"]),
+                target_title=str(row["target_title"]),
+                target_path=str(row["target_path"] or ""),
                 rationale=row["rationale"] or "",
                 diff_text=row["diff_text"] or "",
                 blocked_reason=row["blocked_reason"],
+            )
+            for row in rows
+        ]
+
+    def library_items(self, query: str = "", *, limit: int = 500) -> list[LibraryItem]:
+        """Devuelve el conocimiento materializado, no los trabajos que lo generaron."""
+
+        normalized = query.strip()
+        like_query = f"%{normalized}%"
+        with closing(self.database.connect(readonly=True)) as connection:
+            rows = connection.execute(
+                "SELECT n.note_id, n.capture_id, n.revision, n.status, n.vault_path, "
+                "n.published_at, n.updated_at, c.title, t.name AS topic_name "
+                "FROM notes n JOIN captures c ON c.capture_id = n.capture_id "
+                "LEFT JOIN topics t ON t.topic_id = n.topic_id "
+                "WHERE n.status = 'PUBLISHED' "
+                "AND (? = '' OR c.title LIKE ? OR COALESCE(t.name, '') LIKE ? OR n.vault_path LIKE ?) "
+                "ORDER BY COALESCE(n.published_at, n.updated_at) DESC, n.note_id DESC LIMIT ?",
+                (normalized, like_query, like_query, like_query, max(1, limit)),
+            ).fetchall()
+        return [
+            LibraryItem(
+                note_id=int(row["note_id"]),
+                capture_id=str(row["capture_id"]),
+                title=str(row["title"]),
+                topic=str(row["topic_name"] or "Sin organizar"),
+                revision=int(row["revision"]),
+                status=str(row["status"]),
+                vault_path=str(row["vault_path"] or ""),
+                published_at=str(row["published_at"] or row["updated_at"]),
+                published_label=_date_time_label(row["published_at"] or row["updated_at"]),
             )
             for row in rows
         ]
@@ -462,3 +514,13 @@ def _clock_label(value: str | None) -> str:
     except ValueError:
         return str(value)
     return parsed.astimezone().strftime("%H:%M:%S")
+
+
+def _date_time_label(value: str | None) -> str:
+    if not value:
+        return "—"
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(value)
+    return parsed.astimezone().strftime("%d/%m/%Y · %H:%M")

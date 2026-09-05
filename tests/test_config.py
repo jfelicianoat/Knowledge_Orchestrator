@@ -17,6 +17,18 @@ from knowledge_orchestrator.config import (
 
 
 class PipelinePathsEnvironmentOverrideTests(unittest.TestCase):
+    def test_normal_windows_defaults_are_centralized_in_the_requested_vault(self) -> None:
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(Path, "home", return_value=Path("C:/Users/example")),
+        ):
+            paths = PipelinePaths.defaults()
+
+        vault = Path("Y:/Mi unidad/Vaults/Conocimiento_Youtube")
+        self.assertEqual(paths.obsidian_vault, vault)
+        self.assertEqual(paths.inbox, vault / ".knowledge-orchestrator" / "inbox")
+        self.assertEqual(paths.state, vault / ".knowledge-orchestrator" / "state")
+
     def test_defaults_without_environment_overrides_use_per_user_writable_paths(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
             paths = PipelinePaths.defaults(home=Path("C:/Users/example"))
@@ -60,7 +72,7 @@ class BrokerSettingsEnvironmentOverrideTests(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             settings = BrokerSettings()
 
-        self.assertEqual(settings.base_url, "http://broker-machine.local:8765")
+        self.assertEqual(settings.base_url, "http://192.168.1.52:8765")
 
     def test_environment_variable_overrides_broker_base_url(self) -> None:
         with patch.dict("os.environ", {ENV_BROKER_URL: "http://ollama-host.lan:9000"}, clear=True):

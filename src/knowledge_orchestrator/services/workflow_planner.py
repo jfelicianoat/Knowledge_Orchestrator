@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 from knowledge_orchestrator.domain.broker_contracts import validate_create_task_request
 from knowledge_orchestrator.domain.broker_models import PlannedTask, StepKind, TaskStatus
@@ -59,6 +60,14 @@ class WorkflowPlanner:
         profile = self.domains.get_profile(capture.profile_id)
         if profile is None or not profile.enabled:
             raise ValueError("El perfil asignado no existe o está deshabilitado")
+        # Nunca reservamos más de la mitad de la ventana para la salida: un
+        # perfil detallado debe seguir funcionando con modelos de contexto más
+        # pequeño y trocear la entrada en vez de quedarse sin presupuesto.
+        effective_output_tokens = min(
+            profile.max_output_tokens,
+            max(1_000, (self.max_context_tokens - self.safety_tokens) // 2),
+        )
+        profile = replace(profile, max_output_tokens=effective_output_tokens)
         metadata = json.loads(capture.metadata_json)
         context = prompt_context(metadata, capture.transcript_content)
         system = self.renderer.render(profile.system_prompt, context)

@@ -18,13 +18,13 @@ class InicioMixin(DashboardBase):
     def _build_home(self) -> None:
         page = self._new_page("home")
         page.columnconfigure(0, weight=1)
-        page.rowconfigure(3, weight=1)
-        tk.Label(page, text="Estado del sistema", bg=self.colors["surface"], fg=self.colors["text"],
+        page.rowconfigure(4, weight=1)
+        tk.Label(page, text="Resumen documental", bg=self.colors["surface"], fg=self.colors["text"],
                  font=("Segoe UI Semibold", 20), anchor="w").grid(
             row=0, column=0, sticky="ew", padx=28, pady=(26, 4)
         )
         tk.Label(
-            page, text="Una vista rápida de lo que avanza y de lo que necesita una decisión.",
+            page, text="Qué está pasando, qué necesita una decisión y cuánto conocimiento está disponible.",
             bg=self.colors["surface"], fg=self.colors["muted"], font=("Segoe UI", 10), anchor="w",
         ).grid(row=1, column=0, sticky="ew", padx=28, pady=(0, 20))
         metrics = tk.Frame(page, bg=self.colors["surface"])
@@ -35,24 +35,75 @@ class InicioMixin(DashboardBase):
             "failed": tk.StringVar(value="0"), "published": tk.StringVar(value="0"),
             "broker": tk.StringVar(value="sin datos"), "broker_message": tk.StringVar(value=""),
         }
-        for index, (label, key) in enumerate((
-            ("En curso", "active"), ("Requieren atención", "failed"),
-            ("Pendientes de revisión", "review"), ("Notas publicadas", "published"),
+        self.dashboard_card_vars = {
+            key: tk.StringVar(value=f"0\n{label}")
+            for label, key in (
+                ("En proceso", "active"), ("Necesitan atención", "failed"),
+                ("Decisiones pendientes", "review"), ("En la biblioteca", "published"),
+            )
+        }
+        card_actions = {
+            "active": lambda: self._open_document_filter("active"),
+            "failed": lambda: self._open_document_filter("attention"),
+            "review": lambda: self._show_page("review"),
+            "published": lambda: self._show_page("library"),
+        }
+        for index, (_label, key) in enumerate((
+            ("En proceso", "active"), ("Necesitan atención", "failed"),
+            ("Decisiones pendientes", "review"), ("En la biblioteca", "published"),
         )):
-            card = tk.Frame(
-            metrics,
+            card = tk.Button(
+                metrics,
+                textvariable=self.dashboard_card_vars[key],
+                command=card_actions[key],
+                bg=self.colors["raised"],
+                fg=self.colors["text"],
+                activebackground="#223038",
+                activeforeground=self.colors["text"],
+                highlightbackground=self.colors["border"],
+                highlightcolor=self.colors["accent"],
+                highlightthickness=1,
+                relief="flat",
+                borderwidth=0,
+                cursor="hand2",
+                font=("Segoe UI Semibold", 12),
+                justify="left",
+                anchor="w",
+                padx=16,
+                pady=12,
+            )
+            card.grid(row=0, column=index, sticky="ew", padx=6)
+
+        system = tk.Frame(
+            page,
             bg=self.colors["raised"],
             highlightbackground=self.colors["border"],
             highlightthickness=1,
         )
-            card.grid(row=0, column=index, sticky="ew", padx=6, ipady=12)
-            tk.Label(card, textvariable=self.dashboard_vars[key], bg=self.colors["raised"], fg=self.colors["text"],
-                     font=("Segoe UI Semibold", 22), anchor="w").pack(fill="x", padx=16)
-            tk.Label(card, text=label, bg=self.colors["raised"], fg=self.colors["muted"],
-                     font=("Segoe UI", 9), anchor="w").pack(fill="x", padx=16)
+        system.grid(row=3, column=0, sticky="ew", padx=28, pady=(18, 0))
+        system.columnconfigure(0, weight=1)
+        self.system_message_var = tk.StringVar(value="Comprobando el servicio de procesamiento…")
+        tk.Label(
+            system,
+            text="Estado del procesamiento",
+            bg=self.colors["raised"],
+            fg=self.colors["text"],
+            font=("Segoe UI Semibold", 10),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=16, pady=(12, 3))
+        tk.Label(
+            system,
+            textvariable=self.system_message_var,
+            bg=self.colors["raised"],
+            fg=self.colors["muted"],
+            font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=1160,
+        ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
 
         attention = tk.Frame(page, bg=self.colors["surface"])
-        attention.grid(row=3, column=0, sticky="nsew", padx=28, pady=28)
+        attention.grid(row=4, column=0, sticky="nsew", padx=28, pady=22)
         attention.columnconfigure(0, weight=1)
         attention.rowconfigure(1, weight=1)
         tk.Label(attention, text="Necesita tu atención", bg=self.colors["surface"], fg=self.colors["text"],
@@ -68,8 +119,10 @@ class InicioMixin(DashboardBase):
         self.home_attention.column("actualizado", width=120)
         self.home_attention.grid(row=1, column=0, sticky="nsew")
         self.home_attention.bind("<Double-1>", self._open_home_attention)
-        ttk.Button(attention, text="Ver todos los trabajos", style="Secondary.TButton",
-                   command=lambda: self._show_page("work")).grid(row=2, column=0, sticky="e", pady=(12, 0))
+        ttk.Button(attention, text="Ver documentos que necesitan atención", style="Secondary.TButton",
+                   command=lambda: self._open_document_filter("attention")).grid(
+            row=2, column=0, sticky="e", pady=(12, 0)
+        )
 
     def _refresh_dashboard(self) -> None:
         snapshot = self.snapshots.dashboard()
@@ -77,10 +130,18 @@ class InicioMixin(DashboardBase):
         self.dashboard_vars["review"].set(str(snapshot.pending_review))
         self.dashboard_vars["failed"].set(str(snapshot.failed_captures))
         self.dashboard_vars["published"].set(str(snapshot.published_notes))
+        self._sync_dashboard_cards()
         self.dashboard_vars["broker"].set(snapshot.broker_status)
         self.dashboard_vars["broker_message"].set(snapshot.broker_message)
-        self.service_var.set("Servicio activo")
-        self.broker_var.set(f"Broker: {'Conectado' if snapshot.broker_status == 'online' else snapshot.broker_status}")
+        broker_online = snapshot.broker_status == "online"
+        self.service_var.set("Orquestador activo")
+        self.broker_var.set(f"Procesamiento: {'disponible' if broker_online else snapshot.broker_status}")
+        self.system_message_var.set(
+            "El procesamiento está disponible. Los documentos nuevos pueden continuar su flujo."
+            if broker_online
+            else f"El procesamiento no está confirmado: {snapshot.broker_message}. "
+                 "Los documentos se conservan y continuarán cuando el servicio vuelva a estar disponible."
+        )
 
     def _open_home_attention(self, _event: tk.Event) -> None:
         selection = self.home_attention.selection()
@@ -88,5 +149,23 @@ class InicioMixin(DashboardBase):
             return
         self._work_filter = "attention"
         self._selected_work_id = str(selection[0])
+        self._selected_work_ids = (self._selected_work_id,)
         self._show_page("work")
         self._refresh_work_list()
+
+    def _open_document_filter(self, value: str) -> None:
+        self._work_filter = value
+        self._selected_work_id = None
+        self._selected_work_ids = ()
+        self._show_page("work")
+        self._refresh_work_list(select_first=True)
+
+    def _sync_dashboard_cards(self) -> None:
+        labels = {
+            "active": "En proceso",
+            "failed": "Necesitan atención",
+            "review": "Decisiones pendientes",
+            "published": "En la biblioteca",
+        }
+        for key, label in labels.items():
+            self.dashboard_card_vars[key].set(f"{self.dashboard_vars[key].get()}\n{label}")

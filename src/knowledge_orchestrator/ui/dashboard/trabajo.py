@@ -8,10 +8,43 @@ aquí queda la construcción, el filtrado y la selección.
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Sequence
 from functools import partial
 from tkinter import ttk
 
 from knowledge_orchestrator.ui.dashboard.trabajo_acciones import AccionesMixin
+
+
+def resolve_work_selection(
+    current: str | None,
+    visible_ids: list[str],
+    *,
+    select_first: bool,
+) -> str | None:
+    """Mantiene el objetivo estable; solo elige uno nuevo por intención explícita."""
+
+    if current in visible_ids:
+        return current
+    if current is None and select_first and visible_ids:
+        return visible_ids[0]
+    return None
+
+
+def resolve_work_selections(
+    current: Sequence[str],
+    visible_ids: list[str],
+    *,
+    select_first: bool,
+) -> tuple[str, ...]:
+    """Conserva una selección múltiple durante los refrescos y filtros."""
+
+    selected = set(current)
+    retained = tuple(item_id for item_id in visible_ids if item_id in selected)
+    if retained:
+        return retained
+    if select_first and visible_ids:
+        return (visible_ids[0],)
+    return ()
 
 
 class TrabajoMixin(AccionesMixin):
@@ -37,8 +70,8 @@ class TrabajoMixin(AccionesMixin):
         filter_row = tk.Frame(left, bg=self.colors["surface"])
         filter_row.grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 10))
         self.filter_buttons: dict[str, tk.Button] = {}
-        for key, label in (("active", "En curso"), ("attention", "Atención"),
-                           ("completed", "Completados"), ("all", "Todos")):
+        for key, label in (("active", "En proceso"), ("attention", "Necesitan atención"),
+                           ("completed", "Finalizados"), ("all", "Todos")):
             button = tk.Button(
                 filter_row, text=label, command=partial(self._set_work_filter, key),
                 bg=self.colors["surface"], fg=self.colors["muted"], activebackground=self.colors["raised"],
@@ -55,7 +88,7 @@ class TrabajoMixin(AccionesMixin):
         search_host.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 12))
         search_host.columnconfigure(1, weight=1)
         tk.Label(
-            search_host, text="Buscar trabajos", bg=self.colors["surface"], fg=self.colors["muted"],
+            search_host, text="Buscar documentos", bg=self.colors["surface"], fg=self.colors["muted"],
             font=("Segoe UI", 9), padx=0,
         ).grid(row=0, column=0, sticky="w", padx=(0, 10))
         search = ttk.Entry(search_host, textvariable=self.search_var, style="Dark.TEntry")
@@ -64,7 +97,11 @@ class TrabajoMixin(AccionesMixin):
         self.search_entry.insert(0, "")
 
         self.work_tree = ttk.Treeview(
-            left, columns=("estado", "edad", "actualizado"), show="tree headings", style="Dark.Treeview"
+            left,
+            columns=("estado", "edad", "actualizado"),
+            show="tree headings",
+            style="Dark.Treeview",
+            selectmode="extended",
         )
         self.work_tree.heading("#0", text="Documento")
         self.work_tree.heading("estado", text="Estado")
@@ -82,14 +119,14 @@ class TrabajoMixin(AccionesMixin):
         scrollbar = ttk.Scrollbar(left, orient="vertical", command=self.work_tree.yview)
         scrollbar.grid(row=2, column=1, sticky="ns")
         self.work_tree.configure(yscrollcommand=scrollbar.set)
-        self.work_summary_var = tk.StringVar(value="Sin trabajos")
+        self.work_summary_var = tk.StringVar(value="Sin documentos")
         tk.Label(left, textvariable=self.work_summary_var, bg=self.colors["surface"], fg=self.colors["muted"],
                  font=("Segoe UI", 9), anchor="w", padx=18, pady=12).grid(row=3, column=0, sticky="ew")
 
         detail_header = tk.Frame(right, bg=self.colors["surface"])
         detail_header.grid(row=0, column=0, sticky="ew", padx=26, pady=(24, 4))
         detail_header.columnconfigure(0, weight=1)
-        self.detail_title_var = tk.StringVar(value="Selecciona un trabajo")
+        self.detail_title_var = tk.StringVar(value="Selecciona un documento")
         self.detail_badge_var = tk.StringVar(value="")
         tk.Label(detail_header, textvariable=self.detail_title_var, bg=self.colors["surface"], fg=self.colors["text"],
                  font=("Segoe UI Semibold", 16), anchor="w", wraplength=540, justify="left").grid(
@@ -113,7 +150,7 @@ class TrabajoMixin(AccionesMixin):
             right, bg=self.colors["raised"], highlightbackground=self.colors["border"], highlightthickness=1
         )
         self.issue_frame.grid(row=3, column=0, sticky="ew", padx=26, pady=(0, 18))
-        self.issue_title_var = tk.StringVar(value="No hay ningún trabajo seleccionado.")
+        self.issue_title_var = tk.StringVar(value="No hay ningún documento seleccionado.")
         self.issue_message_var = tk.StringVar(value="Elige un documento de la lista para consultar su estado.")
         tk.Label(self.issue_frame, textvariable=self.issue_title_var, bg=self.colors["raised"], fg=self.colors["text"],
                  font=("Segoe UI Semibold", 11), anchor="w").pack(fill="x", padx=16, pady=(14, 5))
@@ -145,7 +182,7 @@ class TrabajoMixin(AccionesMixin):
         action_buttons.pack(fill="x")
         action_buttons.columnconfigure((0, 1), weight=1)
         self.retry_button = ttk.Button(
-            action_buttons, text="Reintentar", style="Accent.TButton", command=self._retry_selected
+            action_buttons, text="Enviar de nuevo", style="Accent.TButton", command=self._retry_selected
         )
         self.retry_button.grid(row=0, column=0, sticky="ew", padx=(0, 5), pady=(0, 8))
         self.open_location_button = ttk.Button(
@@ -178,7 +215,8 @@ class TrabajoMixin(AccionesMixin):
     def _refresh_work(self) -> None:
         items = self.snapshots.work_items()
         self._work_items = {item.capture_id: item for item in items}
-        self._refresh_work_list()
+        self._refresh_work_list(select_first=not self._work_selection_initialized)
+        self._work_selection_initialized = True
         attention = [item for item in items if item.category == "attention"]
         self.dashboard_vars["failed"].set(str(len(attention)))
         self._replace_tree(
@@ -187,8 +225,9 @@ class TrabajoMixin(AccionesMixin):
             texts={item.capture_id: self._work_row_text(item) for item in attention[:8]},
             tags={item.capture_id: ("attention",) for item in attention[:8]},
         )
+        self._sync_dashboard_cards()
 
-    def _refresh_work_list(self) -> None:
+    def _refresh_work_list(self, *, select_first: bool = False) -> None:
         if not hasattr(self, "work_tree"):
             return
         items = list(self._work_items.values())
@@ -198,7 +237,12 @@ class TrabajoMixin(AccionesMixin):
             "completed": sum(item.category == "completed" for item in items),
             "all": len(items),
         }
-        labels = {"active": "En curso", "attention": "Atención", "completed": "Completados", "all": "Todos"}
+        labels = {
+            "active": "En proceso",
+            "attention": "Necesitan atención",
+            "completed": "Finalizados",
+            "all": "Todos",
+        }
         for key, button in self.filter_buttons.items():
             selected = key == self._work_filter
             button.configure(
@@ -223,36 +267,49 @@ class TrabajoMixin(AccionesMixin):
             tags={item.capture_id: (item.category,) for item in visible},
         )
         self.work_summary_var.set(
-            f"Mostrando {len(visible)} de {len(items)} trabajos"
-            if items else "Aún no hay trabajos. Importa un documento para empezar."
+            f"Mostrando {len(visible)} de {len(items)} documentos"
+            if items else "Aún no hay documentos. Importa uno para empezar."
         )
-        visible_ids = {item.capture_id for item in visible}
-        if self._selected_work_id in visible_ids:
-            self.work_tree.selection_set(self._selected_work_id)
+        visible_ids = [item.capture_id for item in visible]
+        resolved = resolve_work_selections(
+            self._selected_work_ids,
+            visible_ids,
+            select_first=select_first,
+        )
+        self._selected_work_ids = resolved
+        if resolved:
+            if self._selected_work_id not in resolved:
+                self._selected_work_id = resolved[0]
+            self.work_tree.selection_set(resolved)
             self.work_tree.see(self._selected_work_id)
-            self._render_work_detail(self._work_items[self._selected_work_id])
-        elif visible:
-            self.work_tree.selection_set(visible[0].capture_id)
-            self._selected_work_id = visible[0].capture_id
-            self._render_work_detail(visible[0])
+            self._render_work_selection([self._work_items[item_id] for item_id in resolved])
         else:
             self._selected_work_id = None
             self._render_empty_detail()
 
     def _set_work_filter(self, value: str) -> None:
         self._work_filter = value
-        self._refresh_work_list()
+        self._selected_work_id = None
+        self._selected_work_ids = ()
+        self._refresh_work_list(select_first=True)
 
     def _select_work(self) -> None:
         selection = self.work_tree.selection()
         if not selection:
+            self._selected_work_id = None
+            self._selected_work_ids = ()
+            self._render_empty_detail()
             return
-        self._selected_work_id = str(selection[0])
-        item = self._work_items.get(self._selected_work_id)
-        if item:
-            self._render_work_detail(item)
+        self._selected_work_ids = tuple(str(item_id) for item_id in selection if str(item_id) in self._work_items)
+        focused = str(self.work_tree.focus())
+        self._selected_work_id = focused if focused in self._selected_work_ids else self._selected_work_ids[0]
+        self._render_work_selection([self._work_items[item_id] for item_id in self._selected_work_ids])
 
     def _focus_search(self) -> None:
+        if self._current_page == "library":
+            self.library_search_entry.focus_set()
+            self.library_search_entry.selection_range(0, "end")
+            return
         self._show_page("work")
         self.search_entry.focus_set()
         self.search_entry.selection_range(0, "end")

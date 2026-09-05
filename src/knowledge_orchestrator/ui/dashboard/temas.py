@@ -3,17 +3,21 @@ from __future__ import annotations
 
 from tkinter import ttk
 
-from knowledge_orchestrator.ui.dashboard.revision import RevisionMixin
+from knowledge_orchestrator.ui.dashboard.biblioteca import BibliotecaMixin
 
 
-class TemasMixin(RevisionMixin):
+class TemasMixin(BibliotecaMixin):
     """Listado de temas y su perfil asignado."""
 
     def _build_topics(self) -> None:
         page = self._new_page("topics")
         page.columnconfigure(0, weight=1)
         page.rowconfigure(2, weight=1)
-        self._page_heading(page, "Temas", "Consulta cómo se clasifica y publica el conocimiento.")
+        self._page_heading(
+            page,
+            "Organización",
+            "Consulta cómo se ordena el conocimiento y qué política se aplica a cada tema.",
+        )
         columns = ("pos", "nombre", "carpeta", "perfil", "activo")
         self.topics_tree = ttk.Treeview(page, columns=columns, show="headings", style="Dark.Treeview")
         cabeceras_temas = {

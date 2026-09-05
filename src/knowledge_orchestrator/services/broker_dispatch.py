@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from knowledge_orchestrator.domain.broker_contracts import BrokerContractError
 from knowledge_orchestrator.integrations.broker_client import (
     BrokerClient,
@@ -24,9 +26,13 @@ class BrokerDispatcher:
         self.client = client
         self.backoff_seconds = backoff_seconds
 
-    async def dispatch_once(self) -> int:
+    async def dispatch_once(self, task_ids: Collection[str] | None = None) -> int:
         accepted = 0
-        for candidate in self.repository.list_dispatchable():
+        candidates = self.repository.list_dispatchable()
+        if task_ids is not None:
+            selected = set(task_ids)
+            candidates = [candidate for candidate in candidates if candidate.task_id in selected]
+        for candidate in candidates:
             task = self.repository.claim_submission(candidate.task_id)
             if task is None:
                 continue

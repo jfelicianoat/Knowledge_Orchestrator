@@ -7,6 +7,7 @@ from pathlib import Path
 from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.runtime import OrchestratorRuntime, build_runtime
 from knowledge_orchestrator.services.operations import backup_database, export_diagnostics
+from knowledge_orchestrator.services.path_settings import load_pipeline_paths
 from knowledge_orchestrator.ui.dashboard import run_dashboard
 
 
@@ -23,7 +24,7 @@ def main() -> None:
     parser.add_argument("--root", type=str, help="raíz alternativa para pruebas locales")
     parser.add_argument("--scan-interval", type=float, default=5.0, help="rescan de seguridad en segundos")
     arguments = parser.parse_args()
-    paths = PipelinePaths.under(Path(arguments.root)) if arguments.root else None
+    paths = PipelinePaths.under(Path(arguments.root)) if arguments.root else load_pipeline_paths()
     runtime = build_runtime(paths, scan_interval_seconds=arguments.scan_interval, enable_logging=True)
     if arguments.backup:
         result = backup_database(runtime.database, runtime.paths)

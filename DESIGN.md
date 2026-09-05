@@ -2,7 +2,7 @@
 
 ## Direction
 
-Knowledge Orchestrator usa una mesa de operaciones oscura, densa y tranquila: una lista maestra de trabajos a la izquierda y el contexto accionable a la derecha. El diseño evita el aspecto de panel estadístico genérico y hace que cada estado del documento se lea como una entrada de registro operativa.
+Knowledge Orchestrator usa un centro documental oscuro, denso y tranquilo. Separa el resumen, el trabajo operativo y la biblioteca publicada, pero conserva el patrón maestro-detalle cuando hay que consultar o actuar sobre un documento.
 
 ## Color
 
@@ -24,9 +24,10 @@ Segoe UI es la tipografía de sistema. Los títulos usan 18–22 px equivalentes
 
 ## Layout
 
-- Cabecera de producto y navegación horizontal fija.
+- Cabecera de producto y navegación horizontal fija: Resumen, Documentos, Biblioteca, Revisión, Organización y Ajustes.
 - Barra de acciones y salud del servicio debajo de la navegación.
-- En Trabajo, panel maestro y panel de detalle separados por un divisor redimensionable.
+- En Documentos, panel maestro y panel de detalle separados por un divisor redimensionable.
+- En Biblioteca, catálogo de notas publicadas y detalle de su ubicación en Obsidian.
 - La lista presenta nombre y ruta juntos, con estado, antigüedad y última actualización alineados.
 - El detalle agrupa resumen, explicación, cronología y acciones; no usa modales salvo confirmaciones destructivas.
 
@@ -42,6 +43,7 @@ Segoe UI es la tipografía de sistema. Los títulos usan 18–22 px equivalentes
 ## Interaction
 
 - La selección de un trabajo persiste durante las actualizaciones automáticas.
+- Si un filtro o una actualización oculta el elemento seleccionado, la interfaz queda sin selección y nunca reasigna una acción a otro documento de forma automática.
 - Filtros y búsqueda se aplican inmediatamente.
 - Estados de carga, vacío, error y selección ausente tienen texto explícito.
 - Importar copia los archivos a la carpeta vigilada y confirma cuántos se aceptaron.
@@ -51,6 +53,6 @@ Segoe UI es la tipografía de sistema. Los títulos usan 18–22 px equivalentes
 
 THESIS: el trabajo activo es el producto; se rechaza la cuadrícula de métricas como pantalla principal.  
 OWN-WORLD: superficies grafito, divisores precisos, texto claro y cian reservado para acción, selección y actividad.  
-STORY: el usuario ve qué documentos avanzan, detecta qué requiere atención y actúa sin buscar otra pantalla.  
-FIRST VIEWPORT: navegación y acciones arriba; lista filtrable a la izquierda; diagnóstico y cronología del trabajo seleccionado a la derecha.  
-FORM: registro de operaciones maestro-detalle, fiel a la opción visual 2 aprobada.
+STORY: el usuario entiende qué documentos avanzan, cuáles requieren atención y qué conocimiento ya está disponible en los vaults.
+FIRST VIEWPORT: resumen documental con accesos a trabajo, incidencias, revisión y biblioteca; Documentos conserva el diagnóstico maestro-detalle.
+FORM: centro documental con vistas especializadas y registros maestro-detalle donde la tarea lo exige.
