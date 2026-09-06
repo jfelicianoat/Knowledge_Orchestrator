@@ -17,6 +17,7 @@ from typing import Any
 
 from knowledge_orchestrator.domain.semantic_models import ComparisonDecision, ExtractedClaim
 from knowledge_orchestrator.services.filesystem import write_synced
+from knowledge_orchestrator.services.maintenance_layout import history_boundary
 from knowledge_orchestrator.services.semantic_maintenance.contratos import SemanticContractError
 
 
@@ -28,6 +29,7 @@ class AnalisisMixin:
         if set(payload) != {"claims"} or not isinstance(payload.get("claims"), list):
             raise SemanticContractError("La extracción debe contener únicamente claims[]")
         body_start = AnalisisMixin._body_start(document)
+        historical_start = history_boundary(document)
         result: list[ExtractedClaim] = []
         allowed = {
             "statement", "claim_type", "volatility", "span_start", "span_end", "quote", "entities",
@@ -45,6 +47,11 @@ class AnalisisMixin:
             # Sin quote exacta no hay evidencia; asi evitamos que el modelo cuele conocimiento externo.
             if start < body_start or end <= start or end > len(document) or document[start:end] != raw["quote"]:
                 raise SemanticContractError(f"Claim {index} no está respaldado por su span local")
+            if historical_start is not None:
+                if start >= historical_start:
+                    continue  # El contenido histórico no se reintroduce como conocimiento vigente.
+                if end > historical_start:
+                    raise SemanticContractError('El span mezcla conocimiento vigente e histórico')
             statement = raw["statement"]
             entities = raw["entities"]
             claim_type = raw["claim_type"]
@@ -54,6 +61,8 @@ class AnalisisMixin:
                 not isinstance(item, str) for item in entities
             ):
                 raise SemanticContractError(f"Claim {index} tiene texto o entidades inválidos")
+            if statement.strip() != quote.strip():
+                raise SemanticContractError(f'Claim {index}: statement debe conservar la cita, sin añadir inferencias')
             volatility = raw["volatility"]
             if volatility not in {"LOW", "MEDIUM", "HIGH"}:
                 raise SemanticContractError(f"Claim {index} tiene volatilidad inválida")
@@ -101,10 +110,14 @@ class AnalisisMixin:
             patch = json.loads(patch_json)
         except json.JSONDecodeError as error:
             raise SemanticContractError("Patch JSON inválido") from error
-        if set(patch) != {"op", "start", "end", "old", "replacement"} or patch["op"] != "replace":
+        required = {'op', 'start', 'end', 'old', 'replacement'}
+        allowed = required | {'source_note_id', 'source_hash', 'source_quote', 'history_strategy', 'current_offset'}
+        if not isinstance(patch, dict) or not required <= set(patch) or set(patch) - allowed \
+                or patch['op'] != 'replace':
             raise SemanticContractError("Operación de patch no permitida")
         start, end = patch["start"], patch["end"]
-        if not isinstance(start, int) or not isinstance(end, int) or start < 0 or end <= start:
+        if type(start) is not int or type(end) is not int or start < AnalisisMixin._body_start(content) \
+                or end <= start or end > len(content):
             raise SemanticContractError("Offsets de patch inválidos")
         if content[start:end] != patch["old"] or not isinstance(patch["replacement"], str):
             raise SemanticContractError("La nota cambió desde que se generó el diff")
@@ -118,9 +131,14 @@ class AnalisisMixin:
         return match.end() + 3 if match else len(document)
 
     @staticmethod
-    def _materialize(path: Path, temporary: Path, content: str, expected_hash: str) -> None:
+    def _materialize(path: Path, temporary: Path, content: str, expected_hash: str,
+                     *, expected_base_hash: str | None = None) -> None:
         write_synced(temporary, content.encode("utf-8"))
         path.parent.mkdir(parents=True, exist_ok=True)
+        if expected_base_hash is not None and (
+            not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != expected_base_hash
+        ):
+            raise SemanticContractError('La nota cambió mientras se preparaba el archivo temporal')
         # La aplicacion ya tiene intencion durable; replace atomico evita notas a medio escribir.
         os.replace(temporary, path)
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected_hash:

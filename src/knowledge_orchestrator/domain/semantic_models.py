@@ -40,6 +40,12 @@ class KnowledgeClaim:
     entities: tuple[str, ...]
     manual_lock: bool
     status: str
+    knowledge_state: str = 'CURRENT'
+    valid_from: str | None = None
+    valid_until: str | None = None
+    superseded_by: int | None = None
+    revision: int = 1
+    derived_from_claim_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +67,9 @@ class UpdateCandidate:
     result_hash: str | None
     temp_path: Path | None
     blocked_reason: str | None
+    proposal_revision: int = 0
+    reviewed_by: str | None = None
+    applied_successor_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

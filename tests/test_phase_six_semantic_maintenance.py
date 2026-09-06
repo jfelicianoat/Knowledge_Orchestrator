@@ -143,14 +143,16 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         })
 
         self.assertEqual(compared.status, "PENDING_REVIEW")
-        self.assertIn("-" + old_text, compared.diff_text)
+        self.assertIn(old_text, compared.diff_text)
+        self.assertIn('## Histórico', compared.diff_text)
         self.assertIn("+" + new_text, compared.diff_text)
         self.assertEqual(old_note.vault_path.read_text(encoding="utf-8"), original)
 
         applied = self.runtime.semantic_maintenance.approve(candidate_id)
         self.assertEqual(applied.status, "APPLIED")
         updated = old_note.vault_path.read_text(encoding="utf-8")
-        self.assertNotIn(old_text, updated)
+        self.assertNotIn(old_text, updated.split('## Histórico')[0])
+        self.assertIn(old_text, updated.split('## Histórico')[1])
         self.assertIn(new_text, updated)
         claims = self.runtime.semantic_repository.list_claims(old_note.note_id)
         self.assertEqual(claims[0].status, "SUPERSEDED")
@@ -160,7 +162,7 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             ).fetchone()
             evidence_count = connection.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0]
         self.assertEqual(revision["content_text"], original)
-        self.assertEqual(evidence_count, 2)
+        self.assertEqual(evidence_count, 3)  # La proyección conserva una copia del vínculo a evidencia original.
 
     def test_invalid_or_frontmatter_span_is_rejected_without_partial_rows(self) -> None:
         note = self.publish("semantic_invalid", "# Hecho\n\nDato válido.\n")
@@ -190,7 +192,7 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             "rationale": "Las dos versiones son incompatibles.",
             "replacement_text": new_text,
         })
-        self.assertEqual(candidate.status, "REJECTED")
+        self.assertEqual(candidate.status, 'PENDING_REVIEW')
         self.assertEqual(candidate.blocked_reason, "MANUAL_LOCK")
         self.assertIsNone(candidate.patch_json)
         with self.assertRaises(SemanticContractError):

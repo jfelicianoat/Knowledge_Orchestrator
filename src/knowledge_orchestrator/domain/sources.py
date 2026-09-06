@@ -37,5 +37,5 @@ def is_prohibited_source_type(source_type: str) -> bool:
 
 
 def autonomous_sources_enabled() -> bool:
-    """Contrato explícito del MVP: no existe ningún productor autónomo de fuentes."""
-    return False
+    """Conectores controlados disponibles; las capturas crudas no pueden suplantarlos."""
+    return True

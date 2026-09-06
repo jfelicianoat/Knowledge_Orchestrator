@@ -2,7 +2,7 @@
 
 > **Precedencia:** revisión 23 de agosto de 2026. `Contratos Normativos v1` define la
 > captura interoperable. Para Broker, el código de `domain/broker_contracts.py` es la
-> autoridad ejecutable: acepta el baseline 2.8 y campos aditivos 2.9. Las secciones 1-7 y
+> autoridad ejecutable: acepta el baseline 2.8 y campos aditivos 2.9 y 2.10. Las secciones 1-7 y
 > los apartados etiquetados como históricos se conservan solo como contexto.
 
 ## 0. Matriz contractual vigente
@@ -10,8 +10,9 @@
 | Frontera | Versión/forma | Autoridad local |
 | --- | --- | --- |
 | Plugin -> Orchestrator | captura Markdown `contract_version: "1.0"` | `domain/contracts.py` y esquema del plugin |
-| Orchestrator -> Broker | petición baseline 2.8 con extensiones opcionales 2.9 | `domain/broker_contracts.py` |
-| Broker -> Orchestrator | estados y resultados 2.8/2.9, campos futuros aditivos | validadores de `domain/broker_contracts.py` |
+| Orchestrator -> Broker | petición baseline 2.8 con extensiones opcionales 2.9 y 2.10 (`auxiliary_invocations`) | `domain/broker_contracts.py` |
+| Broker -> Orchestrator | estados y resultados 2.8/2.9/2.10, campos futuros aditivos | validadores de `domain/broker_contracts.py` |
+| Broker -> Orchestrator | telemetría por invocación (2.10, §8.1) y artefactos con `final: true` (2.10, §8.3) | `validate_invocations_response`, `validate_artifacts_response` |
 | Orchestrator -> Obsidian | nota, revisión, claims y publicación atómica | modelos y servicios de publicación/semántica |
 
 `KO_BROKER_ADMIN_TOKEN` habilita `X-Admin-Token`. La ausencia de la variable no significa

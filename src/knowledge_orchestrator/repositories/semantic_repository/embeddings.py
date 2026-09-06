@@ -40,7 +40,7 @@ class EmbeddingsMixin(TrabajosMixin):
                 "JOIN knowledge_claims k ON k.claim_id = e.claim_id "
                 "JOIN notes n ON n.note_id = k.note_id "
                 "WHERE e.claim_id <> ? AND e.model = ? AND e.dimensions = ? AND k.status = 'ACTIVE' "
-                "AND n.status = 'PUBLISHED'",
+                "AND k.knowledge_state = 'CURRENT' AND n.status = 'PUBLISHED'",
                 (claim_id, source["model"], source["dimensions"]),
             ).fetchall()
         origin = json.loads(source["vector_json"])

@@ -43,8 +43,8 @@ class DomainEnrichmentTests(unittest.TestCase):
             self.assertIsNotNone(record.domain_enriched_at)
             self.assertTrue((paths.obsidian_vault / "Desarrollo" / "Python").is_dir())
 
-    def test_mvp_has_no_autonomous_source_producers(self) -> None:
-        self.assertFalse(autonomous_sources_enabled())
+    def test_controlled_monitoring_connectors_are_available(self) -> None:
+        self.assertTrue(autonomous_sources_enabled())
 
     def test_plugin_capture_falls_back_to_inbox_with_plugin_origin(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

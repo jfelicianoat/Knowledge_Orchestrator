@@ -19,6 +19,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Knowledge Orchestrator")
     parser.add_argument("--once", action="store_true", help="recupera e ingiere el inbox y termina")
     parser.add_argument("--ui", action="store_true", help="abre la interfaz visual Tk de cola y revisión")
+    parser.add_argument('--api', action='store_true', help='inicia API local autenticada y workers')
+    parser.add_argument('--api-port', type=int, default=8766, help='puerto local de Knowledge API')
     parser.add_argument("--backup", action="store_true", help="crea un backup consistente de SQLite y termina")
     parser.add_argument("--diagnostics", type=str, help="exporta un ZIP diagnóstico sin secretos y termina")
     parser.add_argument("--root", type=str, help="raíz alternativa para pruebas locales")
@@ -37,6 +39,10 @@ def main() -> None:
             output_path=Path(arguments.diagnostics),
         )
         print(f"Diagnóstico creado: {diagnostics.path}")
+    elif arguments.api:
+        from knowledge_orchestrator.api.server import serve
+
+        serve(runtime, port=arguments.api_port)
     elif arguments.once:
         report = runtime.recover_once(ingest_inbox=True)
         print(f"Recuperación e ingesta completadas: {report}")

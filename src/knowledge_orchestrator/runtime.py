@@ -8,14 +8,21 @@ from knowledge_orchestrator.integrations.broker_client import BrokerClient
 from knowledge_orchestrator.repositories.capture_repository import CaptureRepository
 from knowledge_orchestrator.repositories.database import Database
 from knowledge_orchestrator.repositories.domain_repository import DomainRepository
+from knowledge_orchestrator.repositories.knowledge_repository import KnowledgeRepository
 from knowledge_orchestrator.repositories.publication_repository import PublicationRepository
+from knowledge_orchestrator.repositories.query_repository import QueryRepository
 from knowledge_orchestrator.repositories.semantic_repository import SemanticRepository
+from knowledge_orchestrator.repositories.source_repository import SourceRepository
 from knowledge_orchestrator.repositories.workflow_repository import WorkflowRepository
+from knowledge_orchestrator.services.api_ingestion import ApiIngestionService
 from knowledge_orchestrator.services.broker_connection import load_broker_settings
 from knowledge_orchestrator.services.broker_dispatch import BrokerDispatcher, BrokerPoller
 from knowledge_orchestrator.services.classification import TopicClassifier
 from knowledge_orchestrator.services.domain_enrichment import DomainEnrichmentService
 from knowledge_orchestrator.services.ingestion import IngestionService
+from knowledge_orchestrator.services.knowledge import KnowledgeService
+from knowledge_orchestrator.services.knowledge_access import KnowledgeAccess
+from knowledge_orchestrator.services.knowledge_query import KnowledgeQueryProcessor, KnowledgeQueryService
 from knowledge_orchestrator.services.model_discovery import ModelDiscoveryService
 from knowledge_orchestrator.services.operations import configure_logging
 from knowledge_orchestrator.services.profile_service import ProfileService
@@ -23,12 +30,14 @@ from knowledge_orchestrator.services.publication import PublicationService
 from knowledge_orchestrator.services.recovery import RecoveryReport, RecoveryService
 from knowledge_orchestrator.services.semantic_broker import SemanticBrokerProcessor
 from knowledge_orchestrator.services.semantic_maintenance import SemanticMaintenanceService
+from knowledge_orchestrator.services.source_monitoring import SourceMonitoringService
 from knowledge_orchestrator.services.topic_service import TopicService
 from knowledge_orchestrator.services.workflow_planner import WorkflowPlanner
 from knowledge_orchestrator.ui.event_bridge import UiEventBridge
 from knowledge_orchestrator.worker.broker_worker import BrokerWorker
 from knowledge_orchestrator.worker.inbox_watcher import InboxWatcher
 from knowledge_orchestrator.worker.ingestion_worker import IngestionWorker
+from knowledge_orchestrator.worker.source_worker import SourceWorker
 
 
 @dataclass(slots=True)
@@ -61,10 +70,19 @@ class OrchestratorRuntime:
     publication: PublicationService
     semantic_maintenance: SemanticMaintenanceService
     semantic_broker: SemanticBrokerProcessor
+    knowledge: KnowledgeService
+    knowledge_access: KnowledgeAccess
+    knowledge_queries: KnowledgeQueryService
+    api_ingestion: ApiIngestionService
+    sources: SourceMonitoringService
+    source_worker: SourceWorker
 
     def recover_once(self, *, ingest_inbox: bool = True) -> RecoveryReport:
         """Deja el sistema en un estado reanudable antes de meter trabajo nuevo."""
 
+        self.sources.deliver_ready()
+        self.api_ingestion.deliver_pending()
+        self.knowledge_queries.repository.recover()
         report = self.recovery.recover(ingest_inbox=ingest_inbox)
         self.topics.ensure_all_folders()
         self.domain_enrichment.enrich_unassigned_pending()
@@ -72,6 +90,7 @@ class OrchestratorRuntime:
         self.workflow_repository.upgrade_legacy_ready_requests()
         self.publication.recover()
         self.semantic_maintenance.recover()
+        self.knowledge.reconcile()
         for note in self.publication_repository.list_notes_by_status("PUBLISHED"):
             self.semantic_maintenance.schedule_extraction(note.note_id)
         self.workflow_planner.plan_unplanned()
@@ -83,9 +102,11 @@ class OrchestratorRuntime:
         report = self.recover_once(ingest_inbox=True)
         self.watcher.start()
         self.broker_worker.start()
+        self.source_worker.start()
         return report
 
     def stop(self) -> None:
+        self.source_worker.stop()
         self.broker_worker.stop()
         self.watcher.stop()
 
@@ -124,6 +145,11 @@ def build_runtime(
     workflow_repository = WorkflowRepository(database)
     publication_repository = PublicationRepository(database)
     semantic_repository = SemanticRepository(database)
+    knowledge = KnowledgeService(KnowledgeRepository(database))
+    knowledge_access = KnowledgeAccess(knowledge, pipeline_paths.obsidian_vault)
+    knowledge_queries = KnowledgeQueryService(knowledge_access, QueryRepository(database))
+    api_ingestion = ApiIngestionService(database, pipeline_paths)
+    sources = SourceMonitoringService(SourceRepository(database), api_ingestion)
     profiles = ProfileService(domain_repository)
     topics = TopicService(pipeline_paths, domain_repository)
     domain_enrichment = DomainEnrichmentService(
@@ -185,6 +211,8 @@ def build_runtime(
         settings,
         publication,
         semantic_processor=semantic_broker,
+        query_processor=KnowledgeQueryProcessor(knowledge_queries, broker_client),
+        api_ingestion=api_ingestion,
     )
     return OrchestratorRuntime(
         paths=pipeline_paths,
@@ -207,4 +235,10 @@ def build_runtime(
         publication=publication,
         semantic_maintenance=semantic_maintenance,
         semantic_broker=semantic_broker,
+        knowledge=knowledge,
+        knowledge_access=knowledge_access,
+        knowledge_queries=knowledge_queries,
+        api_ingestion=api_ingestion,
+        sources=sources,
+        source_worker=SourceWorker(sources),
     )

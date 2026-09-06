@@ -18,7 +18,7 @@ class InicioMixin(DashboardBase):
     def _build_home(self) -> None:
         page = self._new_page("home")
         page.columnconfigure(0, weight=1)
-        page.rowconfigure(4, weight=1)
+        page.rowconfigure(5, weight=1)
         tk.Label(page, text="Resumen documental", bg=self.colors["surface"], fg=self.colors["text"],
                  font=("Segoe UI Semibold", 20), anchor="w").grid(
             row=0, column=0, sticky="ew", padx=28, pady=(26, 4)
@@ -80,7 +80,9 @@ class InicioMixin(DashboardBase):
             highlightbackground=self.colors["border"],
             highlightthickness=1,
         )
-        system.grid(row=3, column=0, sticky="ew", padx=28, pady=(18, 0))
+        self.lifecycle_host = tk.Frame(page, bg=self.colors['surface'])
+        self.lifecycle_host.grid(row=3, column=0, sticky='ew', padx=28, pady=(8, 0))
+        system.grid(row=4, column=0, sticky="ew", padx=28, pady=(8, 0))
         system.columnconfigure(0, weight=1)
         self.system_message_var = tk.StringVar(value="Comprobando el servicio de procesamiento…")
         tk.Label(
@@ -103,7 +105,7 @@ class InicioMixin(DashboardBase):
         ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
 
         attention = tk.Frame(page, bg=self.colors["surface"])
-        attention.grid(row=4, column=0, sticky="nsew", padx=28, pady=22)
+        attention.grid(row=5, column=0, sticky="nsew", padx=28, pady=16)
         attention.columnconfigure(0, weight=1)
         attention.rowconfigure(1, weight=1)
         tk.Label(attention, text="Necesita tu atención", bg=self.colors["surface"], fg=self.colors["text"],

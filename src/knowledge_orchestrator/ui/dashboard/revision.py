@@ -17,6 +17,15 @@ RELATION_LABELS = {
 }
 
 IMPACT_LABELS = {"HIGH": "Alto", "MEDIUM": "Medio", "LOW": "Bajo"}
+RISK_LABELS = {
+    'SOURCE_TRUST_IS_NOT_FACTUAL_PROOF': 'La confianza configurada de una fuente no demuestra el hecho.',
+    'MODEL_CONFIDENCE_IS_NOT_FACTUAL_PROOF': 'La confianza del modelo no es verificación factual.',
+    'CONFLICTING_EVIDENCE_REQUIRES_HUMAN_REVIEW': 'Las evidencias se contradicen; requieren criterio humano.',
+    'HIGH_TRUST_SOURCES_DISAGREE': 'Dos fuentes de alta confianza discrepan.',
+    'LOWER_TRUST_SOURCE_DISAGREES': 'La fuente nueva tiene menor confianza y contradice a la anterior.',
+    'SEMANTIC_RELATION_UNCERTAIN': 'La relación entre las afirmaciones no está clara.',
+    'SOURCE_TRUST_NOT_CONFIGURED': 'Hay fuentes sin confianza configurada.',
+}
 
 
 class RevisionMixin(TrabajoMixin):
@@ -54,8 +63,11 @@ class RevisionMixin(TrabajoMixin):
             buttons, text="Descartar propuesta", style="Danger.TButton", command=self._reject_selected
         )
         self.review_reject_button.pack(side="left", padx=4)
+        self.review_edit_button = ttk.Button(buttons, text='Editar propuesta', command=self._edit_selected_review)
+        self.review_edit_button.pack(side='left', padx=4)
         self.review_approve_button.state(["disabled"])
         self.review_reject_button.state(["disabled"])
+        self.review_edit_button.state(['disabled'])
 
     def _refresh_reviews(self) -> None:
         items = self.snapshots.reviews()
@@ -95,6 +107,9 @@ class RevisionMixin(TrabajoMixin):
         self._render_review(item)
 
     def _render_review(self, item: ReviewItem) -> None:
+        self._selected_review = item
+        detail = self.runtime.semantic_maintenance.proposal_detail(item.candidate_id)
+        assessment = detail['assessment'] or {}
         self.review_detail.configure(state="normal")
         self.review_detail.delete("1.0", "end")
         self.review_detail.insert(
@@ -107,9 +122,24 @@ class RevisionMixin(TrabajoMixin):
             f"Vista previa del cambio\n{item.diff_text or 'No hay diferencias disponibles.'}\n\n"
             f"Restricción\n{item.blocked_reason or 'Ninguna. Puedes aplicar o descartar la propuesta.'}",
         )
-        self.review_detail.configure(state="disabled")
+        self.review_detail.insert('end', '\n\nEvidencia anterior\n'
+                                  + assessment.get('before', 'Sin evaluación guardada')
+                                  + '\n\nPropuesto\n' + (assessment.get('proposed') or 'Sin reemplazo documental')
+                                  + '\n\nFuentes\n' + '\n'.join(
+                                      f"{e['source']['title']} · {e['source'].get('source_url', 'Documento local')} · "
+                                      'Confianza configurada: '
+                                      + str(e['source'].get('monitoring', {}).get('trust_level', 'sin dato'))
+                                      for e in assessment.get('evidence', []))
+                                  + '\n\nHistórico\n' + assessment.get('expected_effect', 'Requiere regeneración')
+                                  + '\n\nRiesgos e incertidumbres\n' + '\n'.join(
+                                      RISK_LABELS.get(risk, risk) for risk in assessment.get('risks', []))
+                                  + f"\n\nRevisión de propuesta: {item.proposal_revision}")
+        self.review_detail.configure(state='disabled')
         self.review_reject_button.state(["!disabled"])
-        self.review_approve_button.state(["disabled"] if item.blocked_reason else ["!disabled"])
+        self.review_edit_button.state(['!disabled'])
+        blocked = (item.status != 'PENDING_REVIEW' or item.blocked_reason
+                   or assessment.get('blockers') or not assessment.get('patch'))
+        self.review_approve_button.state(['disabled'] if blocked else ['!disabled'])
 
     def _clear_review(self, *, empty: bool = False) -> None:
         self._selected_review = None
@@ -126,6 +156,7 @@ class RevisionMixin(TrabajoMixin):
         self.review_detail.configure(state="disabled")
         self.review_approve_button.state(["disabled"])
         self.review_reject_button.state(["disabled"])
+        self.review_edit_button.state(['disabled'])
 
     def _approve_selected(self) -> None:
         if not self._selected_review:
@@ -139,7 +170,8 @@ class RevisionMixin(TrabajoMixin):
         ):
             return
         try:
-            self.runtime.semantic_maintenance.approve(candidate_id)
+            self.runtime.semantic_maintenance.approve(candidate_id,
+                                                     expected_revision=item.proposal_revision, actor='ui')
         except Exception as error:
             messagebox.showerror("No se pudo aprobar", str(error), parent=self)
         else:
@@ -160,10 +192,55 @@ class RevisionMixin(TrabajoMixin):
         ):
             return
         try:
-            self.runtime.semantic_maintenance.reject(candidate_id)
+            self.runtime.semantic_maintenance.reject(candidate_id, expected_revision=item.proposal_revision, actor='ui')
         except Exception as error:
             messagebox.showerror("No se pudo rechazar", str(error), parent=self)
         else:
             self.status_var.set(f"Propuesta {candidate_id} descartada; la nota no se modificó.")
             self._clear_review()
             self._refresh_reviews()
+
+    def _edit_selected_review(self) -> None:
+        if not self._selected_review:
+            return
+        item = self._selected_review
+        candidate = self.runtime.semantic_repository.get_candidate(item.candidate_id)
+        if candidate is None:
+            return
+        dialog = tk.Toplevel(self)
+        dialog.title('Editar propuesta con evidencia')
+        dialog.transient(self)
+        dialog.columnconfigure(0, weight=1)
+        relation = tk.StringVar(value=RELATION_LABELS.get(candidate.relation, 'Requiere criterio'))
+        ttk.Label(dialog, text='Relación propuesta').grid(row=0, column=0, sticky='w', padx=16, pady=8)
+        ttk.Combobox(dialog, values=list(RELATION_LABELS.values()), textvariable=relation,
+                     state='readonly', width=45).grid(row=1, column=0, sticky='ew', padx=16)
+        ttk.Label(dialog, text='Justificación breve basada en la evidencia').grid(
+            row=2, column=0, sticky='w', padx=16, pady=8)
+        rationale = tk.Text(dialog, width=70, height=4, wrap='word')
+        rationale.grid(row=3, column=0, sticky='ew', padx=16)
+        rationale.insert('1.0', candidate.rationale or '')
+        ttk.Label(dialog, text='Texto propuesto: conserva la cita original, sin añadir hechos inferidos.').grid(
+            row=4, column=0, sticky='w', padx=16, pady=8)
+        replacement = tk.Text(dialog, width=70, height=5, wrap='word')
+        replacement.grid(row=5, column=0, sticky='ew', padx=16)
+        replacement.insert('1.0', candidate.replacement_text or
+                           self.runtime.semantic_repository.evidence_quote(candidate.new_claim_id))
+
+        def save():
+            selected_relation = next(code for code, label in RELATION_LABELS.items() if label == relation.get())
+            payload = {'relation': selected_relation, 'confidence': candidate.confidence or 0.0,
+                       'impact': candidate.impact or 'MEDIUM', 'rationale': rationale.get('1.0', 'end-1c'),
+                       'replacement_text': replacement.get('1.0', 'end-1c')
+                       if selected_relation in {'SUPERSEDES', 'EXTENDS', 'CONTRADICTS'} else None}
+            try:
+                self.runtime.semantic_maintenance.edit(item.candidate_id, payload,
+                                                       expected_revision=item.proposal_revision, actor='ui')
+            except (ValueError, RuntimeError) as error:
+                messagebox.showerror('No se pudo guardar la propuesta', str(error), parent=dialog)
+                return
+            dialog.destroy()
+            self._refresh_reviews()
+
+        ttk.Button(dialog, text='Guardar nueva revisión', command=save).grid(
+            row=6, column=0, sticky='e', padx=16, pady=16)

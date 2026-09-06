@@ -156,7 +156,8 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
         self.assertEqual(reviews[0].candidate_id, candidate_id)
         self.assertEqual(reviews[0].target_title, "Documento ui_old")
         self.assertTrue(reviews[0].target_path.endswith(".md"))
-        self.assertIn("-" + old_text, reviews[0].diff_text)
+        self.assertIn(old_text, reviews[0].diff_text)
+        self.assertIn('## Histórico', reviews[0].diff_text)
 
         library = self.snapshots.library_items()
         self.assertEqual(len(library), 2)

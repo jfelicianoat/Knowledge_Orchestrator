@@ -1,8 +1,14 @@
 # Knowledge Orchestrator — Desktop Pipeline
 
-Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows de conocimiento —chunking, síntesis, extracción de afirmaciones y comparación semántica— mientras AI Broker ejecuta la estrategia técnica. El validador acepta el contrato aditivo 2.9 y conserva compatibilidad con 2.8; la deuda del aviso de versión exacta está documentada en [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
+Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows de conocimiento —chunking, síntesis, extracción de afirmaciones y comparación semántica— mientras AI Broker ejecuta la estrategia técnica. El validador acepta el contrato aditivo 2.10 y conserva compatibilidad con 2.8 y 2.9; el aviso de versión compara ya contra un mínimo numérico, no contra una cadena exacta (ver [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md)).
 
 ## Arquitectura del Ecosistema
+
+La evolución de conocimiento incluye entidades, vigencia e histórico y una **API local v1
+autenticada** para documentos, claims, búsqueda, consultas fundamentadas e ingesta.
+Consultar [configuración y contratos de Knowledge API](docs/Knowledge_API.md) y
+[plan de fases 9–14](docs/Knowledge_Lifecycle_Plan.md). La monitorización y la gobernanza
+ampliada siguen en desarrollo; los checkpoints distinguen pruebas locales y pruebas externas pendientes.
 
 ```
 [YT Capture Agent] ──► Knowledge Orchestrator ──► [AI Broker] ──► Ollama (local)
@@ -239,6 +245,8 @@ Build Windows:
 El script crea una aplicación gráfica portable en `dist\Knowledge-Orchestrator`. Si Inno Setup 6 está instalado, también genera `dist\installer\Knowledge-Orchestrator-Setup.exe`, con accesos directos y desinstalador por usuario. El ejecutable empaquetado abre la interfaz directamente.
 
 Véase [`docs/Phase_8_Operations.md`](docs/Phase_8_Operations.md).
+
+Fuentes vigiladas Web/RSS/Atom y su API: [`docs/Source_Monitoring.md`](docs/Source_Monitoring.md).
 
 ## Licencia
 

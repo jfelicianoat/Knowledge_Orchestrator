@@ -10,11 +10,16 @@ import json
 from contextlib import closing
 from pathlib import Path
 
+from knowledge_orchestrator.domain.knowledge import KnowledgeConflict
+from knowledge_orchestrator.repositories.application_guards import check_application
 from knowledge_orchestrator.domain.semantic_models import (
     ComparisonDecision,
     KnowledgeClaim,
     UpdateCandidate,
 )
+from knowledge_orchestrator.repositories.knowledge_repository import record_supersession
+from knowledge_orchestrator.repositories.maintenance_projection import project_successor
+from knowledge_orchestrator.repositories.maintenance_states import record_review_state
 from knowledge_orchestrator.repositories.semantic_repository.afirmaciones import AfirmacionesMixin
 from knowledge_orchestrator.repositories.semantic_repository.filas import _candidate
 
@@ -69,6 +74,10 @@ class CandidatosMixin(AfirmacionesMixin):
         *,
         patch_json: str | None,
         diff_text: str | None,
+        base_hash: str | None = None,
+        assessment: dict | None = None,
+        expected_revision: int | None = None,
+        actor: str = 'broker:comparison',
     ) -> UpdateCandidate:
         with self.database.transaction(immediate=True) as connection:
             row = connection.execute(
@@ -76,25 +85,54 @@ class CandidatosMixin(AfirmacionesMixin):
                 "JOIN knowledge_claims k ON k.claim_id = c.target_claim_id WHERE c.candidate_id = ?",
                 (candidate_id,),
             ).fetchone()
-            if row is None or row["status"] != "PENDING_COMPARISON":
+            permitted = {'PENDING_COMPARISON'} if expected_revision is None else \
+                {'PENDING_COMPARISON', 'PENDING_REVIEW', 'CONFLICT'}
+            if row is None or row['status'] not in permitted:
                 raise ValueError("El candidato no está pendiente de comparación")
+            if expected_revision is not None and row['proposal_revision'] != expected_revision:
+                raise KnowledgeConflict('La propuesta cambió desde que se abrió')
             if row["claim_status"] != "ACTIVE":
                 raise ValueError("El claim objetivo ya no está activo")
-            blocked = "MANUAL_LOCK" if bool(row["manual_lock"]) else row["blocked_reason"]
-            reviewable = decision.relation in {"EXTENDS", "CONTRADICTS", "SUPERSEDES"} and not blocked
+            blocked = 'MANUAL_LOCK' if bool(row['manual_lock']) else None
+            if decision.relation == 'CONTRADICTS':
+                for claim_id in (row['target_claim_id'], row['new_claim_id']):
+                    record_review_state(connection, claim_id, 'DISPUTED', actor=actor,
+                                        reason='Contradicción entre evidencias; requiere revisión humana',
+                                        candidate_id=candidate_id)
+            elif decision.relation == 'UNCERTAIN':
+                record_review_state(connection, row['new_claim_id'], 'UNCERTAIN', actor=actor,
+                                    reason='La comparación no pudo establecer la relación', candidate_id=candidate_id)
+            reviewable = decision.relation in {'EXTENDS', 'CONTRADICTS', 'SUPERSEDES', 'UNCERTAIN'}
             status = "PENDING_REVIEW" if reviewable else "REJECTED"
             connection.execute(
                 "UPDATE update_candidates SET relation = ?, confidence = ?, impact = ?, rationale = ?, "
-                "replacement_text = ?, patch_json = ?, diff_text = ?, blocked_reason = ?, status = ?, "
+                "replacement_text = ?, patch_json = ?, diff_text = ?, base_hash = ?, blocked_reason = ?, status = ?, "
+                'proposal_revision=proposal_revision+1, '
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE candidate_id = ?",
                 (
                     decision.relation, decision.confidence, decision.impact, decision.rationale,
-                    decision.replacement_text, patch_json, diff_text, blocked, status, candidate_id,
+                    decision.replacement_text, patch_json, diff_text, base_hash, blocked, status, candidate_id,
                 ),
             )
+            snapshot = assessment or {'candidate_id': candidate_id, 'rationale': decision.rationale,
+                                      'patch': json.loads(patch_json) if patch_json else None}
+            connection.execute('INSERT INTO maintenance_proposal_versions(candidate_id,revision,snapshot_json,actor) '
+                               'VALUES (?,?,?,?)', (candidate_id, row['proposal_revision'] + 1,
+                                                    json.dumps(snapshot, ensure_ascii=False), actor))
+            connection.execute('INSERT INTO events(event_type,message,details_json) VALUES (?,?,?)',
+                               ('MAINTENANCE_PROPOSAL_REVISED', 'Propuesta fundamentada registrada', json.dumps({
+                                   'candidate_id': candidate_id, 'revision': row['proposal_revision'] + 1,
+                                   'actor': actor})))
             return _candidate(connection.execute(
                 "SELECT * FROM update_candidates WHERE candidate_id = ?", (candidate_id,)
             ).fetchone())
+
+    def inspect_application(self, candidate_id: int, *, base_hash: str, patch_json: str,
+                            expected_revision: int) -> None:
+        with closing(self.database.connect(readonly=True)) as connection:
+            connection.execute('BEGIN')
+            check_application(connection, candidate_id, base_hash=base_hash,
+                              patch_json=patch_json, expected_revision=expected_revision)
 
     def prepare_application(
         self,
@@ -105,19 +143,12 @@ class CandidatosMixin(AfirmacionesMixin):
         result_hash: str,
         temp_path: Path,
         patch_json: str,
+        expected_revision: int | None = None,
+        actor: str = 'human:review',
     ) -> UpdateCandidate:
         with self.database.transaction(immediate=True) as connection:
-            row = connection.execute(
-                "SELECT c.*, k.manual_lock, k.status AS claim_status FROM update_candidates c "
-                "JOIN knowledge_claims k ON k.claim_id = c.target_claim_id WHERE c.candidate_id = ?",
-                (candidate_id,),
-            ).fetchone()
-            if row is None or row["status"] not in {"PENDING_REVIEW", "APPROVED", "APPLYING"}:
-                raise ValueError("El candidato no se puede aprobar")
-            if row["claim_status"] != "ACTIVE":
-                raise ValueError("El claim objetivo ya no está activo")
-            if bool(row["manual_lock"]) or row["blocked_reason"]:
-                raise ValueError("El claim objetivo está bloqueado manualmente")
+            row = check_application(connection, candidate_id, base_hash=base_hash,
+                                    patch_json=patch_json, expected_revision=expected_revision)
             if row["status"] != "APPLYING":
                 revision = int(connection.execute(
                     "SELECT COALESCE(MAX(revision), 0) + 1 FROM note_revisions WHERE note_id = ?",
@@ -130,9 +161,10 @@ class CandidatosMixin(AfirmacionesMixin):
                 )
             connection.execute(
                 "UPDATE update_candidates SET status = 'APPLYING', base_hash = ?, result_hash = ?, temp_path = ?, "
-                "patch_json = ?, reviewed_at = COALESCE(reviewed_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), "
+                "patch_json = ?, reviewed_by=?, "
+                "reviewed_at = COALESCE(reviewed_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE candidate_id = ?",
-                (base_hash, result_hash, str(temp_path), patch_json, candidate_id),
+                (base_hash, result_hash, str(temp_path), patch_json, actor, candidate_id),
             )
             return _candidate(connection.execute(
                 "SELECT * FROM update_candidates WHERE candidate_id = ?", (candidate_id,)
@@ -141,12 +173,19 @@ class CandidatosMixin(AfirmacionesMixin):
     def mark_applied(self, candidate_id: int) -> None:
         with self.database.transaction(immediate=True) as connection:
             row = connection.execute(
-                "SELECT target_claim_id, target_note_id, patch_json FROM update_candidates "
+                "SELECT * FROM update_candidates "
                 "WHERE candidate_id = ? AND status = 'APPLYING'",
                 (candidate_id,),
             ).fetchone()
             if row is None:
                 return
+            patch = json.loads(row['patch_json'])
+            record_review_state(connection, row['new_claim_id'], 'CURRENT',
+                                actor=row['reviewed_by'] or 'human:review',
+                                reason='Evidencia seleccionada explícitamente al aprobar la propuesta',
+                                candidate_id=candidate_id)
+            successor_id = project_successor(connection, row, patch)
+            record_supersession(connection, candidate_id, successor_id=successor_id)
             connection.execute(
                 "UPDATE update_candidates SET status = 'APPLIED', temp_path = NULL, applied_at = "
                 "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
@@ -154,13 +193,8 @@ class CandidatosMixin(AfirmacionesMixin):
                 (candidate_id,),
             )
             connection.execute(
-                "UPDATE knowledge_claims SET status = 'SUPERSEDED', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
-                "WHERE claim_id = ?",
-                (row["target_claim_id"],),
-            )
-            connection.execute(
                 "UPDATE notes SET content_hash = (SELECT result_hash FROM update_candidates WHERE candidate_id = ?), "
-                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE note_id = ?",
+                "revision=revision+1,updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE note_id = ?",
                 (candidate_id, row["target_note_id"]),
             )
             connection.execute(
@@ -175,8 +209,8 @@ class CandidatosMixin(AfirmacionesMixin):
                 connection.execute(
                     "UPDATE knowledge_claims SET span_start = span_start + ?, span_end = span_end + ?, "
                     "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE note_id = ? AND status = 'ACTIVE' "
-                    "AND span_start >= ?",
-                    (delta, delta, row["target_note_id"], patch["end"]),
+                    'AND span_start >= ? AND claim_id <> ?',
+                    (delta, delta, row["target_note_id"], patch["end"], successor_id),
                 )
             connection.execute(
                 "INSERT INTO events(event_type, message, details_json) VALUES "
@@ -193,6 +227,32 @@ class CandidatosMixin(AfirmacionesMixin):
             if row is None:
                 raise ValueError("No existe snapshot para recuperar la actualización")
             return row["content_text"]
+
+    def proposal_versions(self, candidate_id: int) -> list[dict]:
+        with closing(self.database.connect(readonly=True)) as connection:
+            result = []
+            for row in connection.execute('SELECT * FROM maintenance_proposal_versions WHERE candidate_id=? '
+                                          'ORDER BY revision', (candidate_id,)):
+                value = dict(row)
+                value['snapshot'] = json.loads(value.pop('snapshot_json'))
+                result.append(value)
+            return result
+
+    def reject_candidate(self, candidate_id: int, *, expected_revision: int, actor: str, reason: str) -> None:
+        with self.database.transaction(immediate=True) as connection:
+            row = connection.execute('SELECT status,proposal_revision FROM update_candidates WHERE candidate_id=?',
+                                     (candidate_id,)).fetchone()
+            if row is None or row['proposal_revision'] != expected_revision or row['status'] not in {
+                'PENDING_COMPARISON', 'PENDING_REVIEW', 'CONFLICT'
+            }:
+                raise KnowledgeConflict('La propuesta cambió o ya fue resuelta')
+            connection.execute("UPDATE update_candidates SET status='REJECTED',blocked_reason='HUMAN_REJECTED',"
+                               "reviewed_by=?,reviewed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE candidate_id=?",
+                               (actor, candidate_id))
+            connection.execute('INSERT INTO events(event_type,message,details_json) VALUES (?,?,?)',
+                               ('MAINTENANCE_PROPOSAL_REJECTED', 'Propuesta rechazada tras revisión',
+                                json.dumps({'candidate_id': candidate_id, 'revision': expected_revision,
+                                            'actor': actor, 'reason': reason})))
 
     def evidence_quote(self, claim_id: int) -> str:
         with closing(self.database.connect()) as connection:

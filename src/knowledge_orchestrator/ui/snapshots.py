@@ -85,6 +85,7 @@ class ReviewItem:
     rationale: str
     diff_text: str
     blocked_reason: str | None
+    proposal_revision: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,7 +138,7 @@ class UiSnapshotService:
                 for row in connection.execute("SELECT status, COUNT(*) AS total FROM captures GROUP BY status")
             }
             pending_review = int(connection.execute(
-                "SELECT COUNT(*) FROM update_candidates WHERE status = 'PENDING_REVIEW'"
+                "SELECT COUNT(*) FROM update_candidates WHERE status IN ('PENDING_REVIEW','CONFLICT')"
             ).fetchone()[0])
             published_notes = int(connection.execute(
                 "SELECT COUNT(*) FROM notes WHERE status = 'PUBLISHED'"
@@ -221,12 +222,12 @@ class UiSnapshotService:
         with closing(self.database.connect(readonly=True)) as connection:
             rows = connection.execute(
                 "SELECT u.candidate_id, u.status, u.relation, u.confidence, u.impact, "
-                "u.target_note_id, u.rationale, u.diff_text, u.blocked_reason, "
+                "u.target_note_id, u.rationale, u.diff_text, u.blocked_reason, u.proposal_revision, "
                 "c.title AS target_title, n.vault_path AS target_path "
                 "FROM update_candidates u "
                 "JOIN notes n ON n.note_id = u.target_note_id "
                 "JOIN captures c ON c.capture_id = n.capture_id "
-                "WHERE u.status = 'PENDING_REVIEW' ORDER BY u.created_at, u.candidate_id"
+                "WHERE u.status IN ('PENDING_REVIEW','CONFLICT') ORDER BY u.created_at, u.candidate_id"
             ).fetchall()
         return [
             ReviewItem(
@@ -241,6 +242,7 @@ class UiSnapshotService:
                 rationale=row["rationale"] or "",
                 diff_text=row["diff_text"] or "",
                 blocked_reason=row["blocked_reason"],
+                proposal_revision=row['proposal_revision'],
             )
             for row in rows
         ]

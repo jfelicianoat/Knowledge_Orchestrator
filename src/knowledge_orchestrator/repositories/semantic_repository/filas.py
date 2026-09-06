@@ -37,6 +37,12 @@ def _claim(row: sqlite3.Row) -> KnowledgeClaim:
         entities=tuple(json.loads(row["entities_json"])),
         manual_lock=bool(row["manual_lock"]),
         status=row["status"],
+        knowledge_state=row['knowledge_state'],
+        valid_from=row['valid_from'],
+        valid_until=row['valid_until'],
+        superseded_by=row['superseded_by'],
+        revision=row['revision'],
+        derived_from_claim_id=row['derived_from_claim_id'],
     )
 
 
@@ -59,6 +65,9 @@ def _candidate(row: sqlite3.Row) -> UpdateCandidate:
         result_hash=row["result_hash"],
         temp_path=Path(row["temp_path"]) if row["temp_path"] else None,
         blocked_reason=row["blocked_reason"],
+        proposal_revision=row['proposal_revision'],
+        reviewed_by=row['reviewed_by'],
+        applied_successor_id=row['applied_successor_id'],
     )
 
 

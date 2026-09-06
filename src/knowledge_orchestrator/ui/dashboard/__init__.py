@@ -36,10 +36,10 @@ from tkinter import messagebox, ttk
 from knowledge_orchestrator import __version__
 from knowledge_orchestrator.runtime import OrchestratorRuntime
 from knowledge_orchestrator.ui.dashboard.configuracion import (
-    ConfiguracionMixin,
     available_profile_strategies,
     data_root_label,
 )
+from knowledge_orchestrator.ui.dashboard.operaciones import OperacionesMixin
 
 __all__ = [
     "OrchestratorDashboard",
@@ -49,7 +49,7 @@ __all__ = [
 ]
 
 
-class OrchestratorDashboard(ConfiguracionMixin):
+class OrchestratorDashboard(OperacionesMixin):
     """La ventana completa: cabecera, barra de acciones, páginas y pie."""
 
     def __init__(self, runtime: OrchestratorRuntime) -> None:
@@ -97,18 +97,21 @@ class OrchestratorDashboard(ConfiguracionMixin):
         self._build_review()
         self._build_topics()
         self._build_config()
+        self._build_sources()
+        self._build_knowledge()
+        self._build_operations()
 
         self._build_footer()
         self._show_page("home")
 
     def _build_header(self) -> None:
-        header = tk.Frame(self, bg=self.colors["header"], height=56)
+        header = tk.Frame(self, bg=self.colors["header"], height=112)
         header.grid(row=0, column=0, sticky="ew")
         header.grid_propagate(False)
         header.columnconfigure(1, weight=1)
 
         brand = tk.Frame(header, bg=self.colors["header"])
-        brand.grid(row=0, column=0, sticky="nsw", padx=(20, 54))
+        brand.grid(row=0, column=0, sticky="nsw", padx=(20, 20))
         tk.Label(
             brand, text="KO", bg=self.colors["accent"], fg="#061015",
             font=("Segoe UI Semibold", 9), padx=7, pady=6,
@@ -125,17 +128,20 @@ class OrchestratorDashboard(ConfiguracionMixin):
         ).pack(side="left", padx=(2, 0))
 
         navigation = tk.Frame(header, bg=self.colors["header"])
-        navigation.grid(row=0, column=1, sticky="nsw")
+        navigation.grid(row=1, column=0, columnspan=2, sticky="nsw", padx=20)
         self.nav_buttons = {}
         for key, label in (
             ("home", "Resumen"), ("work", "Documentos"), ("library", "Biblioteca"),
+            ('knowledge', 'Conocimiento'),
+            ('operations', 'Operaciones'),
+            ("sources", "Fuentes"),
             ("review", "Revisión"), ("topics", "Organización"), ("config", "Ajustes"),
         ):
             button = tk.Button(
                 navigation, text=label, command=partial(self._show_page, key),
                 bg=self.colors["header"], fg=self.colors["muted"],
                 activebackground=self.colors["raised"], activeforeground=self.colors["text"],
-                relief="flat", borderwidth=0, padx=13, pady=16, cursor="hand2",
+                relief="flat", borderwidth=0, padx=10, pady=16, cursor="hand2",
                 font=("Segoe UI", 10),
             )
             button.pack(side="left", fill="y")
@@ -201,6 +207,12 @@ class OrchestratorDashboard(ConfiguracionMixin):
             self._refresh_work()
             if self._current_page == "library":
                 self._refresh_library()
+            if self._current_page == "sources":
+                self._refresh_sources()
+            if self._current_page == 'knowledge':
+                self._refresh_knowledge()
+            if self._current_page == 'operations':
+                self._refresh_flow()
             self._refresh_reviews()
             self._refresh_topics()
             self._refresh_profiles()
