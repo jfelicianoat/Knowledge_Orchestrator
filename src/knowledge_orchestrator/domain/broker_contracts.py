@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, NoReturn
 
@@ -32,6 +32,28 @@ BROKER_STATUSES = {
 # auto: el meta-router del Broker elige la estrategia; la respuesta conserva
 # "auto" en execution_strategy y la resolución queda en el evento strategy.routed.
 BROKER_STRATEGIES = {"single", "mixture_of_agents", "agent", "auto"}
+
+#: Vocabulario de `role` por invocación, enumerado en el contrato 2.10 (8.1).
+#: `unknown` no lo escribe el Broker: es lo que se lee de una base escrita por
+#: una versión con más vocabulario que la que responde. Es «no lo reconozco».
+INVOCATION_ROLES = {
+    "single", "agent", "proposer", "generalist", "specialist", "skeptic",
+    "analyst", "reviewer", "refiner", "arbiter", "chunk_map", "chunk_reduce",
+    "confidence_judge", "vision", "shadow_probe", "unknown",
+}
+
+#: Vocabulario de `status` por invocación (contrato 2.10, 8.1).
+INVOCATION_STATUSES = {"started", "completed", "failed", "ambiguous", "unknown"}
+
+#: Niveles de poda del prompt. `broker_default` solo aparece en `requested`:
+#: es lo que se declara cuando el cliente no se pronunció (8.5).
+PROMPT_COMPRESSION_LEVELS = {"off", "light", "medium", "aggressive"}
+
+#: Reserva para Brokers anteriores al 2.10, que no marcan `contractual`. El
+#: contrato pide explícitamente no deducirlo del nombre del rol —esa lista se
+#: rompe en silencio en cuanto el Broker añade uno—, así que solo se usa
+#: cuando el campo no viene, que es la única situación sin alternativa.
+LEGACY_NON_CONTRACTUAL_ROLES = frozenset({"shadow_probe"})
 BROKER_PRESETS = {"fast", "slow", "standard", "verified", "high_stakes"}
 
 
@@ -40,7 +62,7 @@ class BrokerContractIssue:
     boundary: str
     field: str
     reason: str
-    contract_version: str | None = "2.9"
+    contract_version: str | None = "2.10"
     code: str = "CONTRACT_VALIDATION_FAILED"
 
 
@@ -137,6 +159,16 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
     excluir = payload.get("exclude_from_model_learning")
     if excluir is not None and not isinstance(excluir, bool):
         _fail(boundary, "exclude_from_model_learning", "debe ser boolean o null")
+
+    # Contrato 2.10 (Client_API.md, 8.4): `false` pide que SOLO el modelo que
+    # responde vea el contenido de esa tarea. El Broker mide su catálogo
+    # invocando a un aspirante con el mismo prompt bajo el mismo `task_id`
+    # cuando la tarea ya ha terminado; el sondeo respeta la clasificación de
+    # datos, pero «local» no es «el modelo que yo aprobé». El orquestador lo
+    # envía para contenido restringido (ver `auxiliary_invocations_for`).
+    auxiliares = payload.get("auxiliary_invocations")
+    if auxiliares is not None and not isinstance(auxiliares, bool):
+        _fail(boundary, "auxiliary_invocations", "debe ser boolean o null")
 
     requirements = _mapping(payload.get("model_requirements"), boundary, "model_requirements")
     if requirements.get("preferred_model") is not None:
@@ -399,15 +431,169 @@ def normalize_capabilities_response(payload: Mapping[str, Any]) -> dict[str, Any
         "file_ingestion",
         "long_context_map_reduce",
         "task_dependencies",
+        # Contrato 2.10. Todas caen a `False` si no vienen o vienen mal
+        # formadas: no anunciarlas es exactamente lo que hace un Broker
+        # anterior, y suponer que están es lo que produce un 422 a mitad de
+        # flujo con `extra="forbid"` en el otro lado.
+        "task_artifacts",        # 8.3: listar y descargar lo que produce una tarea
+        "canonical_artifacts",   # 8.3: el entregable viene marcado con `final: true`
+        "invocation_telemetry",  # 8.1: telemetría por invocación
+        "invocation_contract",   # 8.1: `role`/`status` enumerados y `contractual`
+        "prompt_compression_echo",       # 8.5: acuse de recibo de la poda
+        "auxiliary_invocations_optout",  # 8.4: se puede apagar el sondeo
     ):
         value = source.get(field)
         normalized[field] = value if isinstance(value, bool) else False
+
+    # `auxiliary_invocations` es la excepción: ausente NO significa «no las
+    # hace». Un Broker anterior al 2.10 las hacía sin anunciarlas, así que el
+    # default seguro es `True` y no `False` (Client_API.md, 8.4).
+    auxiliares = source.get("auxiliary_invocations")
+    normalized["auxiliary_invocations"] = auxiliares if isinstance(auxiliares, bool) else True
 
     max_active = source.get("max_active_workflows")
     normalized["max_active_workflows"] = (
         max_active if isinstance(max_active, int) and not isinstance(max_active, bool) and max_active >= 1 else 1
     )
     return normalized
+
+
+#: Contrato mínimo del Broker que el orquestador necesita. No es «el último»:
+#: es el más antiguo con el que todo lo que hace aquí sigue siendo cierto.
+MINIMUM_CONTRACT_VERSION = "2.8"
+
+
+def contract_at_least(observed: str | None, required: str) -> bool:
+    """Compara versiones de contrato por número, no por cadena.
+
+    `"2.10"` es POSTERIOR a `"2.9"`, y comparar cadenas dice lo contrario. Es
+    el fallo silencioso clásico de una comprobación de versión, y aquí produce
+    un aviso permanente contra un Broker más nuevo que el mínimo.
+    """
+    def parse(value: str) -> tuple[int, ...]:
+        parts = value.split(".")
+        if not parts or any(not part.isdigit() for part in parts):
+            raise ValueError(value)
+        return tuple(int(part) for part in parts)
+
+    if not isinstance(observed, str) or not observed.strip():
+        return False
+    try:
+        left, right = parse(observed.strip()), parse(required)
+    except ValueError:
+        return False
+    width = max(len(left), len(right))
+    return left + (0,) * (width - len(left)) >= right + (0,) * (width - len(right))
+
+
+def auxiliary_invocations_for(data_classification: str) -> bool:
+    """Si esta tarea tolera que otro modelo vea su contenido (2.10, 8.4).
+
+    El Broker mide su catálogo invocando a un aspirante con el mismo prompt
+    bajo el mismo `task_id` cuando la tarea ya ha terminado. Ese sondeo respeta
+    la clasificación de datos —una tarea `confidential` o `local_only` solo
+    puede sondear modelos locales— pero «local» no es «el modelo que yo
+    aprobé», y el orquestador trabaja sobre notas del vault de su dueño.
+
+    Lo que NO respeta por sí solo es `target_model`: un modelo exacto que
+    admite fallback es una preferencia de enrutado, y el sondeo puede medir
+    otro. Por eso esto se decide por la clasificación y no por el modelo.
+    """
+    return data_classification not in {"confidential", "local_only"}
+
+
+def is_contractual_invocation(item: Mapping[str, Any]) -> bool:
+    """Si esta invocación ejecuta el trabajo que se pidió (2.10, 8.1).
+
+    `contractual: false` es trabajo propio del Broker: no cuenta para la
+    factura ni para validar la política de ejecución de la tarea. `true` es
+    trabajo del cliente aunque el rol no sea el que entrega la respuesta —
+    `confidence_judge` y `arbiter` se pagan y respetan `model_requirements`.
+    """
+    declared = item.get("contractual")
+    if isinstance(declared, bool):
+        return declared
+    return item.get("role") not in LEGACY_NON_CONTRACTUAL_ROLES
+
+
+def validate_invocations_response(
+    payload: Mapping[str, Any], expected_task_id: str
+) -> list[Mapping[str, Any]]:
+    """`GET /api/v1/tasks/{id}/invocations` -> {task_id, items[]} (2.10, 8.1).
+
+    Se valida la forma, no el vocabulario: un `role` o un `status` que no
+    conocemos se acepta y se lee como `unknown`. Rechazar un valor nuevo
+    rompería al orquestador en la siguiente versión del Broker sin que nada
+    haya cambiado para él, que es justo lo que el contrato pide no hacer.
+    """
+    boundary = "broker_to_orchestrator_invocations_v2"
+    source = _mapping(payload, boundary, "invocations")
+    if source.get("task_id") != expected_task_id:
+        _fail(boundary, "task_id", "no coincide con la tarea del Broker")
+    items = source.get("items")
+    if not isinstance(items, list):
+        _fail(boundary, "items", "debe ser una lista de invocaciones")
+    validated: list[Mapping[str, Any]] = []
+    for index, item in enumerate(items):
+        entry = _mapping(item, boundary, f"items[{index}]")
+        _string(entry.get("invocation_id"), boundary, f"items[{index}].invocation_id")
+        _string(entry.get("role"), boundary, f"items[{index}].role")
+        _string(entry.get("status"), boundary, f"items[{index}].status")
+        contractual = entry.get("contractual")
+        if contractual is not None and not isinstance(contractual, bool):
+            _fail(boundary, f"items[{index}].contractual", "debe ser boolean o null")
+        echo = entry.get("prompt_compression")
+        if echo is not None:
+            echo = _mapping(echo, boundary, f"items[{index}].prompt_compression")
+            effective = echo.get("effective")
+            # `null` en filas anteriores al 2.10 y en llamadas que no envían
+            # prompt de usuario: no hay nada que podar, no es un error.
+            if effective is not None and effective not in PROMPT_COMPRESSION_LEVELS:
+                _fail(
+                    boundary,
+                    f"items[{index}].prompt_compression.effective",
+                    "nivel de compresión no permitido",
+                )
+        validated.append(entry)
+    return validated
+
+
+def validate_artifacts_response(
+    payload: Mapping[str, Any], expected_task_id: str
+) -> list[Mapping[str, Any]]:
+    """`GET /api/v1/tasks/{id}/artifacts` -> {task_id, items[]} (2.10, 8.3)."""
+    boundary = "broker_to_orchestrator_artifacts_v2"
+    source = _mapping(payload, boundary, "artifacts")
+    if source.get("task_id") != expected_task_id:
+        _fail(boundary, "task_id", "no coincide con la tarea del Broker")
+    items = source.get("items")
+    if not isinstance(items, list):
+        _fail(boundary, "items", "debe ser una lista de artefactos")
+    validated: list[Mapping[str, Any]] = []
+    for index, item in enumerate(items):
+        entry = _mapping(item, boundary, f"items[{index}]")
+        _string(entry.get("artifact_id"), boundary, f"items[{index}].artifact_id")
+        _string(entry.get("artifact_type"), boundary, f"items[{index}].artifact_type")
+        for field in ("available", "final"):
+            value = entry.get(field)
+            if value is not None and not isinstance(value, bool):
+                _fail(boundary, f"items[{index}].{field}", "debe ser boolean o null")
+        validated.append(entry)
+    return validated
+
+
+def final_artifact(items: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    """El entregable de la tarea (2.10, 8.3).
+
+    Se filtra por `final` y no por `artifact_type`: la lista de tipos crece con
+    cada estrategia nueva, y cerrar con «el primero de la lista» cerraría con
+    la imagen que acompaña en vez de con la respuesta. Una tarea completada
+    tiene exactamente uno; `None` significa que este Broker no los marca.
+    """
+    for item in items:
+        if item.get("final") is True:
+            return item
+    return None
 
 
 def validate_models_response(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:

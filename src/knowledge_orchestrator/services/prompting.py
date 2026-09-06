@@ -4,6 +4,7 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
+from knowledge_orchestrator.domain.broker_contracts import auxiliary_invocations_for
 from knowledge_orchestrator.domain.models import ProfileDefinition
 
 
@@ -174,4 +175,11 @@ def build_chat_request(
         },
         "priority": 100,
         "prompt_compression": profile.prompt_compression,
+        # Contrato 2.10 (Client_API.md, 8.4): con contenido restringido, que
+        # solo lo vea el modelo que responde. El sondeo en sombra respeta la
+        # clasificación de datos, pero «un modelo local» no es «el modelo que
+        # yo aprobé», y esto son notas del vault de su dueño. El cliente lo
+        # retira si el Broker no anuncia el opt-out: pedir la garantía no puede
+        # costar la tarea entera con un 422.
+        "auxiliary_invocations": auxiliary_invocations_for(profile.data_classification),
     }

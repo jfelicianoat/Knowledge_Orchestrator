@@ -160,7 +160,7 @@ class BrokerContractTests(unittest.TestCase):
         request["generation"]["temperature"] = 9
         with self.assertRaises(BrokerContractError) as capturado:
             validate_create_task_request(request)
-        self.assertEqual(capturado.exception.issue.contract_version, "2.9")
+        self.assertEqual(capturado.exception.issue.contract_version, "2.10")
 
     def test_accepts_v27_waiting_for_tools_and_slow_preset(self) -> None:
         waiting = {

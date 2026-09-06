@@ -6,9 +6,15 @@ import threading
 import time
 
 from knowledge_orchestrator.config import BrokerSettings
+from knowledge_orchestrator.domain.broker_contracts import (
+    MINIMUM_CONTRACT_VERSION,
+    contract_at_least,
+)
 from knowledge_orchestrator.domain.models import ApplicationEvent
 from knowledge_orchestrator.integrations.broker_client import BrokerClientError
+from knowledge_orchestrator.services.api_ingestion import ApiIngestionService
 from knowledge_orchestrator.services.broker_dispatch import BrokerDispatcher, BrokerPoller
+from knowledge_orchestrator.services.knowledge_query import KnowledgeQueryProcessor
 from knowledge_orchestrator.services.model_discovery import ModelDiscoveryService
 from knowledge_orchestrator.services.publication import PublicationService
 from knowledge_orchestrator.services.semantic_broker import SemanticBrokerProcessor
@@ -30,6 +36,8 @@ class BrokerWorker:
         settings: BrokerSettings,
         publisher: PublicationService | None = None,
         semantic_processor: SemanticBrokerProcessor | None = None,
+        query_processor: KnowledgeQueryProcessor | None = None,
+        api_ingestion: ApiIngestionService | None = None,
     ) -> None:
         self.planner = planner
         self.dispatcher = dispatcher
@@ -39,6 +47,8 @@ class BrokerWorker:
         self.settings = settings
         self.publisher = publisher
         self.semantic_processor = semantic_processor
+        self.query_processor = query_processor
+        self.api_ingestion = api_ingestion
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._broker_online: bool | None = None
@@ -118,6 +128,8 @@ class BrokerWorker:
                 consecutive_errors = 0
             now = time.monotonic()
             try:
+                if self.api_ingestion is not None:
+                    self.api_ingestion.deliver_pending()
                 # La salud es la puerta de toda operación remota. En particular,
                 # nunca reclamamos una tarea READY ni intentamos un POST mientras
                 # el Broker siga desconectado.
@@ -166,6 +178,9 @@ class BrokerWorker:
                     except BrokerClientError as error:
                         self._emit("BROKER_OFFLINE", str(error))
                     next_discovery = now + self.settings.discovery_interval_seconds
+                if self._broker_online is True and self.query_processor is not None:
+                    await self.query_processor.dispatch_once()
+                    await self.query_processor.poll_once()
             except BrokerClientError as error:
                 self._emit("BROKER_OFFLINE", str(error))
                 consecutive_errors += 1
@@ -211,11 +226,20 @@ class BrokerWorker:
         with self._capabilities_lock:
             self._capabilities = dict(capabilities)
         contract_version = capabilities.get("contract_version")
-        if contract_version != "2.8":
+        # El contrato del Broker crece de forma ADITIVA: un 2.10 sirve todo lo
+        # que servía un 2.9. Comparar por igualdad convertía cada versión nueva
+        # en un aviso permanente que el operador aprende a ignorar, y entonces
+        # el aviso deja de servir para lo que existe: avisar de un Broker
+        # demasiado antiguo. Se compara contra un mínimo.
+        if not contract_at_least(contract_version, MINIMUM_CONTRACT_VERSION):
             self._emit(
                 "BROKER_CONTRACT_WARNING",
-                f"Contrato Broker anunciado: {contract_version or 'desconocido'}; esperado: 2.8",
-                {"contract_version": contract_version, "expected_contract_version": "2.8"},
+                f"Contrato Broker anunciado: {contract_version or 'desconocido'}; "
+                f"mínimo requerido: {MINIMUM_CONTRACT_VERSION}",
+                {
+                    "contract_version": contract_version,
+                    "minimum_contract_version": MINIMUM_CONTRACT_VERSION,
+                },
             )
         self._emit(
             "BROKER_CAPABILITIES_UPDATED",

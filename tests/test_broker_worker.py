@@ -16,7 +16,14 @@ class _UnavailableCapabilitiesClient:
 
 class _FutureCapabilitiesClient:
     async def capabilities(self) -> dict:
-        return {"contract_version": "2.9", "strategies": ["single"], "future_field": True}
+        return {"contract_version": "2.10", "strategies": ["single"], "future_field": True}
+
+
+class _StaleCapabilitiesClient:
+    """Un Broker POR DEBAJO del mínimo: eso sí es motivo de aviso."""
+
+    async def capabilities(self) -> dict:
+        return {"contract_version": "2.7", "strategies": ["single"]}
 
 
 class _ReconfigurableClient:
@@ -100,12 +107,27 @@ class BrokerWorkerCapabilitiesTests(unittest.IsolatedAsyncioTestCase):
         event = worker.events.get_nowait()
         self.assertEqual(event.event_type, "BROKER_CAPABILITIES_UNAVAILABLE")
 
-    async def test_future_contract_is_retained_and_reported_as_warning(self) -> None:
+    async def test_a_newer_contract_is_retained_without_a_warning(self) -> None:
+        """El contrato del Broker crece de forma aditiva: un 2.10 sirve todo.
+
+        Avisar de cada versión nueva convierte el aviso en ruido que el
+        operador aprende a ignorar, y entonces deja de servir para lo que
+        existe: detectar un Broker demasiado antiguo. Ojo además con comparar
+        cadenas — `"2.10" < "2.9"` es verdad y `2.10 < 2.9` no lo es.
+        """
         worker = self._worker(_FutureCapabilitiesClient())
 
         await worker._refresh_capabilities()
 
-        self.assertEqual(worker.capabilities_snapshot()["contract_version"], "2.9")
+        self.assertEqual(worker.capabilities_snapshot()["contract_version"], "2.10")
+        self.assertEqual(worker.events.get_nowait().event_type, "BROKER_CAPABILITIES_UPDATED")
+
+    async def test_a_contract_below_the_minimum_is_reported_as_warning(self) -> None:
+        worker = self._worker(_StaleCapabilitiesClient())
+
+        await worker._refresh_capabilities()
+
+        self.assertEqual(worker.capabilities_snapshot()["contract_version"], "2.7")
         events = [worker.events.get_nowait(), worker.events.get_nowait()]
         self.assertEqual([event.event_type for event in events], [
             "BROKER_CONTRACT_WARNING",
