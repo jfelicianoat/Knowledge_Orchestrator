@@ -6,6 +6,7 @@ import sqlite3
 
 from knowledge_orchestrator.domain.knowledge import KnowledgeConflict
 from knowledge_orchestrator.repositories.knowledge_repository import KnowledgeRepository
+from knowledge_orchestrator.repositories.maintenance_states import note_in_reversion
 
 
 def check_application(connection: sqlite3.Connection, candidate_id: int, *, base_hash: str,
@@ -18,6 +19,14 @@ def check_application(connection: sqlite3.Connection, candidate_id: int, *, base
     ).fetchone()
     if row is None or row["status"] != "PENDING_REVIEW":
         raise ValueError("El candidato no se puede aprobar")
+    if note_in_reversion(connection, row['target_note_id']):
+        raise KnowledgeConflict('Una reversión está usando la nota objetivo')
+    origins = connection.execute('WITH RECURSIVE origins(claim_id,note_id,parent_id) AS ('
+        'SELECT claim_id,note_id,derived_from_claim_id FROM knowledge_claims WHERE claim_id=? UNION '
+        'SELECT k.claim_id,k.note_id,k.derived_from_claim_id FROM knowledge_claims k '
+        'JOIN origins o ON k.claim_id=o.parent_id) SELECT note_id FROM origins', (row['new_claim_id'],)).fetchall()
+    if any(note_in_reversion(connection, origin['note_id']) for origin in origins):
+        raise KnowledgeConflict('Una reversión está usando la evidencia de la propuesta')
     if (expected_revision is not None and row['proposal_revision'] != expected_revision) \
             or row['patch_json'] != patch_json:
         raise KnowledgeConflict('La propuesta cambió durante la aprobación')

@@ -13,29 +13,39 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, quote_plus
 
 from knowledge_orchestrator.config import BrokerSettings, PipelinePaths
 from knowledge_orchestrator.repositories.database import Database
 
 LOG_FILE_NAME = "orchestrator.log"
 SENSITIVE_KEYS = re.compile(r"(token|secret|password|api[_-]?key|authorization|cookie)", re.IGNORECASE)
-URL_CREDENTIALS = re.compile(r"://([^:/@\s]+):([^@\s]+)@")
-SENSITIVE_ASSIGNMENT = re.compile(
-    r"(?i)\b(token|secret|password|api[_-]?key|authorization|cookie)\b\s*[:=]\s*([^\s,;]+)"
+URL_CREDENTIALS = re.compile(r"://[^/@\s?#]+@")
+SENSITIVE_HEADER = re.compile(
+    r"(?im)\b((?:proxy-)?authorization|(?:set-)?cookie)\b\s*[:=]\s*[^\r\n]+"
 )
+SENSITIVE_ASSIGNMENT = re.compile(
+    r'''(?ix)["']?\b([\w.-]*(?:token|secret|password|api[_-]?key|authorization|cookie)[\w.-]*)
+    \b["']?\s*[:=]\s*(?:"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^\s,;&\#}\]]+)'''
+)
+REDACTED = "***REDACTED***"
 
 
 class JsonFormatter(logging.Formatter):
+    def __init__(self, *, known_secrets: tuple[str, ...] = ()) -> None:
+        super().__init__()
+        self._known_secrets = known_secrets
+
     def format(self, record: logging.LogRecord) -> str:
         payload = {
             "timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat().replace("+00:00", "Z"),
             "level": record.levelname,
             "logger": record.name,
-            "message": sanitize(record.getMessage()),
+            "message": record.getMessage(),
         }
         if record.exc_info:
-            payload["exception"] = sanitize(self.formatException(record.exc_info))
-        return json.dumps(payload, ensure_ascii=False, default=str)
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(sanitize(payload, known_secrets=self._known_secrets), ensure_ascii=False, default=str)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +63,9 @@ class DiagnosticResult:
     files: tuple[str, ...]
 
 
-def configure_logging(paths: PipelinePaths, *, level: int = logging.INFO) -> Path:
+def configure_logging(
+    paths: PipelinePaths, *, level: int = logging.INFO, known_secrets: tuple[str, ...] = ()
+) -> Path:
     paths.logs.mkdir(parents=True, exist_ok=True)
     log_path = paths.logs / LOG_FILE_NAME
     root = logging.getLogger()
@@ -66,7 +78,7 @@ def configure_logging(paths: PipelinePaths, *, level: int = logging.INFO) -> Pat
         encoding="utf-8",
         delay=True,
     )
-    handler.setFormatter(JsonFormatter())
+    handler.setFormatter(JsonFormatter(known_secrets=known_secrets))
     handler._knowledge_orchestrator = True  # type: ignore[attr-defined]
     root.addHandler(handler)
     return log_path
@@ -119,33 +131,67 @@ def export_diagnostics(
         "directories": _directory_summary(paths),
     }
     log_text = _read_log_tail(paths.logs / LOG_FILE_NAME)
+    known_secrets = (broker_settings.admin_token,) if broker_settings.admin_token else ()
+    manifest = sanitize(manifest, known_secrets=known_secrets)
+    # Parse each complete JSON record before sanitizing nested textual payloads.
+    log_text = "\n".join(sanitize(line, known_secrets=known_secrets) for line in log_text.splitlines())
     with zipfile.ZipFile(target, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("diagnostics.json", json.dumps(manifest, ensure_ascii=False, indent=2, default=str))
-        archive.writestr("logs/orchestrator-tail.log", sanitize(log_text))
+        archive.writestr("logs/orchestrator-tail.log", log_text)
         archive.writestr(
             "README.txt",
-            "Paquete diagnóstico sin secretos. No incluye base SQLite ni contenido de notas.\n",
+            "Incluye contadores, entorno, configuración y líneas completas de logs saneadas.\n"
+            "No adjunta SQLite ni archivos de notas. Oculta campos de credenciales reconocidos y el token "
+            "Broker configurado. Los mensajes libres antiguos pueden contener otros datos privados; "
+            "revise el paquete antes de compartirlo.\n",
         )
     with zipfile.ZipFile(target) as archive:
         names = tuple(archive.namelist())
     return DiagnosticResult(path=target, created_at=timestamp, files=names)
 
 
-def sanitize(value: Any) -> Any:
+def sanitize(value: Any, *, known_secrets: tuple[str, ...] = ()) -> Any:
+    variants = {
+        variant
+        for secret in known_secrets if secret
+        for variant in (secret, quote(secret, safe=""), quote_plus(secret), json.dumps(secret)[1:-1])
+    }
+    return _sanitize(value, tuple(sorted(variants, key=len, reverse=True)), depth=0)
+
+
+def _sanitize(value: Any, secrets: tuple[str, ...], *, depth: int) -> Any:
+    if depth > 20:
+        return "[OMITTED: nested data]"
     if isinstance(value, dict):
         return {
-            key: "***REDACTED***" if SENSITIVE_KEYS.search(str(key)) else sanitize(item)
+            _mask_known(str(key), secrets): REDACTED if SENSITIVE_KEYS.search(str(key))
+            else _sanitize(item, secrets, depth=depth + 1)
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [sanitize(item) for item in value]
+        return [_sanitize(item, secrets, depth=depth + 1) for item in value]
     if isinstance(value, tuple):
-        return tuple(sanitize(item) for item in value)
+        return tuple(_sanitize(item, secrets, depth=depth + 1) for item in value)
     if isinstance(value, Path):
-        return str(value)
+        value = str(value)
     if isinstance(value, str):
+        if value.lstrip().startswith(("{", "[")):
+            try:
+                parsed = json.loads(value)
+            except (ValueError, RecursionError):
+                pass
+            else:
+                return json.dumps(_sanitize(parsed, secrets, depth=depth + 1), ensure_ascii=False)
         redacted = URL_CREDENTIALS.sub("://***:***@", value)
-        return SENSITIVE_ASSIGNMENT.sub(lambda match: f"{match.group(1)}=***REDACTED***", redacted)
+        redacted = SENSITIVE_HEADER.sub(lambda match: f"{match.group(1)}={REDACTED}", redacted)
+        redacted = SENSITIVE_ASSIGNMENT.sub(lambda match: f"{match.group(1)}={REDACTED}", redacted)
+        return _mask_known(redacted, secrets)
+    return value
+
+
+def _mask_known(value: str, secrets: tuple[str, ...]) -> str:
+    for secret in secrets:
+        value = value.replace(secret, REDACTED)
     return value
 
 
@@ -183,13 +229,25 @@ def _directory_summary(paths: PipelinePaths) -> dict[str, dict[str, int | bool]]
 
 
 def _read_log_tail(path: Path, *, max_bytes: int = 200_000) -> str:
+    if max_bytes < 1:
+        raise ValueError("max_bytes debe ser positivo")
     if not path.exists():
         return ""
     size = path.stat().st_size
     with path.open("rb") as handle:
         if size > max_bytes:
-            handle.seek(size - max_bytes)
-        data = handle.read()
+            handle.seek(size - max_bytes - 1)
+            previous = handle.read(1)
+        else:
+            previous = b"\n"
+        data = handle.read(max_bytes)
+    if previous != b"\n":
+        # The cut may be inside a secret, with its identifying key outside the tail.
+        newline = data.find(b"\n")
+        data = data[newline + 1:] if newline >= 0 else b""
+    # A concurrent writer may not have finished the last record yet.
+    if data and not data.endswith(b"\n"):
+        data = data[:data.rfind(b"\n") + 1]
     return data.decode("utf-8", errors="replace")
 
 

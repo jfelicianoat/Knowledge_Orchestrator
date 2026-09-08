@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import traceback
 import unittest
 
 from knowledge_orchestrator.domain.contracts import parse_capture_bytes
@@ -28,6 +29,25 @@ class CaptureContractTests(unittest.TestCase):
         with self.assertRaises(CaptureContractError) as raised:
             parse_capture_bytes(content)
         self.assertIn("duplicate key", raised.exception.issue.reason)
+
+    def test_yaml_errors_report_position_without_source_snippets_even_in_tracebacks(self) -> None:
+        for yaml_text in (
+            "PRIVATE_CAPTURE_CONTENT: 1\nPRIVATE_CAPTURE_CONTENT: 2",
+            "private: [PRIVATE_CAPTURE_CONTENT\nother: invalid",
+            "private: !!PRIVATE_CAPTURE_CONTENT unsafe",
+        ):
+            with self.subTest(yaml_text=yaml_text):
+                content = f"---\n{yaml_text}\n---\n".encode()
+                try:
+                    parse_capture_bytes(content)
+                except CaptureContractError as error:
+                    self.assertIn("YAML inválido", error.issue.reason)
+                    self.assertIn("línea YAML", error.issue.reason)
+                    self.assertIn("columna", error.issue.reason)
+                    self.assertNotIn("PRIVATE_CAPTURE_CONTENT", str(error.issue.as_dict()))
+                    self.assertNotIn("PRIVATE_CAPTURE_CONTENT", traceback.format_exc())
+                else:
+                    self.fail("Se esperaba rechazo de YAML inválido")
 
     def test_rejects_unsafe_yaml_tags(self) -> None:
         content = valid_markdown().replace(

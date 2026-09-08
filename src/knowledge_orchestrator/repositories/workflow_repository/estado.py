@@ -211,11 +211,16 @@ class EstadoMixin(ControlMixin):
         tiene derecho a saber con qué reservas llegó.
         """
         resultado = broker_result or {}
-        for warning in resultado.get("warnings", []):
+        warning_count = len(resultado.get("warnings", []))
+        if warning_count:
             connection.execute(
                 "INSERT INTO events(capture_id, event_type, message, details_json) "
                 "VALUES (?, 'BROKER_RESULT_WARNING', ?, ?)",
-                (capture_id, warning, json.dumps({"task_id": task_id}, ensure_ascii=False)),
+                (
+                    capture_id,
+                    f"El Broker informó {warning_count} aviso(s); consulte el detalle de la tarea.",
+                    json.dumps({"task_id": task_id, "warning_count": warning_count}, ensure_ascii=False),
+                ),
             )
         unsupported = ((resultado.get("agent") or {}).get("citations") or {}).get("unsupported", [])
         if unsupported:
@@ -226,7 +231,7 @@ class EstadoMixin(ControlMixin):
                     capture_id,
                     f"El Broker detectó {len(unsupported)} enlace(s) citado(s) "
                     "sin respaldo en las fuentes consultadas.",
-                    json.dumps({"task_id": task_id, "unsupported": unsupported}, ensure_ascii=False),
+                    json.dumps({"task_id": task_id, "unsupported_count": len(unsupported)}, ensure_ascii=False),
                 ),
             )
 
@@ -249,7 +254,12 @@ class EstadoMixin(ControlMixin):
             connection.execute(
                 "INSERT INTO events(capture_id, event_type, message, details_json) "
                 "VALUES (?, 'CONSENSUS_FALLBACK_REQUIRED', ?, ?)",
-                (current["capture_id"], error.get("message", target.value), json.dumps({"task_id": task_id})),
+                (
+                    current["capture_id"],
+                    "La tarea necesita la alternativa de ejecución configurada.",
+                    # Only the allowlisted fallback code belongs in the activity log.
+                    json.dumps({"task_id": task_id, "error_code": error["code"]}),
+                ),
             )
             return
         self._fail_workflow(

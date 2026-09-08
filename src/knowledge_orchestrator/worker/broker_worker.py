@@ -68,6 +68,10 @@ class BrokerWorker:
         self._thread = threading.Thread(target=self._run, name="broker-worker", daemon=True)
         self._thread.start()
 
+    @property
+    def running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
     def stop(self, timeout: float | None = None) -> None:
         self._stop.set()
         if self._thread and self._thread.is_alive():

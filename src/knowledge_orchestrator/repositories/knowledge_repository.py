@@ -141,6 +141,9 @@ class KnowledgeRepository:
             "OR NOT EXISTS (SELECT 1 FROM notes n WHERE n.note_id=o.note_id AND n.status='PUBLISHED') "
             "OR EXISTS (SELECT 1 FROM knowledge_reconciliation r WHERE r.note_id=o.note_id AND r.state<>'IN_SYNC') "
             "OR EXISTS (SELECT 1 FROM update_candidates c WHERE c.target_note_id=o.note_id AND c.status='APPLYING') "
+            'OR EXISTS (SELECT 1 FROM maintenance_reversion_notes rn '
+            'JOIN maintenance_reversions rv USING(reversion_id) '
+            "WHERE rn.note_id=o.note_id AND rv.status='APPLYING') "
             "OR EXISTS (SELECT 1 FROM update_candidates c WHERE c.relation='CONTRADICTS' "
             "AND c.status IN ('PENDING_REVIEW','CONFLICT','APPLYING') "
             'AND (c.target_claim_id=o.claim_id OR c.new_claim_id=o.claim_id)))'
@@ -180,6 +183,9 @@ class KnowledgeRepository:
                 "WHERE r.note_id = k.note_id AND r.state <> 'IN_SYNC')",
                 "NOT EXISTS (SELECT 1 FROM update_candidates c "
                 "WHERE c.target_note_id = k.note_id AND c.status = 'APPLYING')",
+                'NOT EXISTS (SELECT 1 FROM maintenance_reversion_notes rn '
+                'JOIN maintenance_reversions rv USING(reversion_id) '
+                "WHERE rn.note_id=k.note_id AND rv.status='APPLYING')",
                 "NOT EXISTS (SELECT 1 FROM update_candidates c WHERE c.relation='CONTRADICTS' "
                 "AND c.status IN ('PENDING_REVIEW','CONFLICT','APPLYING') "
                 'AND (c.target_claim_id=k.claim_id OR c.new_claim_id=k.claim_id))',

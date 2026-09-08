@@ -249,7 +249,14 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         return {'candidate_id': candidate_id, 'status': candidate.status, 'revision': candidate.proposal_revision,
                 'reviewed_by': candidate.reviewed_by, 'applied_successor_id': candidate.applied_successor_id,
                 'requires_regeneration': not versions, 'assessment': versions[-1]['snapshot'] if versions else None,
-                'versions': versions}
+                'versions': versions,
+                'automation_review': {
+                    'status': 'POLICY_SIMULATION_REQUIRED', 'publication_authorized': False,
+                    'selection': [{'candidate_id': candidate_id, 'expected_revision': candidate.proposal_revision}],
+                    'message': 'La propuesta no evalúa políticas. Elige una política y simula esta revisión para '
+                               'comprobar elegibilidad, bloqueos y cupos. Los registros históricos conservan '
+                               'su evaluación original y no acreditan autorización actual.',
+                }}
 
     def edit(self, candidate_id: int, payload: Mapping[str, Any], *, expected_revision: int,
              actor: str) -> UpdateCandidate:
@@ -313,6 +320,7 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             if candidate.status != 'PENDING_REVIEW' or not candidate.patch_json:
                 raise SemanticContractError('La propuesta requiere revisión o regeneración')
             context = self.repository.note_context(candidate.target_note_id)
+            result['title'] = context['title']
             current = Path(context['vault_path']).read_text(encoding='utf-8')
             if self._hash_text(current) != candidate.base_hash:
                 raise SemanticContractError('La nota cambió desde que se generó el diff')
@@ -321,20 +329,23 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             self.repository.inspect_application(candidate_id, base_hash=self._hash_text(current),
                                                 patch_json=candidate.patch_json, expected_revision=expected_revision)
             claim = self.repository.get_claim(candidate.new_claim_id)
-            seen = set()
+            seen: set[int] = set()
             while claim is not None and claim.claim_id not in seen and len(seen) < 100:
                 seen.add(claim.claim_id)
                 result['evidence_note_ids'].append(claim.note_id)
                 claim = self.repository.get_claim(claim.derived_from_claim_id) if claim.derived_from_claim_id else None
             result.update(eligible=True, action='Actualizar nota, conservar histórico y reindexar sucesor',
-                          before=patch['old'], proposed=patch['replacement'], title=context.get('title', ''),
-                          assessment=self.proposal_detail(candidate_id)['assessment'])
+                          before=patch['old'], proposed=patch['replacement'], title=context['title'],
+                          assessment=next((version['snapshot'] for version in self.repository.proposal_versions(
+                              candidate_id) if version['revision'] == expected_revision), None))
         except (ValueError, OSError) as error:
-            result['blockers'] = [str(error) if isinstance(error, ValueError) else 'No se pudo leer la nota o evidencia']
+            result['blockers'] = [str(error) if isinstance(error, ValueError)
+                                  else 'No se pudo leer la nota o evidencia']
         return result
 
     def approve(self, candidate_id: int, *, expected_revision: int | None = None,
-                actor: str = 'human:review') -> UpdateCandidate:
+                actor: str = 'human:review', review_batch_id: str | None = None,
+                automation_run_id: str | None = None) -> UpdateCandidate:
         """Aplica un candidato aprobado solo si la nota sigue igual que cuando se hizo el diff."""
 
         candidate = self.repository.get_candidate(candidate_id)
@@ -354,12 +365,16 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
                 raise SemanticContractError('La nota cambió desde que se generó el diff')
             patch = self._validate_patch(candidate.patch_json, current)
         except SemanticContractError:
-            self.repository.mark_candidate(candidate_id, "CONFLICT", reason="NOTE_CHANGED_AFTER_DIFF")
+            self.repository.mark_candidate(candidate_id, "CONFLICT", reason="NOTE_CHANGED_AFTER_DIFF",
+                                           expected_status='PENDING_REVIEW',
+                                           expected_revision=candidate.proposal_revision)
             raise
         try:
             self._validate_new_evidence(candidate, patch)
         except SemanticContractError:
-            self.repository.mark_candidate(candidate_id, 'CONFLICT', reason='EVIDENCE_CHANGED_AFTER_DIFF')
+            self.repository.mark_candidate(candidate_id, 'CONFLICT', reason='EVIDENCE_CHANGED_AFTER_DIFF',
+                                           expected_status='PENDING_REVIEW',
+                                           expected_revision=candidate.proposal_revision)
             raise
         updated = current[:patch["start"]] + patch["replacement"] + current[patch["end"]:]
         base_hash = self._hash_text(current)
@@ -374,6 +389,8 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             patch_json=candidate.patch_json,
             expected_revision=candidate.proposal_revision,
             actor=actor,
+            review_batch_id=review_batch_id,
+            automation_run_id=automation_run_id,
         )
         # Este checkpoint garantiza que recovery conoce base_hash, result_hash y temporal.
         self.checkpoint("semantic_intent")

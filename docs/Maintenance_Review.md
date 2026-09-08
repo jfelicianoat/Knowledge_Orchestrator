@@ -67,5 +67,49 @@ interrupción anterior revalida evidencia y base antes de continuar. Ediciones e
 producen CONFLICT y se conservan. Existe una ventana mínima entre comprobar el archivo
 y reemplazarlo: no se afirma atomicidad distribuida con editores externos.
 
-No hay autoaprobación habilitada. La evaluación guarda `NO_APPROVED_POLICY`; las fases
-13–14 incorporarán revisión masiva y políticas explícitas/versionadas con simulación.
+## Evaluar una propuesta con una política
+
+En Revisión, selecciona una propuesta y pulsa **Evaluar con política**. Se abre
+**Servicios → Automatizaciones → Políticas y decisiones**, conservando el identificador
+y la revisión exactos. Elige una política, revisa sus condiciones y pulsa **Simular
+propuesta**. Los cambios del formulario deben guardarse antes; la simulación no publica.
+**Quitar filtro de propuesta** permite volver a simular páginas del ámbito completo.
+
+Los assessments nuevos incluyen `policy_evaluated=false`, `publication_authorized=false`
+y `POLICY_EVALUATION_REQUIRED`. Su `eligible=false` indica que la propuesta por sí sola
+no acredita autoaprobación; la elegibilidad frente a una política se obtiene en la
+simulación. Los snapshots antiguos conservan literalmente `NO_APPROVED_POLICY` si se
+generaron así. El detalle añade `automation_review` como explicación actual separada,
+sin reescribir ese histórico ni inferir ausencia de políticas.
+
+Leer una simulación histórica muestra sus propias propuestas y revisiones. Con filtro
+activo, un registro de otra propuesta o revisión no permite autorizar. La autorización
+explícita habilita futuras propuestas que cumplan la política; reanudar el control
+global requiere otra decisión. Véase [Automation_Governance.md](Automation_Governance.md).
+
+## Consultar trazabilidad y versiones
+
+Selecciona una propuesta en **Revisión**, o una entrada en **Cambios y actividad →
+Propuestas / Histórico de decisiones**, y pulsa **Ver trazabilidad**. La consulta
+conserva esa propuesta aunque cambie la selección en la ventana principal.
+
+- **Versión de propuesta** recorre páginas de 100 revisiones, con fecha y autor.
+- **Comparación** muestra la evidencia anterior y el reemplazo de la revisión elegida.
+- **Evidencia y análisis** identifica las capturas, fuentes vigiladas, confianza
+  configurada, cambios y tareas/modelos que constaban al guardar esa revisión.
+- **Decisión y publicación** muestra la decisión actual de la propuesta, sus fechas,
+  lote o política/ejecución, versión anterior conservada y reversión si existe.
+
+La revisión histórica y la decisión actual se identifican por separado. Los modelos
+son los reportados por el Broker; cuando no hay dato, la pantalla lo dice. Una
+publicación que fue revertida sigue conservando su recibo original y se señala la
+reversión. La consulta no afirma vigencia actual ni permite aplicar cambios.
+
+Las lecturas se ejecutan en segundo plano. Ante fallo se conserva el contenido y
+la etiqueta de la última lectura correcta; **Reintentar** repite la consulta pendiente.
+Si llegan nuevas versiones, la página se recoloca para conservar la revisión elegida.
+La simulación usada para ejecutar se distingue de la revisada al autorizar la política,
+con el actor y la fecha originales de esa autorización; el historial antiguo sin ese
+vínculo se indica expresamente.
+Los textos muy grandes se abrevian de forma explícita. Los recibos completos y la
+nota anterior se consultan en los apartados indicados por la propia vista.

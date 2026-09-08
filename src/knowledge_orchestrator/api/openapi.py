@@ -1,12 +1,21 @@
 """Contrato de la API local; cuerpos compartidos con el validador de solicitudes."""
 from __future__ import annotations
 
+from knowledge_orchestrator.api.automation_contracts import (
+    AUTOMATION_CONTROL,
+    POLICY,
+    POLICY_ACTIVATION,
+    POLICY_SIMULATION,
+    POLICY_UPDATE,
+)
 from knowledge_orchestrator.api.contracts import (
     CLAIM_REVIEW,
     DOCUMENT,
     PAGINATION,
     QUERY,
     REVIEW_ACTION,
+    REVIEW_BATCH_CONFIRM,
+    REVIEW_BATCH_PREVIEW,
     REVIEW_EDIT,
     SEMANTIC,
     SOURCE,
@@ -14,9 +23,34 @@ from knowledge_orchestrator.api.contracts import (
     STATE,
 )
 from knowledge_orchestrator.api.response_schemas import SCHEMAS, response_schema
+from knowledge_orchestrator.api.reversions import ROUTES as REVERSION_ROUTES
 
 # Método, ruta, permiso, descripción, cuerpo, parámetros de consulta.
 ROUTES: list[tuple[str, str, str, str, dict | None, dict]] = [
+    *REVERSION_ROUTES,
+    ('GET', '/automation/policies', 'governance', 'Políticas registradas', None, PAGINATION),
+    ('POST', '/automation/policies', 'governance', 'Crear política desactivada', POLICY, {}),
+    ('GET', '/automation/policies/{policy_id}', 'governance', 'Configuración y autorización actuales', None, {}),
+    ('PATCH', '/automation/policies/{policy_id}', 'governance', 'Revisar política y revocar su autorización',
+     POLICY_UPDATE, {}),
+    ('PATCH', '/automation/policies/{policy_id}/activation', 'governance',
+     'Autorizar versión con simulación revisada o desautorizar', POLICY_ACTIVATION, {}),
+    ('GET', '/automation/policies/{policy_id}/history', 'governance', 'Versiones y decisiones, recientes primero',
+     None, PAGINATION),
+    ('GET', '/automation/policies/{policy_id}/schedule', 'governance', 'Última evaluación y próxima comprobación',
+     None, {}),
+    ('POST', '/automation/policies/{policy_id}/simulations', 'governance', 'Simular sin activar ni publicar',
+     POLICY_SIMULATION, {}),
+    ('GET', '/automation/control', 'governance', 'Pausa global y revisión actual', None, {}),
+    ('PATCH', '/automation/control', 'governance', 'Pausar o reanudar nuevas aplicaciones automáticas',
+     AUTOMATION_CONTROL, {}),
+    ('GET', '/automation/control/history', 'governance', 'Decisiones del control global', None, PAGINATION),
+    ('GET', '/automation/simulations', 'governance', 'Historial de simulaciones', None,
+     {**PAGINATION, 'policy_id': {'type': 'integer', 'minimum': 1}}),
+    ('GET', '/automation/simulations/{simulation_id}', 'governance', 'Plan simulado y evidencias', None, {}),
+    ('GET', '/automation/runs', 'governance', 'Historial de ejecuciones por política', None,
+     {**PAGINATION, 'policy_id': {'type': 'integer', 'minimum': 1}}),
+    ('GET', '/automation/runs/{run_id}', 'governance', 'Recibos y resultados por propuesta', None, {}),
     ('GET', '/openapi.json', '', 'Contrato OpenAPI', None, {}),
     ('GET', '/status', 'read', 'Estado y capacidades de la API', None, {}),
     ('GET', '/vaults', 'read', 'Bóveda configurada en este runtime', None, {}),
@@ -50,6 +84,12 @@ ROUTES: list[tuple[str, str, str, str, dict | None, dict]] = [
      REVIEW_ACTION, {}),
     ('POST', '/review-tasks/{candidate_id}/reject', 'review', 'Rechazar una revisión concreta de propuesta',
      REVIEW_ACTION, {}),
+    ('POST', '/review-batches/preview', 'review', 'Fijar vista previa de selección o todas las propuestas pendientes',
+     REVIEW_BATCH_PREVIEW, {}),
+    ('POST', '/review-batches/{batch_id}/confirm', 'review', 'Confirmar el plan revisado para ejecución durable',
+     REVIEW_BATCH_CONFIRM, {}),
+    ('GET', '/review-batches/{batch_id}', 'review', 'Vista previa y resultados por tarea de un lote propio', None, {}),
+    ('GET', '/review-batches', 'review', 'Historial paginado de lotes propios', None, PAGINATION),
     ('POST', '/sources', 'sources', 'Registrar fuente vigilada', SOURCE, {}),
     ('GET', '/sources', 'sources', 'Fuentes y salud de sus comprobaciones', None, PAGINATION),
     ('GET', '/sources/{source_id}', 'sources', 'Configuración y estado de fuente', None, {}),
@@ -72,7 +112,9 @@ def specification() -> dict:
         for segment in path.split('/'):
             if segment.startswith('{'):
                 name = segment[1:-1]
-                kind = 'string' if name in {'ingestion_id', 'query_id', 'change_id'} else 'integer'
+                kind = 'string' if name in {
+                    'ingestion_id', 'query_id', 'change_id', 'batch_id', 'simulation_id', 'run_id',
+                    'reversion_id'} else 'integer'
                 parameters.append({'name': name, 'in': 'path', 'required': True, 'schema': {'type': kind}})
         if method == 'POST' and path != '/search/semantic':
             parameters.append({'name': 'Idempotency-Key', 'in': 'header', 'required': True,

@@ -33,9 +33,9 @@ class ApiAuth:
             ):
                 raise ValueError('Los tokens requieren 32–256 caracteres ASCII sin espacios')
             if not isinstance(scopes, list) or not scopes or any(
-                s not in {'read', 'query', 'ingest', 'sources', 'review'} for s in scopes
+                s not in {'read', 'query', 'ingest', 'sources', 'review', 'governance'} for s in scopes
             ):
-                raise ValueError('Permisos válidos: read, query, ingest, sources, review')
+                raise ValueError('Permisos válidos: read, query, ingest, sources, review, governance')
             token_hash = hashlib.sha256(token.encode()).digest()
             if name in names or token_hash in hashes:
                 raise ValueError('Consumidor o token duplicado')

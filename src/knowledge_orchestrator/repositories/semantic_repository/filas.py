@@ -68,6 +68,8 @@ def _candidate(row: sqlite3.Row) -> UpdateCandidate:
         proposal_revision=row['proposal_revision'],
         reviewed_by=row['reviewed_by'],
         applied_successor_id=row['applied_successor_id'],
+        review_batch_id=row['review_batch_id'],
+        automation_run_id=row['automation_run_id'],
     )
 
 

@@ -1,6 +1,6 @@
 # Estado vigente de Knowledge Orchestrator
 
-Revisión del núcleo, API, fuentes y mantenimiento: **5 de septiembre de 2026**.
+Revisión del núcleo, API, fuentes, mantenimiento y gobernanza: **8 de septiembre de 2026**.
 Las capacidades anteriores conservan su revisión del 23 de agosto; consultar las
 limitaciones de evidencia real y los registros `Phase_9_Knowledge_Core.md` y `Phase_10_Knowledge_API.md`.
 
@@ -97,8 +97,76 @@ acepta ese acceso. Un 401/403 se trata como credencial rotada y recuperable.
   filtros de incidencias, histórico de decisiones y lectura de la revisión anterior;
   accesos al documento, fuente y revisión individual, incluidos conflictos;
 - backup SQLite, diagnóstico saneado y empaquetado Windows.
+- revisión por lotes con planes inmutables, confirmación humana, selección o todas
+  las pendientes, resultados parciales, recuperación y API con aislamiento de consumidor;
+  comparación antes/después e historial de lotes en UI, con I/O fuera del hilo Tk.
+- Servicios: listener API local controlado desde la sesión, consumidores y permisos
+  sin credenciales visibles, actividad acotada y estado de vigilancia/análisis/lotes;
+  pruebas HTTP reales de loopback para autenticación, permisos, cierre y reinicio.
+- gobernanza inicial: políticas con ámbito explícito/versiones, decisiones auditables,
+  control global pausado y simulación durable sin publicaciones (migración 017).
+  Ejecutor de dominio con cupos diarios y por ejecución, autorización transaccional,
+  recuperación y recibos implementado (migración 018). Planificador periódico conectado
+  al runtime (migración 019), con arrendamientos, páginas, planes deduplicados y errores
+  recuperables. Controles de políticas y auditoría por API con permiso `governance`
+  implementados: creación/edición, simulación idempotente, autorización ligada a la
+  simulación revisada y pausa versionada (migración 020). UI de políticas integrada en
+  Servicios: configuración, simulación por páginas, autorización, pausa independiente
+  e historial. Lógica verificada; render pendiente. La revisión independiente del
+  puente propuesta/política y sus correcciones no deja hallazgos materiales. Reversión
+  conservadora de dominio implementada (migración 021), con planes, reservas, decisión
+  explícita, revisiones preservadas y recuperación. API de reversión con permiso review,
+  planes propios por consumidor y recibos; UI Revisión → Publicaciones y reversión con
+  comparación, motivo y auditoría. Revisión independiente de este incremento sin
+  correcciones pendientes; render nativo aún no acreditado.
+  Guías: `Automation_Governance.md` y `Maintenance_Reversion.md`.
+  Navegación de políticas/fuentes/historial corregida ante lecturas fallidas, borrador
+  e identidad conservados y simulaciones siguientes idempotentes tras respuesta perdida.
+  Prompts de extracción/comparación con instrucciones de fuente explícitamente
+  no autorizantes y delimitadores JSON protegidos; pruebas adversarias de documento,
+  contratos, manual_lock, confianza y ausencia de publicación no autorizada.
+  Evaluar con política conecta la revisión individual con una simulación de la propuesta
+  y revisión exactas; preserva borradores y snapshots históricos. Los assessments nuevos
+  distinguen evaluación de política pendiente de elegibilidad real. Un registro histórico
+  de otra propuesta/revisión no permite autorizar con el filtro activo.
+  Transiciones de análisis y propuestas auditadas en la misma transacción, incluidos
+  reintentos/recuperación, intención y conflictos. Publicación enlazada a actor,
+  revisión, lote/ejecución y sucesor. Eventos nuevos sin texto de documentos/errores
+  remotos y sin duplicados por repetición de estados. Matriz de campos y trazabilidad
+  en `Proposal_Audit_Evidence.md`.
+  Ver trazabilidad desde Revisión y Propuestas/Histórico de decisiones permite recorrer
+  versiones, comparación, evidencia, tareas/modelos reportados y decisión/publicación.
+  Distingue las simulaciones de ejecución y autorización, sus actores/fechas originales,
+  y la reversión posterior. Lecturas en segundo plano con selección estable incluso
+  al entrar nuevas revisiones. Revisión independiente sin hallazgos materiales pendientes;
+  render nativo y recorrido visual integral todavía no acreditados.
+  Registros y diagnóstico reforzados: cabeceras completas, JSON textual y token Broker
+  configurado en memoria; exportación de líneas completas sin reescribir logs. Errores
+  YAML con causa/posición sin snippets en evento/sidecar/traceback; original conservado.
+  Actividad de workflows con avisos agregados, número de citas sin respaldo y código
+  permitido de fallback; texto/URLs remotos no se duplican en estos eventos nuevos.
+  Inventario `Delivery_Acceptance_Audit.md`: 65 entregas de fase, 16 criterios globales,
+  objetivos, contratos/campos, rutas, guardas y gates con evidencia y pendientes.
+  Guarda de fecha sola verificada: evidencia antigua, observación posterior sin cambio
+  e inferencia por fecha sin cita no autorizan reemplazo, incluso con política aprobada,
+  avance del reloj de planificación y reinicio. Notas, claims e histórico conservados.
+  Batería actual: 414 pruebas en 220,593 s (409 pasan, cinco omisiones Tcl/Tk);
+  ruff/mypy pasan (145 archivos). Evidencia en `Phase_14_Automation_Governance.md`.
 
 ## Límites y evidencia pendiente
+
+- Auditoría inicial de los veinte escenarios en `Acceptance_Evidence.md`: caso 18
+  cubierto por pruebas locales de fuente adversaria; resistencia de un modelo real
+  pendiente. Explicación de elegibilidad corregida para propuestas nuevas y contextualizada
+  sin reescribir snapshots históricos. Matriz de entregables/globales creada en
+  `Delivery_Acceptance_Audit.md`; los requisitos parciales y checkpoints visuales siguen
+  abiertos. Campos/categorías/reconstrucción documentados con pruebas;
+  acceso a versiones/tareas/modelos/decisiones implementado en interfaz, con render y
+  recorrido integral pendientes. Saneamiento de logs/ZIP y errores YAML reforzado;
+  mensajes remotos persistidos por otras rutas anteriores y texto libre arbitrario
+  aún no tienen una garantía global de anonimización.
+  La prueba dedicada de fecha como único disparador pasa. Sigue pendiente el ensayo
+  con editor externo durante la ventana entre comprobación final y reemplazo del archivo.
 
 - Hay Web y RSS/Atom; no hay rastreo recursivo, GitHub releases ni búsqueda web autónoma.
 - La evolución por fases 9–14 está en curso: fases 9 y 10 superan sus checkpoints locales;
@@ -106,13 +174,20 @@ acepta ese acceso. Un 401/403 se trata como credencial rotada y recuperable.
   La fase 12 supera núcleo/API: 231 pruebas, 230 pasan y una omisión Tcl/Tk; ruff/mypy pasan.
   Primer incremento de fase 13: 236 pruebas, 234 pasan y dos omisiones Tcl/Tk; ruff/mypy
   pasan (110 archivos). El explorador está implementado; su render sigue sin verificar.
-  Centro de operaciones, gobernanza y verificaciones externas siguen pendientes según
+  Revisión por lotes: batería actual de 261 pruebas (258 pasan y tres omisiones Tk),
+  ruff/mypy pasan (116 archivos). Detalle en `Phase_13_Knowledge_Operations_UI.md`.
+  Centro de operaciones, revisión por lotes y estado API/automatizaciones en UI implementados;
+  API/UI de reversión implementadas; checkpoints visuales y verificaciones externas siguen pendientes según
   `Knowledge_Lifecycle_Plan.md`.
 - La descarga pública devuelve NETWORK_DENIED. La prueba visual de Fuentes no se ejecuta
   porque Tcl/Tk no inicializa init.tcl en este entorno. Véase `Phase_11_Source_Monitoring.md`.
 - La consulta real al Broker desde el entorno de desarrollo está sin verificar: el socket
   saliente devuelve WinError 10013 antes de recibir HTTP. La API local sí pasó prueba HTTP.
-- Ningún claim sustituye una nota sin revisión humana; `manual_lock` lo impide siempre.
+- Sustituir conocimiento requiere revisión humana o autorización de una política
+  aprobada y revalidada; `manual_lock` lo impide siempre. El planificador periódico
+  respeta la pausa global y las políticas desactivadas por defecto. No se han autorizado
+  políticas en los datos del usuario. La pausa evita nuevas intenciones; las iniciadas
+  conservan su finalización/recuperación.
 - Los embeddings son opcionales y no sustituyen la coincidencia exacta de spans.
 - La prueba integral real Plugin -> Orchestrator -> Broker -> Obsidian debe ejecutarse y
   archivarse como evidencia de release; las pruebas unitarias y de integración parcial no

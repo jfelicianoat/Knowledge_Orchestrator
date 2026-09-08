@@ -24,6 +24,10 @@ class SourceWorker:
         self._thread = threading.Thread(target=self._run, name='source-scheduler', daemon=True)
         self._thread.start()
 
+    @property
+    def running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
     def stop(self) -> None:
         self._stop.set()
         if self._thread:

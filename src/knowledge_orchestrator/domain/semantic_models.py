@@ -70,6 +70,8 @@ class UpdateCandidate:
     proposal_revision: int = 0
     reviewed_by: str | None = None
     applied_successor_id: int | None = None
+    review_batch_id: str | None = None
+    automation_run_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

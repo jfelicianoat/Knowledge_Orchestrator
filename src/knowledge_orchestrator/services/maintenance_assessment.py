@@ -79,5 +79,6 @@ def assess_proposal(repository: SemanticRepository, candidate: UpdateCandidate, 
                            if patch else 'La nota permanece igual; el análisis queda registrado.',
         'history_strategy': patch.get('history_strategy', 'revision_snapshot') if patch else 'unchanged',
         'patch': patch, 'risks': sorted(set(risks)), 'blockers': sorted(set(blockers)), 'analysis_jobs': jobs,
-        'autoapproval': {'eligible': False, 'reasons': ['NO_APPROVED_POLICY', *sorted(set(blockers))]},
+        'autoapproval': {'eligible': False, 'policy_evaluated': False, 'publication_authorized': False,
+                         'reasons': ['POLICY_EVALUATION_REQUIRED', *sorted(set(blockers))]},
     }

@@ -11,8 +11,10 @@ from typing import TYPE_CHECKING
 from urllib.parse import parse_qs
 
 from knowledge_orchestrator.api.auth import ApiAuth
+from knowledge_orchestrator.api.automation import dispatch as automation_dispatch
 from knowledge_orchestrator.api.contracts import validate
 from knowledge_orchestrator.api.openapi import ROUTES, specification
+from knowledge_orchestrator.api.reversions import dispatch as reversion_dispatch
 from knowledge_orchestrator.domain.knowledge import KnowledgeConflict, KnowledgeState
 from knowledge_orchestrator.domain.monitoring import SourceConfig
 
@@ -75,7 +77,8 @@ class KnowledgeApi:
                 raise ApiError(403, 'FORBIDDEN', 'El consumidor no tiene este permiso')
             ids: dict = match.groupdict()
             for name, value in list(ids.items()):
-                if name not in {'query_id', 'ingestion_id', 'change_id'}:
+                if name not in {'query_id', 'ingestion_id', 'change_id', 'batch_id', 'simulation_id', 'run_id',
+                                'reversion_id'}:
                     if not value.isdecimal() or not 1 <= int(value) <= 2**63 - 1:
                         raise ValueError('Identificador inválido')
                     ids[name] = int(value)
@@ -152,6 +155,21 @@ class KnowledgeApi:
 
     def dispatch(self, method: str, route: str, ids: dict, query: dict, body: dict, owner: str, key: str) -> tuple:
         runtime = self.runtime
+        if route.startswith('/review-reversions') or route == '/review-publications':
+            return reversion_dispatch(runtime, method, route, ids, query, body, owner, key)
+        if route.startswith('/automation/'):
+            return automation_dispatch(runtime, method, route, ids, query, body, owner, key)
+        if route == '/review-batches':
+            return 200, {'items': runtime.review_batches.repository.list(owner=owner, **query)}, {}
+        if route == '/review-batches/preview':
+            result = runtime.review_batches.preview(owner=owner, key=key, selection=body.get('selection'))
+            return 200, result, {'Location': '/api/v1/review-batches/' + result['batch_id']}
+        if route == '/review-batches/{batch_id}/confirm':
+            result = runtime.review_batches.repository.confirm(ids['batch_id'], owner=owner,
+                                                                plan_hash=body['plan_hash'])
+            return 202, result, {'Location': '/api/v1/review-batches/' + result['batch_id']}
+        if route == '/review-batches/{batch_id}':
+            return 200, runtime.review_batches.repository.get(ids['batch_id'], owner=owner), {}
         if route == '/openapi.json':
             return 200, specification(), {}
         if route == '/status':

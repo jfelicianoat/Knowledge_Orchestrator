@@ -39,7 +39,7 @@ from knowledge_orchestrator.ui.dashboard.configuracion import (
     available_profile_strategies,
     data_root_label,
 )
-from knowledge_orchestrator.ui.dashboard.operaciones import OperacionesMixin
+from knowledge_orchestrator.ui.dashboard.servicios import ServiciosMixin
 
 __all__ = [
     "OrchestratorDashboard",
@@ -49,7 +49,7 @@ __all__ = [
 ]
 
 
-class OrchestratorDashboard(OperacionesMixin):
+class OrchestratorDashboard(ServiciosMixin):
     """La ventana completa: cabecera, barra de acciones, páginas y pie."""
 
     def __init__(self, runtime: OrchestratorRuntime) -> None:
@@ -100,6 +100,7 @@ class OrchestratorDashboard(OperacionesMixin):
         self._build_sources()
         self._build_knowledge()
         self._build_operations()
+        self._build_services()
 
         self._build_footer()
         self._show_page("home")
@@ -134,6 +135,7 @@ class OrchestratorDashboard(OperacionesMixin):
             ("home", "Resumen"), ("work", "Documentos"), ("library", "Biblioteca"),
             ('knowledge', 'Conocimiento'),
             ('operations', 'Operaciones'),
+            ('services', 'Servicios'),
             ("sources", "Fuentes"),
             ("review", "Revisión"), ("topics", "Organización"), ("config", "Ajustes"),
         ):
@@ -213,6 +215,8 @@ class OrchestratorDashboard(OperacionesMixin):
                 self._refresh_knowledge()
             if self._current_page == 'operations':
                 self._refresh_flow()
+            if self._current_page == 'services':
+                self._refresh_services()
             self._refresh_reviews()
             self._refresh_topics()
             self._refresh_profiles()

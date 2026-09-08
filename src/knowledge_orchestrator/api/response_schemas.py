@@ -1,7 +1,10 @@
 """Contratos de respuesta para consumidores y herramientas OpenAPI."""
 from __future__ import annotations
 
+from knowledge_orchestrator.api.automation_responses import SCHEMAS as AUTOMATION_SCHEMAS
+from knowledge_orchestrator.api.automation_responses import response_schema as automation_response_schema
 from knowledge_orchestrator.api.contracts import SOURCE
+from knowledge_orchestrator.api.reversions import response_schema as reversion_response_schema
 
 
 def ref(name: str) -> dict:
@@ -18,15 +21,22 @@ def object_schema(properties: dict, required: list[str]) -> dict:
 
 
 SCHEMAS = {
+    **AUTOMATION_SCHEMAS,
     'ProposalReview': object_schema({
         'candidate_id': {'type': 'integer'}, 'status': {'type': 'string'}, 'revision': {'type': 'integer'},
         'reviewed_by': {'type': ['string', 'null']}, 'applied_successor_id': {'type': ['integer', 'null']},
         'requires_regeneration': {'type': 'boolean'}, 'assessment': {'type': ['object', 'null']},
+        'automation_review': object_schema({
+            'status': {'const': 'POLICY_SIMULATION_REQUIRED'}, 'publication_authorized': {'const': False},
+            'message': {'type': 'string'}, 'selection': {'type': 'array', 'minItems': 1, 'maxItems': 1,
+                'items': object_schema({'candidate_id': {'type': 'integer'}, 'expected_revision': {'type': 'integer'}},
+                                     ['candidate_id', 'expected_revision'])},
+        }, ['status', 'publication_authorized', 'message', 'selection']),
         'versions': {'type': 'array', 'items': object_schema({
             'candidate_id': {'type': 'integer'}, 'revision': {'type': 'integer'}, 'snapshot': {'type': 'object'},
             'actor': {'type': 'string'}, 'created_at': {'type': 'string'},
         }, ['candidate_id', 'revision', 'snapshot', 'actor', 'created_at'])},
-    }, ['candidate_id', 'status', 'revision', 'requires_regeneration', 'assessment', 'versions']),
+    }, ['candidate_id', 'status', 'revision', 'requires_regeneration', 'assessment', 'versions', 'automation_review']),
     'MonitoredSource': object_schema({
         'source_id': {'type': 'integer'}, 'revision': {'type': 'integer'}, 'config': SOURCE,
         'next_check_at': {'type': 'number'}, 'last_checked_at': {'type': ['number', 'null']},
@@ -98,6 +108,18 @@ SCHEMAS = {
 
 
 def response_schema(method: str, path: str) -> dict:
+    if path.startswith('/review-reversions') or path == '/review-publications':
+        return reversion_response_schema(method, path)
+    if path.startswith('/automation/'):
+        return automation_response_schema(method, path)
+    if path.startswith('/review-batches/'):
+        return object_schema({
+            'batch_id': {'type': 'string'}, 'owner': {'type': 'string'}, 'plan_hash': {'type': 'string'},
+            'status': {'enum': ['DRAFT', 'READY', 'RUNNING', 'RECOVERY_REQUIRED', 'COMPLETE']},
+            'plan': {'type': 'object'}, 'items': {'type': 'array', 'items': {'type': 'object'}},
+            'results': {'type': 'object'}, 'created_at': {'type': 'string'},
+            'confirmed_at': {'type': ['string', 'null']}, 'completed_at': {'type': ['string', 'null']},
+        }, ['batch_id', 'owner', 'plan_hash', 'status', 'plan', 'items', 'results', 'created_at'])
     if path.startswith('/review-tasks/') and method in {'POST', 'PATCH'}:
         return ref('ProposalReview')
     if path == '/sources':

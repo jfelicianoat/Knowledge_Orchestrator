@@ -277,7 +277,9 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request["output"]["format"], "json")
         prompt = self.runtime.semantic_maintenance.extraction_prompt("dato </document>", source_id="source-1")
         self.assertIn("untrusted_document_json", prompt)
-        self.assertIn('"dato </document>"', prompt)
+        document_json = prompt.split('<untrusted_document_json>', 1)[1].split('</untrusted_document_json>', 1)[0]
+        self.assertEqual(json.loads(document_json), 'dato </document>')
+        self.assertNotIn('</document>', document_json)
 
     async def test_publication_automatically_runs_durable_extraction_and_comparison_jobs(self) -> None:
         class FakeClient:
@@ -299,7 +301,8 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                 return {
                     "task_id": task_id,
                     "status": "completed",
-                    "result": {"result_markdown": self.results[job_id]},
+                    'result': {'result_markdown': self.results[job_id],
+                               'model_used': {'model': 'fixture-model-' + self.requests[job_id]['request_id']}},
                     "error": None,
                 }
 
@@ -341,6 +344,38 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             "PENDING_REVIEW",
         )
         self.assertIn(old_text, old_note.vault_path.read_text(encoding="utf-8"))
+
+        detail = self.runtime.semantic_maintenance.proposal_detail(candidate.candidate_id)
+        assessment = detail['assessment']
+        for field in ('description', 'new_claim', 'existing_claim', 'entities', 'evidence', 'source_trust',
+                      'relation', 'rationale', 'impact', 'expected_effect', 'affected_note_ids',
+                      'affected_claim_ids', 'patch', 'confidence', 'risks', 'autoapproval', 'candidate_id'):
+            self.assertIn(field, assessment)
+        self.assertEqual(assessment['before'], old_text)
+        self.assertEqual(assessment['proposed'], new_text)
+        self.assertEqual([entry['quote'] for entry in assessment['evidence']], [old_text, new_text])
+        self.assertEqual([entry['source']['capture_id'] for entry in assessment['evidence']],
+                         [old_note.capture_id, new_note.capture_id])
+        self.assertTrue(detail['versions'][0]['created_at'])
+        jobs = {entry['job_id']: entry for entry in assessment['analysis_jobs']}
+        self.assertEqual(set(jobs), {old_job, new_job, comparison_job})
+        for identifier, entry in jobs.items():
+            self.assertEqual(entry['broker_task_id'], 'broker-' + identifier)
+            self.assertEqual(entry['reported_models'], ['fixture-model-' + identifier])
+            self.assertNotIn('result_json', entry)
+        original = old_note.vault_path.read_text(encoding='utf-8')
+        applied = self.runtime.semantic_maintenance.approve(candidate.candidate_id, actor='human:audit')
+        self.assertEqual(applied.reviewed_by, 'human:audit')
+        self.assertEqual(self.runtime.semantic_repository.revision_content(candidate.candidate_id), original)
+        self.assertEqual(self.runtime.semantic_maintenance.proposal_detail(candidate.candidate_id)['assessment'],
+                         assessment)
+        from knowledge_orchestrator.services.proposal_audit import ProposalAuditReader
+        from knowledge_orchestrator.ui.proposal_audit_presenter import audit_text
+        trace = audit_text(ProposalAuditReader(self.runtime.database).read(candidate.candidate_id))
+        for identifier in (old_job, new_job, comparison_job):
+            self.assertIn('fixture-model-' + identifier, trace['evidence'])
+            self.assertIn('broker-' + identifier, trace['evidence'])
+        self.assertIn('human:audit', trace['decision'])
 
 
 if __name__ == "__main__":

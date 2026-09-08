@@ -7,9 +7,19 @@ import sqlite3
 from knowledge_orchestrator.domain.knowledge import KnowledgeConflict
 
 
+def note_in_reversion(connection: sqlite3.Connection, note_id: int, *, excluding: str | None = None) -> bool:
+    return connection.execute('SELECT 1 FROM maintenance_reversion_notes n '
+        'JOIN maintenance_reversions r USING(reversion_id) WHERE n.note_id=? '
+        "AND r.status='APPLYING' AND (? IS NULL OR r.reversion_id<>?)",
+        (note_id, excluding, excluding)).fetchone() is not None
+
+
 def claim_in_application(connection: sqlite3.Connection, claim_id: int, *,
-                         excluding_candidate: int | None = None) -> bool:
+                         excluding_candidate: int | None = None, excluding_reversion: str | None = None) -> bool:
     """La intención reserva la nota destino y toda la cadena de evidencia leída."""
+    claim = connection.execute('SELECT note_id FROM knowledge_claims WHERE claim_id=?', (claim_id,)).fetchone()
+    if claim and note_in_reversion(connection, claim['note_id'], excluding=excluding_reversion):
+        return True
     return connection.execute(
         'WITH RECURSIVE origins(candidate_id,claim_id,parent_id) AS ('
         'SELECT c.candidate_id,k.claim_id,k.derived_from_claim_id FROM update_candidates c '

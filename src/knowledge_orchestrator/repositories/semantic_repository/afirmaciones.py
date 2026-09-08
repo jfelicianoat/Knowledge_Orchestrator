@@ -15,7 +15,7 @@ from knowledge_orchestrator.domain.semantic_models import (
     KnowledgeClaim,
 )
 from knowledge_orchestrator.repositories.knowledge_repository import register_claim
-from knowledge_orchestrator.repositories.maintenance_states import claim_in_application
+from knowledge_orchestrator.repositories.maintenance_states import claim_in_application, note_in_reversion
 from knowledge_orchestrator.repositories.semantic_repository.base import RepositorioBase
 from knowledge_orchestrator.repositories.semantic_repository.filas import _claim, normalize_text
 
@@ -28,6 +28,8 @@ class AfirmacionesMixin(RepositorioBase):
         entities = sorted({item.strip() for item in claim.entities if item.strip()}, key=str.casefold)
         normalized = normalize_text(claim.statement)
         with self.database.transaction(immediate=True) as connection:
+            if note_in_reversion(connection, note_id):
+                raise ValueError('La extracción debe esperar a que termine la reversión pendiente')
             connection.execute(
                 "INSERT INTO knowledge_claims(note_id, source_capture_id, topic_id, statement, normalized_statement, "
                 "claim_type, volatility, observed_at, source_date, span_start, span_end, entities_json, manual_lock) "

@@ -47,6 +47,17 @@ REVIEW_ACTION = {
     'properties': {'expected_revision': {'type': 'integer', 'minimum': 0},
                    'reason': {'type': 'string', 'minLength': 1, 'maxLength': 2000}},
 }
+REVIEW_BATCH_PREVIEW: dict = {
+    'type': 'object', 'additionalProperties': False,
+    'properties': {'selection': {'type': 'array', 'minItems': 1, 'maxItems': 1000, 'items': {
+        'type': 'object', 'additionalProperties': False, 'required': ['candidate_id', 'expected_revision'],
+        'properties': {'candidate_id': {'type': 'integer', 'minimum': 1},
+                       'expected_revision': {'type': 'integer', 'minimum': 0}}}}},
+}
+REVIEW_BATCH_CONFIRM = {
+    'type': 'object', 'additionalProperties': False, 'required': ['plan_hash'],
+    'properties': {'plan_hash': {'type': 'string', 'minLength': 64, 'maxLength': 64}},
+}
 REVIEW_EDIT = {
     'type': 'object', 'additionalProperties': False,
     'required': ['expected_revision', 'relation', 'confidence', 'impact', 'rationale', 'replacement_text'],

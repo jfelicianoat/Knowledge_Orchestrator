@@ -14,6 +14,16 @@ from knowledge_orchestrator.repositories.semantic_repository.filas import _job
 class TrabajosMixin(CandidatosMixin):
     """Cola durable de trabajos semánticos."""
 
+    @staticmethod
+    def _audit_job_transition(connection, job_id: str, previous: str | None, action: str) -> None:
+        row = connection.execute('SELECT job_id,kind,note_id,candidate_id,broker_task_id,status,attempt '
+                                 'FROM semantic_jobs WHERE job_id=?', (job_id,)).fetchone()
+        if row is None or row['status'] == previous:
+            return
+        details = {**dict(row), 'from_status': previous, 'action': action, 'actor': 'orchestrator:semantic'}
+        connection.execute('INSERT INTO events(event_type,message,details_json) VALUES (?,?,?)',
+                           ('SEMANTIC_JOB_STATE_CHANGED', 'Transición de análisis semántico', json.dumps(details)))
+
     def create_job(
         self,
         *,
@@ -25,11 +35,13 @@ class TrabajosMixin(CandidatosMixin):
         candidate_id: int | None = None,
     ) -> SemanticJob:
         with self.database.transaction(immediate=True) as connection:
-            connection.execute(
+            inserted = connection.execute(
                 "INSERT INTO semantic_jobs(job_id, kind, note_id, candidate_id, idempotency_key, request_json) "
                 "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(job_id) DO NOTHING",
                 (job_id, kind, note_id, candidate_id, idempotency_key, json.dumps(request, ensure_ascii=False)),
             )
+            if inserted.rowcount:
+                self._audit_job_transition(connection, job_id, None, 'created')
             return _job(connection.execute("SELECT * FROM semantic_jobs WHERE job_id = ?", (job_id,)).fetchone())
 
     def list_dispatchable_jobs(self) -> list[SemanticJob]:
@@ -55,33 +67,41 @@ class TrabajosMixin(CandidatosMixin):
             )
             if cursor.rowcount != 1:
                 return None
+            self._audit_job_transition(connection, job_id, 'READY', 'submission_started')
             return _job(connection.execute("SELECT * FROM semantic_jobs WHERE job_id = ?", (job_id,)).fetchone())
 
     def accept_job(self, job_id: str, response: dict) -> None:
         with self.database.transaction(immediate=True) as connection:
-            connection.execute(
+            changed = connection.execute(
                 "UPDATE semantic_jobs SET status = 'QUEUED', broker_task_id = ?, status_url = ?, next_retry_at = NULL, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE job_id = ? AND status = 'SUBMITTING'",
                 (response["task_id"], response["status_url"], job_id),
             )
+            if changed.rowcount:
+                self._audit_job_transition(connection, job_id, 'SUBMITTING', 'accepted')
 
     def retry_job(self, job_id: str, *, next_retry_at: str, message: str) -> None:
         with self.database.transaction(immediate=True) as connection:
-            connection.execute(
+            changed = connection.execute(
                 "UPDATE semantic_jobs SET status = 'READY', next_retry_at = ?, error_code = 'BROKER_UNAVAILABLE', "
                 "error_message = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
                 "WHERE job_id = ? AND status = 'SUBMITTING'",
                 (next_retry_at, message, job_id),
             )
+            if changed.rowcount:
+                self._audit_job_transition(connection, job_id, 'SUBMITTING', 'retry_scheduled')
 
     def fail_job(self, job_id: str, code: str, message: str) -> None:
         with self.database.transaction(immediate=True) as connection:
-            connection.execute(
+            prior = connection.execute('SELECT status FROM semantic_jobs WHERE job_id=?', (job_id,)).fetchone()
+            changed = connection.execute(
                 "UPDATE semantic_jobs SET status = 'ERROR', error_code = ?, error_message = ?, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE job_id = ? "
                 "AND status NOT IN ('SUCCESS', 'ERROR')",
                 (code, message, job_id),
             )
+            if changed.rowcount:
+                self._audit_job_transition(connection, job_id, prior['status'], 'failed')
 
     def list_active_jobs(self) -> list[SemanticJob]:
         with closing(self.database.connect()) as connection:
@@ -125,19 +145,25 @@ class TrabajosMixin(CandidatosMixin):
                 ),
             )
             refreshed = connection.execute("SELECT * FROM semantic_jobs WHERE job_id = ?", (job_id,)).fetchone()
+            self._audit_job_transition(connection, job_id, current['status'], 'broker_status_received')
             return _job(refreshed), result_text
 
     def complete_job(self, job_id: str) -> None:
         with self.database.transaction(immediate=True) as connection:
-            connection.execute(
+            changed = connection.execute(
                 "UPDATE semantic_jobs SET status = 'SUCCESS', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
                 "WHERE job_id = ? AND status = 'PROCESSING' AND result_json IS NOT NULL",
                 (job_id,),
             )
+            if changed.rowcount:
+                self._audit_job_transition(connection, job_id, 'PROCESSING', 'result_integrated')
 
     def recover_jobs(self) -> None:
         with self.database.transaction(immediate=True) as connection:
+            interrupted = connection.execute("SELECT job_id FROM semantic_jobs WHERE status='SUBMITTING'").fetchall()
             connection.execute(
                 "UPDATE semantic_jobs SET status = 'READY', next_retry_at = NULL, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE status = 'SUBMITTING'"
             )
+            for row in interrupted:
+                self._audit_job_transition(connection, row['job_id'], 'SUBMITTING', 'submission_recovered')

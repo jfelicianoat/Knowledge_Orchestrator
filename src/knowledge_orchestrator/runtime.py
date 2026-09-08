@@ -1,20 +1,30 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from knowledge_orchestrator.api.server import ApiServerController
 from knowledge_orchestrator.config import BrokerSettings, PipelinePaths
 from knowledge_orchestrator.integrations.broker_client import BrokerClient
+from knowledge_orchestrator.repositories.automation_repository import AutomationRepository
+from knowledge_orchestrator.repositories.automation_run_repository import AutomationRunRepository
+from knowledge_orchestrator.repositories.automation_schedule_repository import AutomationScheduleRepository
 from knowledge_orchestrator.repositories.capture_repository import CaptureRepository
 from knowledge_orchestrator.repositories.database import Database
 from knowledge_orchestrator.repositories.domain_repository import DomainRepository
 from knowledge_orchestrator.repositories.knowledge_repository import KnowledgeRepository
 from knowledge_orchestrator.repositories.publication_repository import PublicationRepository
 from knowledge_orchestrator.repositories.query_repository import QueryRepository
+from knowledge_orchestrator.repositories.reversion_repository import ReversionRepository
+from knowledge_orchestrator.repositories.review_batch_repository import ReviewBatchRepository
 from knowledge_orchestrator.repositories.semantic_repository import SemanticRepository
 from knowledge_orchestrator.repositories.source_repository import SourceRepository
 from knowledge_orchestrator.repositories.workflow_repository import WorkflowRepository
 from knowledge_orchestrator.services.api_ingestion import ApiIngestionService
+from knowledge_orchestrator.services.automation_execution import AutomationExecutionService
+from knowledge_orchestrator.services.automation_governance import AutomationGovernanceService
+from knowledge_orchestrator.services.automation_scheduler import AutomationScheduler
+from knowledge_orchestrator.services.automation_simulation import AutomationSimulationService
 from knowledge_orchestrator.services.broker_connection import load_broker_settings
 from knowledge_orchestrator.services.broker_dispatch import BrokerDispatcher, BrokerPoller
 from knowledge_orchestrator.services.classification import TopicClassifier
@@ -23,20 +33,24 @@ from knowledge_orchestrator.services.ingestion import IngestionService
 from knowledge_orchestrator.services.knowledge import KnowledgeService
 from knowledge_orchestrator.services.knowledge_access import KnowledgeAccess
 from knowledge_orchestrator.services.knowledge_query import KnowledgeQueryProcessor, KnowledgeQueryService
+from knowledge_orchestrator.services.maintenance_reversion import MaintenanceReversionService
 from knowledge_orchestrator.services.model_discovery import ModelDiscoveryService
 from knowledge_orchestrator.services.operations import configure_logging
 from knowledge_orchestrator.services.profile_service import ProfileService
 from knowledge_orchestrator.services.publication import PublicationService
 from knowledge_orchestrator.services.recovery import RecoveryReport, RecoveryService
+from knowledge_orchestrator.services.review_batches import ReviewBatchService
 from knowledge_orchestrator.services.semantic_broker import SemanticBrokerProcessor
 from knowledge_orchestrator.services.semantic_maintenance import SemanticMaintenanceService
 from knowledge_orchestrator.services.source_monitoring import SourceMonitoringService
 from knowledge_orchestrator.services.topic_service import TopicService
 from knowledge_orchestrator.services.workflow_planner import WorkflowPlanner
 from knowledge_orchestrator.ui.event_bridge import UiEventBridge
+from knowledge_orchestrator.worker.automation_worker import AutomationWorker
 from knowledge_orchestrator.worker.broker_worker import BrokerWorker
 from knowledge_orchestrator.worker.inbox_watcher import InboxWatcher
 from knowledge_orchestrator.worker.ingestion_worker import IngestionWorker
+from knowledge_orchestrator.worker.review_worker import ReviewWorker
 from knowledge_orchestrator.worker.source_worker import SourceWorker
 
 
@@ -76,6 +90,19 @@ class OrchestratorRuntime:
     api_ingestion: ApiIngestionService
     sources: SourceMonitoringService
     source_worker: SourceWorker
+    review_batches: ReviewBatchService
+    review_worker: ReviewWorker
+    automation_policies: AutomationRepository
+    automation_simulation: AutomationSimulationService
+    automation_execution: AutomationExecutionService
+    automation_scheduler: AutomationScheduler
+    automation_worker: AutomationWorker
+    automation_governance: AutomationGovernanceService
+    maintenance_reversion: MaintenanceReversionService
+    api_server: ApiServerController = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.api_server = ApiServerController(self)
 
     def recover_once(self, *, ingest_inbox: bool = True) -> RecoveryReport:
         """Deja el sistema en un estado reanudable antes de meter trabajo nuevo."""
@@ -90,6 +117,9 @@ class OrchestratorRuntime:
         self.workflow_repository.upgrade_legacy_ready_requests()
         self.publication.recover()
         self.semantic_maintenance.recover()
+        self.maintenance_reversion.recover()
+        self.review_batches.repository.recover()
+        self.automation_execution.repository.recover()
         self.knowledge.reconcile()
         for note in self.publication_repository.list_notes_by_status("PUBLISHED"):
             self.semantic_maintenance.schedule_extraction(note.note_id)
@@ -103,9 +133,14 @@ class OrchestratorRuntime:
         self.watcher.start()
         self.broker_worker.start()
         self.source_worker.start()
+        self.review_worker.start()
+        self.automation_worker.start()
         return report
 
     def stop(self) -> None:
+        self.api_server.stop()
+        self.automation_worker.stop()
+        self.review_worker.stop()
         self.source_worker.stop()
         self.broker_worker.stop()
         self.watcher.stop()
@@ -136,8 +171,9 @@ def build_runtime(
 
     pipeline_paths = paths or PipelinePaths.defaults()
     pipeline_paths.ensure_directories()
+    settings = broker_settings or load_broker_settings(pipeline_paths)
     if enable_logging:
-        configure_logging(pipeline_paths)
+        configure_logging(pipeline_paths, known_secrets=(settings.admin_token,) if settings.admin_token else ())
     database = Database(pipeline_paths.database)
     database.initialize()
     repository = CaptureRepository(database)
@@ -172,7 +208,6 @@ def build_runtime(
         worker,
         scan_interval_seconds=scan_interval_seconds,
     )
-    settings = broker_settings or load_broker_settings(pipeline_paths)
     broker_client = BrokerClient(settings)
     workflow_planner = WorkflowPlanner(
         repository,
@@ -188,6 +223,12 @@ def build_runtime(
     poller = BrokerPoller(workflow_repository, broker_client, workflow_planner)
     discovery = ModelDiscoveryService(workflow_repository, broker_client)
     semantic_maintenance = SemanticMaintenanceService(semantic_repository)
+    review_batches = ReviewBatchService(ReviewBatchRepository(database), semantic_maintenance)
+    automation_policies = AutomationRepository(database)
+    automation_simulation = AutomationSimulationService(automation_policies, semantic_maintenance)
+    automation_execution = AutomationExecutionService(AutomationRunRepository(database), semantic_maintenance)
+    automation_scheduler = AutomationScheduler(AutomationScheduleRepository(database), automation_simulation,
+                                                automation_execution)
     publication = PublicationService(
         pipeline_paths,
         repository,
@@ -241,4 +282,13 @@ def build_runtime(
         api_ingestion=api_ingestion,
         sources=sources,
         source_worker=SourceWorker(sources),
+        review_batches=review_batches,
+        review_worker=ReviewWorker(review_batches),
+        automation_policies=automation_policies,
+        automation_simulation=automation_simulation,
+        automation_execution=automation_execution,
+        automation_scheduler=automation_scheduler,
+        automation_worker=AutomationWorker(automation_scheduler),
+        automation_governance=AutomationGovernanceService(automation_simulation),
+        maintenance_reversion=MaintenanceReversionService(ReversionRepository(database), semantic_maintenance),
     )

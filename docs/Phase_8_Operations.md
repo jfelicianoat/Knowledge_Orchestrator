@@ -4,7 +4,7 @@
 
 ## Estado
 
-Primera entrega implementada y verificada. El Orchestrator dispone de logging estructurado rotativo, backup consistente de SQLite, export diagnóstico sin secretos y script de build Windows.
+Primera entrega implementada y verificada localmente. El Orchestrator dispone de logging estructurado rotativo, backup consistente de SQLite, export diagnóstico con saneamiento de credenciales y script de build Windows.
 
 ## Alcance implementado
 
@@ -22,7 +22,7 @@ Primera entrega implementada y verificada. El Orchestrator dispone de logging es
 
 ## Restricciones operativas
 
-- El ZIP diagnóstico no incluye la base SQLite ni contenido de notas.
+- El ZIP diagnóstico no adjunta SQLite ni archivos de notas. Los mensajes libres de logs anteriores pueden contener otros datos privados; la redacción de credenciales no garantiza anonimización de cualquier texto.
 - Los datos de usuario permanecen fuera del ejecutable: `C:/YT-Pipeline` y el vault configurado.
 - El backup copia una vista consistente de SQLite; no mueve ni bloquea el pipeline de trabajo.
 - El script de build no empaqueta datos del usuario.
@@ -42,6 +42,15 @@ Build Windows:
 ```
 
 ## Verificación
+
+Ampliación del 8 de septiembre de 2026, registrada en el decimotercer incremento de
+fase 14: cabeceras completas, asignaciones entrecomilladas, JSON textual anidado,
+userinfo/query de URL y token Broker configurado en memoria. La exportación procesa
+registros completos y descarta fragmentos iniciales/finales; no reescribe el log original.
+La redacción del token conocido cubre su forma literal, escapada como JSON y codificada
+para URL. No descubre credenciales antiguas sin etiqueta ni contenido privado arbitrario.
+El error de YAML nuevo conserva causa/posición sin copiar fragmentos de captura al
+evento, sidecar o traceback. La captura original rechazada permanece en cuarentena.
 
 - `tests/test_phase_eight_operations.py` cubre logging, backup, diagnóstico y redacción.
 - `python -m knowledge_orchestrator.app --help` muestra las nuevas opciones.

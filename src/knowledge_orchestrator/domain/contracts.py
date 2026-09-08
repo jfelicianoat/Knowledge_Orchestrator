@@ -29,7 +29,7 @@ def _construct_unique_mapping(loader: yaml.SafeLoader, node: yaml.MappingNode, d
             raise yaml.constructor.ConstructorError(
                 "while constructing a mapping",
                 node.start_mark,
-                f"duplicate key: {key}",
+                "duplicate key",
                 key_node.start_mark,
             )
         mapping[key] = loader.construct_object(value_node, deep=deep)
@@ -50,7 +50,7 @@ def _raise(field: str, reason: str, version: str | None = None) -> NoReturn:
             reason=reason,
             contract_version=version,
         )
-    )
+    ) from None
 
 
 def _require_type(metadata: dict[str, Any], field: str, expected: type, version: str) -> Any:
@@ -184,7 +184,13 @@ def parse_capture_bytes(content: bytes) -> CaptureDocument:
     try:
         metadata = yaml.load(yaml_text, Loader=_UniqueKeySafeLoader)
     except (yaml.YAMLError, TypeError) as error:
-        _raise("$", f"YAML inválido: {error}", None)
+        reason = "YAML inválido"
+        if isinstance(error, yaml.MarkedYAMLError):
+            if error.problem == "duplicate key":
+                reason += ": duplicate key (clave duplicada)"
+            if error.problem_mark is not None:
+                reason += f"; línea YAML {error.problem_mark.line + 1}, columna {error.problem_mark.column + 1}"
+        _raise("$", reason, None)
     if not isinstance(metadata, dict):
         _raise("$", "el frontmatter debe ser un objeto", None)
     if not all(isinstance(key, str) for key in metadata):

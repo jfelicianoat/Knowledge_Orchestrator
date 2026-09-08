@@ -11,12 +11,13 @@ from contextlib import closing
 from pathlib import Path
 
 from knowledge_orchestrator.domain.knowledge import KnowledgeConflict
-from knowledge_orchestrator.repositories.application_guards import check_application
 from knowledge_orchestrator.domain.semantic_models import (
     ComparisonDecision,
     KnowledgeClaim,
     UpdateCandidate,
 )
+from knowledge_orchestrator.repositories.application_guards import check_application
+from knowledge_orchestrator.repositories.automation_guards import reserve_policy_application
 from knowledge_orchestrator.repositories.knowledge_repository import record_supersession
 from knowledge_orchestrator.repositories.maintenance_projection import project_successor
 from knowledge_orchestrator.repositories.maintenance_states import record_review_state
@@ -27,6 +28,23 @@ from knowledge_orchestrator.repositories.semantic_repository.filas import _candi
 class CandidatosMixin(AfirmacionesMixin):
     """Ciclo de vida de un candidato de actualización."""
 
+    @staticmethod
+    def _audit_candidate_transition(connection, candidate_id: int, previous: str | None) -> None:
+        row = connection.execute(
+            'SELECT candidate_id,target_note_id,target_claim_id,new_claim_id,proposal_revision,status,'
+            'reviewed_by,review_batch_id,automation_run_id,blocked_reason FROM update_candidates WHERE candidate_id=?',
+            (candidate_id,)).fetchone()
+        details = dict(row)
+        reason = details.pop('blocked_reason')
+        known_reasons = {'MANUAL_LOCK', 'TARGET_SUPERSEDED', 'NOTE_CHANGED_AFTER_DIFF', 'EVIDENCE_CHANGED_AFTER_DIFF',
+                         'NOTE_CHANGED_DURING_APPLICATION', 'CONTENT_CHANGED_DURING_APPLICATION',
+                         'INCOMPLETE_APPLICATION_INTENT', 'NOTE_CHANGED_DURING_RECOVERY',
+                         'CONTENT_CHANGED_DURING_RECOVERY'}
+        details.update(from_status=previous, reason_code=reason if reason in known_reasons else 'UNSPECIFIED')
+        connection.execute('INSERT INTO events(event_type,message,details_json) VALUES (?,?,?)',
+                           ('MAINTENANCE_CANDIDATE_STATE_CHANGED', 'Transición de propuesta de conocimiento',
+                            json.dumps(details)))
+
     def create_candidate(
         self,
         target: KnowledgeClaim,
@@ -36,7 +54,7 @@ class CandidatosMixin(AfirmacionesMixin):
     ) -> UpdateCandidate:
         blocked = "MANUAL_LOCK" if target.manual_lock else None
         with self.database.transaction(immediate=True) as connection:
-            connection.execute(
+            inserted = connection.execute(
                 "INSERT INTO update_candidates(target_note_id, target_claim_id, new_claim_id, "
                 "retrieval_reason, blocked_reason) "
                 "VALUES (?, ?, ?, ?, ?) ON CONFLICT(target_claim_id, new_claim_id) DO NOTHING",
@@ -46,6 +64,8 @@ class CandidatosMixin(AfirmacionesMixin):
                 "SELECT * FROM update_candidates WHERE target_claim_id = ? AND new_claim_id = ?",
                 (target.claim_id, new_claim.claim_id),
             ).fetchone()
+            if inserted.rowcount:
+                self._audit_candidate_transition(connection, row['candidate_id'], None)
             return _candidate(row)
 
     def get_candidate(self, candidate_id: int) -> UpdateCandidate | None:
@@ -145,10 +165,23 @@ class CandidatosMixin(AfirmacionesMixin):
         patch_json: str,
         expected_revision: int | None = None,
         actor: str = 'human:review',
+        review_batch_id: str | None = None,
+        automation_run_id: str | None = None,
     ) -> UpdateCandidate:
         with self.database.transaction(immediate=True) as connection:
             row = check_application(connection, candidate_id, base_hash=base_hash,
                                     patch_json=patch_json, expected_revision=expected_revision)
+            if automation_run_id is not None:
+                if review_batch_id is not None:
+                    raise ValueError('Una aplicación no puede atribuirse a lote humano y política a la vez')
+                reserve_policy_application(connection, row, run_id=automation_run_id, actor=actor)
+            if review_batch_id is not None and not connection.execute(
+                'SELECT 1 FROM review_batches b JOIN review_batch_items i USING(batch_id) '
+                "WHERE b.batch_id=? AND b.owner=? AND b.status='RUNNING' AND i.status='RUNNING' "
+                'AND i.candidate_id=? AND i.expected_revision=?',
+                (review_batch_id, actor, candidate_id, row['proposal_revision']),
+            ).fetchone():
+                raise KnowledgeConflict('El lote no autoriza esta revisión de propuesta')
             if row["status"] != "APPLYING":
                 revision = int(connection.execute(
                     "SELECT COALESCE(MAX(revision), 0) + 1 FROM note_revisions WHERE note_id = ?",
@@ -161,11 +194,14 @@ class CandidatosMixin(AfirmacionesMixin):
                 )
             connection.execute(
                 "UPDATE update_candidates SET status = 'APPLYING', base_hash = ?, result_hash = ?, temp_path = ?, "
-                "patch_json = ?, reviewed_by=?, "
+                'patch_json = ?, reviewed_by=?, review_batch_id=?, automation_run_id=?, '
                 "reviewed_at = COALESCE(reviewed_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE candidate_id = ?",
-                (base_hash, result_hash, str(temp_path), patch_json, actor, candidate_id),
+                (base_hash, result_hash, str(temp_path), patch_json, actor, review_batch_id, automation_run_id,
+                 candidate_id),
             )
+            if row['status'] != 'APPLYING':
+                self._audit_candidate_transition(connection, candidate_id, row['status'])
             return _candidate(connection.execute(
                 "SELECT * FROM update_candidates WHERE candidate_id = ?", (candidate_id,)
             ).fetchone())
@@ -197,12 +233,18 @@ class CandidatosMixin(AfirmacionesMixin):
                 "revision=revision+1,updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE note_id = ?",
                 (candidate_id, row["target_note_id"]),
             )
+            conflicting = connection.execute(
+                "SELECT candidate_id,status FROM update_candidates WHERE target_claim_id=? AND candidate_id<>? "
+                "AND status IN ('PENDING_COMPARISON', 'PENDING_REVIEW', 'APPROVED')",
+                (row['target_claim_id'], candidate_id)).fetchall()
             connection.execute(
                 "UPDATE update_candidates SET status = 'CONFLICT', blocked_reason = 'TARGET_SUPERSEDED', "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE target_claim_id = ? "
                 "AND candidate_id <> ? AND status IN ('PENDING_COMPARISON', 'PENDING_REVIEW', 'APPROVED')",
                 (row["target_claim_id"], candidate_id),
             )
+            for conflict in conflicting:
+                self._audit_candidate_transition(connection, conflict['candidate_id'], conflict['status'])
             patch = json.loads(row["patch_json"])
             delta = len(patch["replacement"]) - (int(patch["end"]) - int(patch["start"]))
             if delta:
@@ -215,7 +257,10 @@ class CandidatosMixin(AfirmacionesMixin):
             connection.execute(
                 "INSERT INTO events(event_type, message, details_json) VALUES "
                 "('SEMANTIC_UPDATE_APPLIED', 'Actualización semántica aplicada tras aprobación', ?)",
-                (json.dumps({"candidate_id": candidate_id, "note_id": row["target_note_id"]}),),
+                (json.dumps({'candidate_id': candidate_id, 'note_id': row['target_note_id'],
+                             'proposal_revision': row['proposal_revision'], 'actor': row['reviewed_by'],
+                             'review_batch_id': row['review_batch_id'], 'automation_run_id': row['automation_run_id'],
+                             'successor_id': successor_id}),),
             )
 
     def revision_content(self, candidate_id: int) -> str:
@@ -263,14 +308,21 @@ class CandidatosMixin(AfirmacionesMixin):
                 raise ValueError("Claim sin evidencia local")
             return row["quote"]
 
-    def mark_candidate(self, candidate_id: int, status: str, *, reason: str | None = None) -> None:
+    def mark_candidate(self, candidate_id: int, status: str, *, reason: str | None = None,
+                       expected_status: str | None = None, expected_revision: int | None = None) -> None:
         if status not in {"REJECTED", "CONFLICT", "ERROR"}:
             raise ValueError("Estado de candidato no permitido")
         with self.database.transaction(immediate=True) as connection:
-            connection.execute(
+            prior = connection.execute('SELECT status,blocked_reason FROM update_candidates WHERE candidate_id=?',
+                                       (candidate_id,)).fetchone()
+            changed = connection.execute(
                 "UPDATE update_candidates SET status = ?, blocked_reason = COALESCE(?, blocked_reason), "
                 "reviewed_at = COALESCE(reviewed_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE candidate_id = ? "
-                "AND status NOT IN ('APPLIED', 'REJECTED')",
-                (status, reason, candidate_id),
+                "AND status NOT IN ('APPLIED', 'REJECTED') "
+                "AND (? IS NULL OR status=?) AND (? IS NULL OR proposal_revision=?)",
+                (status, reason, candidate_id, expected_status, expected_status, expected_revision, expected_revision),
             )
+            if changed.rowcount and (prior['status'] != status or
+                                     (reason is not None and reason != prior['blocked_reason'])):
+                self._audit_candidate_transition(connection, candidate_id, prior['status'])

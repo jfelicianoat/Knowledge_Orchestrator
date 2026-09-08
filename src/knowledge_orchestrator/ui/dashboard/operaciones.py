@@ -96,6 +96,8 @@ class OperacionesMixin(ConocimientoMixin):
         self.flow_ingest.pack(side='left', padx=8)
         self.flow_revision = ttk.Button(actions, text='Ver versión anterior', command=self._show_flow_revision)
         self.flow_revision.pack(side='left')
+        self.flow_audit = ttk.Button(actions, text='Ver trazabilidad', command=self._audit_flow_proposal)
+        self.flow_audit.pack(side='left', padx=8)
         ttk.Button(actions, text='Volver al detalle', command=self._return_flow_detail).pack(side='left', padx=8)
         self._refresh_flow()
         self._build_pipeline()
@@ -148,7 +150,7 @@ class OperacionesMixin(ConocimientoMixin):
 
     def _select_flow(self) -> None:
         row = self._flow_item()
-        for button in (self.flow_open, self.flow_ingest, self.flow_revision):
+        for button in (self.flow_open, self.flow_ingest, self.flow_revision, self.flow_audit):
             button.state(['disabled'])
         if row is None:
             self._flow_revision_id = None
@@ -183,6 +185,7 @@ class OperacionesMixin(ConocimientoMixin):
                          + f"\nTarea: {row['id']}\nIntentos: {row['attempt']}"
                          + f"\nTarea del Broker: {row['broker_task_id'] or 'Aún no enviada'}")
             elif self._flow_kind in {'proposals', 'history'}:
+                self.flow_audit.state(['!disabled'])
                 review = self.runtime.semantic_maintenance.proposal_detail(row['id'])
                 assessment = review['assessment'] or {}
                 text += ('\n\n' + RELATION_LABELS.get(row['relation'], row['relation'])
@@ -202,8 +205,13 @@ class OperacionesMixin(ConocimientoMixin):
             self._flow_text(text)
         except (ValueError, LookupError, sqlite3.Error):
             self._flow_text('El registro cambió o no está disponible. Actualiza para volver a consultarlo.')
-            for button in (self.flow_open, self.flow_ingest, self.flow_revision):
+            for button in (self.flow_open, self.flow_ingest, self.flow_revision, self.flow_audit):
                 button.state(['disabled'])
+
+    def _audit_flow_proposal(self):
+        row = self._flow_item()
+        if row and self._flow_kind in {'proposals', 'history'}:
+            self._open_proposal_audit(row['id'])
 
     def _flow_text(self, value: str) -> None:
         if self.flow_detail.get('1.0', 'end-1c') == value:

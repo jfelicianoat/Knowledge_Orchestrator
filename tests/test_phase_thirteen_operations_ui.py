@@ -98,11 +98,36 @@ class PhaseThirteenOperationsUiTests(unittest.TestCase):
         self.assertIn('Versión anterior conservada', historical_text)
         window._refresh_flow()
         self.assertEqual(window.flow_detail.get('1.0', 'end'), historical_text)
+        window.geometry('1080x680')
+        window.deiconify()
+        window._audit_flow_proposal()
+        from knowledge_orchestrator.ui.proposal_audit_dialog import ProposalAuditDialog
+        audit = next(child for child in window.winfo_children() if isinstance(child, ProposalAuditDialog))
+        deadline = time.monotonic() + 5
+        while audit.busy and time.monotonic() < deadline:
+            window.update()
+            time.sleep(0.01)
+        self.assertFalse(audit.busy)
+        self.assertEqual(audit.record['candidate']['candidate_id'], candidate_id)
+        self.assertIn(old_text, audit.before.get('1.0', 'end'))
+        self.assertIn(new_text, audit.proposed.get('1.0', 'end'))
+        self.assertIn('Versión anterior de nota conservada', audit.decision.get('1.0', 'end'))
+        self.assertGreater(audit.before.winfo_height(), 100)
+        audit.destroy()
         window.search_var.set('Búsqueda que excluye el documento')
         window._work_items = {}
         window._open_flow_item()
         self.assertEqual(window._current_page, 'work')
         self.assertEqual(window.search_var.get(), '')
+        window._show_page('services')
+        deadline = time.monotonic() + 5
+        while window._services_busy and time.monotonic() < deadline:
+            window.update()
+            time.sleep(0.01)
+        self.assertFalse(window._services_busy)
+        self.assertIn('Detenida', window.api_status_var.get())
+        self.assertIn('Autoaprobación por políticas · Desactivada', window.automation_detail.get('1.0', 'end'))
+        self.assertIn('Lotes confirmados por personas', window.automation_detail.get('1.0', 'end'))
         target_capture = window._flow_item()['capture_id']
         self.assertEqual(window._selected_work_id, target_capture)
 

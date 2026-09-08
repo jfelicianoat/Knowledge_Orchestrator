@@ -4,7 +4,11 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from knowledge_orchestrator.services.proposal_audit import ProposalAuditReader
 from knowledge_orchestrator.ui.dashboard.trabajo import TrabajoMixin
+from knowledge_orchestrator.ui.proposal_audit_dialog import ProposalAuditDialog
+from knowledge_orchestrator.ui.reversion_panel import ReversionPanel
+from knowledge_orchestrator.ui.review_batch_dialog import ReviewBatchDialog
 from knowledge_orchestrator.ui.snapshots import ReviewItem
 
 RELATION_LABELS = {
@@ -40,8 +44,26 @@ class RevisionMixin(TrabajoMixin):
             "Revisión",
             "Compara la evidencia nueva antes de modificar el conocimiento publicado.",
         )
+        page.rowconfigure(1, weight=1)
+        page.rowconfigure(2, weight=0)
+        tabs = ttk.Notebook(page)
+        tabs.grid(row=1, column=0, sticky='nsew', padx=12, pady=(0, 12))
+        page = tk.Frame(tabs, bg=self.colors['surface'])
+        page.columnconfigure(0, weight=1)
+        page.rowconfigure(2, weight=1)
+        tabs.add(page, text='Propuestas pendientes')
+        tabs.add(ReversionPanel(tabs, self.runtime.maintenance_reversion, self.colors, self._reversion_ready),
+                 text='Publicaciones y reversión')
+        bulk = ttk.Frame(page)
+        bulk.grid(row=1, column=0, sticky='ew', padx=24, pady=(0, 10))
+        ttk.Button(bulk, text='Revisar selección', command=self._preview_review_selection).pack(side='left', padx=4)
+        ttk.Button(bulk, text='Revisar todas las pendientes', command=lambda: ReviewBatchDialog(
+            self, self.runtime.review_batches)).pack(side='left', padx=4)
+        ttk.Button(bulk, text='Lotes anteriores', command=lambda: ReviewBatchDialog(
+            self, self.runtime.review_batches, history=True)).pack(side='left', padx=4)
         columns = ("cambio", "confianza", "impacto", "nota")
-        self.review_tree = ttk.Treeview(page, columns=columns, show="headings", height=8, style="Dark.Treeview")
+        self.review_tree = ttk.Treeview(page, columns=columns, show="headings", height=8,
+                                       selectmode='extended', style="Dark.Treeview")
         for column, text in {
             "cambio": "Cambio propuesto", "confianza": "Confianza",
             "impacto": "Impacto", "nota": "Nota afectada",
@@ -65,11 +87,24 @@ class RevisionMixin(TrabajoMixin):
         self.review_reject_button.pack(side="left", padx=4)
         self.review_edit_button = ttk.Button(buttons, text='Editar propuesta', command=self._edit_selected_review)
         self.review_edit_button.pack(side='left', padx=4)
+        self.review_policy_button = ttk.Button(buttons, text='Evaluar con política',
+                                                command=self._evaluate_selected_policy)
+        self.review_policy_button.pack(side='left', padx=4)
+        self.review_policy_button.state(['disabled'])
+        self.review_audit_button = ttk.Button(bulk, text='Ver trazabilidad', command=self._audit_selected_review)
+        self.review_audit_button.pack(side='left', padx=4)
+        self.review_audit_button.state(['disabled'])
         self.review_approve_button.state(["disabled"])
         self.review_reject_button.state(["disabled"])
         self.review_edit_button.state(['disabled'])
 
+    def _reversion_ready(self):
+        startup = getattr(self, '_startup', None)
+        return bool(startup and startup.done and startup.error is None)
+
     def _refresh_reviews(self) -> None:
+        previous = self.review_tree.selection()
+        focus = self.review_tree.focus()
         items = self.snapshots.reviews()
         self._review_items = {str(item.candidate_id): item for item in items}
         rows = [
@@ -88,9 +123,11 @@ class RevisionMixin(TrabajoMixin):
             self.review_tree,
             rows,
         )
-        selected_id = str(self._selected_review.candidate_id) if self._selected_review else ""
-        if selected_id in self._review_items:
-            self.review_tree.selection_set(selected_id)
+        preserved = [identifier for identifier in previous if identifier in self._review_items]
+        if preserved:
+            self.review_tree.selection_set(preserved)
+            selected_id = focus if focus in preserved else preserved[0]
+            self.review_tree.focus(selected_id)
             self._render_review(self._review_items[selected_id])
         else:
             self._clear_review(empty=not items)
@@ -100,7 +137,8 @@ class RevisionMixin(TrabajoMixin):
         if not selection:
             self._clear_review(empty=not self._review_items)
             return
-        item = self._review_items.get(str(selection[0]))
+        focused = self.review_tree.focus()
+        item = self._review_items.get(str(focused if focused in selection else selection[0]))
         if item is None:
             return
         self._selected_review = item
@@ -134,9 +172,12 @@ class RevisionMixin(TrabajoMixin):
                                   + '\n\nRiesgos e incertidumbres\n' + '\n'.join(
                                       RISK_LABELS.get(risk, risk) for risk in assessment.get('risks', []))
                                   + f"\n\nRevisión de propuesta: {item.proposal_revision}")
+        self.review_detail.insert('end', '\n\nAutoaprobación\n' + detail['automation_review']['message'])
         self.review_detail.configure(state='disabled')
         self.review_reject_button.state(["!disabled"])
         self.review_edit_button.state(['!disabled'])
+        self.review_policy_button.state(['!disabled'])
+        self.review_audit_button.state(['!disabled'])
         blocked = (item.status != 'PENDING_REVIEW' or item.blocked_reason
                    or assessment.get('blockers') or not assessment.get('patch'))
         self.review_approve_button.state(['disabled'] if blocked else ['!disabled'])
@@ -157,27 +198,36 @@ class RevisionMixin(TrabajoMixin):
         self.review_approve_button.state(["disabled"])
         self.review_reject_button.state(["disabled"])
         self.review_edit_button.state(['disabled'])
+        self.review_policy_button.state(['disabled'])
+        self.review_audit_button.state(['disabled'])
+
+    def _audit_selected_review(self):
+        if self._selected_review:
+            self._open_proposal_audit(self._selected_review.candidate_id)
+
+    def _open_proposal_audit(self, candidate_id: int):
+        ProposalAuditDialog(self, ProposalAuditReader(self.runtime.database), candidate_id)
+
+    def _evaluate_selected_policy(self):
+        if self._selected_review:
+            item = self._selected_review
+            self._review_proposal_policy(item.candidate_id, item.proposal_revision)
 
     def _approve_selected(self) -> None:
         if not self._selected_review:
             return
         item = self._selected_review
-        candidate_id = item.candidate_id
-        if not messagebox.askyesno(
-            "Aplicar cambio",
-            f"Se actualizará «{item.target_title}» conservando su revisión anterior. ¿Quieres continuar?",
-            parent=self,
-        ):
+        ReviewBatchDialog(self, self.runtime.review_batches, selection=[{
+            'candidate_id': item.candidate_id, 'expected_revision': item.proposal_revision}])
+
+    def _preview_review_selection(self) -> None:
+        selection = [self._review_items[identifier] for identifier in self.review_tree.selection()
+                     if identifier in self._review_items]
+        if not selection:
+            self.status_var.set('Selecciona propuestas con Ctrl o Mayús para preparar su vista previa.')
             return
-        try:
-            self.runtime.semantic_maintenance.approve(candidate_id,
-                                                     expected_revision=item.proposal_revision, actor='ui')
-        except Exception as error:
-            messagebox.showerror("No se pudo aprobar", str(error), parent=self)
-        else:
-            self.status_var.set(f"Cambio {candidate_id} aplicado; la revisión anterior se conserva.")
-            self._clear_review()
-            self._refresh_reviews()
+        ReviewBatchDialog(self, self.runtime.review_batches, selection=[{
+            'candidate_id': item.candidate_id, 'expected_revision': item.proposal_revision} for item in selection])
 
     def _reject_selected(self) -> None:
         if not self._selected_review:

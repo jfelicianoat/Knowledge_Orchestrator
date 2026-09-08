@@ -234,7 +234,7 @@ python -m knowledge_orchestrator.app --backup
 python -m knowledge_orchestrator.app --diagnostics C:\tmp\ko-diagnostics.zip
 ```
 
-El backup usa la API consistente de SQLite y se guarda en `backups/`. El diagnóstico genera un ZIP sin base de datos ni contenido de notas, con contadores, entorno, configuración saneada y cola de logs redacted.
+El backup usa la API consistente de SQLite y se guarda en `backups/`. El diagnóstico genera un ZIP con contadores, entorno, configuración y líneas completas de logs saneadas. No adjunta SQLite ni archivos de notas. Oculta campos de credenciales reconocidos y el token Broker configurado, también dentro de JSON textual. Los mensajes libres antiguos pueden contener otros datos privados: el saneamiento no garantiza anonimización de cualquier texto. Los archivos originales no se reescriben al exportar.
 
 Build Windows:
 

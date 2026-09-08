@@ -4,6 +4,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from knowledge_orchestrator.domain.contracts import parse_capture_bytes
@@ -17,6 +18,28 @@ class SimulatedCrash(RuntimeError):
 
 
 class IngestionRecoveryTests(unittest.TestCase):
+    def test_yaml_rejection_keeps_original_but_does_not_copy_content_to_audit_or_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            paths, database, repository, ingestion = runtime(Path(temporary))
+            source = paths.inbox / "invalid.md"
+            content = b"---\nPRIVATE_CAPTURE_CONTENT: 1\nPRIVATE_CAPTURE_CONTENT: 2\n---\n"
+            source.write_bytes(content)
+            result = ingestion.ingest(source)
+            self.assertFalse(result.accepted)
+            self.assertEqual(result.error_code, "CONTRACT_VALIDATION_FAILED")
+            self.assertEqual(repository.count(), 0)
+            self.assertEqual((paths.failed_contracts / "invalid.md").read_bytes(), content)
+            sidecar = (paths.failed_contracts / "invalid.md.error.json").read_text("utf-8")
+            self.assertNotIn("PRIVATE_CAPTURE_CONTENT", sidecar)
+            self.assertNotIn("PRIVATE_CAPTURE_CONTENT", result.message or "")
+            with closing(database.connect(readonly=True)) as connection:
+                event = connection.execute(
+                    "SELECT message, details_json FROM events WHERE event_type = 'CONTRACT_VALIDATION_FAILED'"
+                ).fetchone()
+            self.assertIsNotNone(event)
+            self.assertNotIn("PRIVATE_CAPTURE_CONTENT", str(tuple(event)))
+            self.assertIn("duplicate key", event[0])
+
     def test_happy_path_creates_one_pending_row_and_processing_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             paths, _database, repository, ingestion = runtime(Path(temporary))
