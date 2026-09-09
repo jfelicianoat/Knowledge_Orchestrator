@@ -19,7 +19,7 @@ controlado descrito; no demuestra comportamiento de un modelo real ni una sesió
 | 4 | Fuente secundaria contradice oficial sin actualización silenciosa | `test_phase_twelve_knowledge_maintenance.py::test_secondary_conflicting_source_requires_explicit_human_resolution`; ambas DISPUTED y archivo intacto antes de decisión | Local |
 | 5 | Dos fuentes fiables requieren revisión | `test_two_high_trust_sources_do_not_resolve_by_trust_or_model_confidence`, mismo archivo; PENDING_REVIEW y autoapproval no elegible | Local |
 | 6 | manual_lock impide actualización | `test_phase_nine_knowledge_core.py::test_manual_lock_after_diff_prevents_note_and_claim_changes` y `test_automation_execution.py::test_manual_lock_added_after_simulation_is_absolute` | Local |
-| 7 | Edición externa después del diff da CONFLICT | `test_phase_nine_knowledge_core.py::test_change_outside_patch_after_diff_is_conflict`; edición fuera del span conservada | Local |
+| 7 | Edición externa después del diff da CONFLICT | Test de fase 9 conserva edición anterior al chequeo; `tools/probe_note_replacement.py` demuestra sobrescritura si otro proceso edita después del último hash | Incompleto: defecto reproducido; ver `Note_Replacement_Coordination.md` |
 | 8 | Aprobación individual | `test_phase_twelve_knowledge_maintenance.py::test_api_review_scopes_revision_conflict_and_repeated_approval` y prueba de sucesor de fase 9 | Local; widgets pendientes |
 | 9 | Selección masiva y resultados parciales por tarea | `test_review_batches.py::test_confirmed_selection_reports_partial_results_and_preserves_late_edit`; una APPLIED, otra CONFLICT, repetición sin trabajo adicional | Local; widgets pendientes |
 | 10 | Autoaprobación solo de elegibles | `test_automation_execution.py`: política desactivada/pausa, fuente revocada, edición y manual_lock revalidados antes de reserva | Local |
@@ -78,6 +78,27 @@ No se han activado políticas ni
 modificado documentos del usuario para obtener esta evidencia.
 
 ## Hallazgo al revisar los campos de propuesta
+
+Incremento 18 en curso: entorno Obsidian/Windows/local confirmado. Puente y cliente
+Python se verifican por separado: diez pruebas Node de callback simulado/journal/HTTP
+real y seis Python nuevas de autenticación/recibo/archivo posterior. Batería Python:
+431 en 188,548 s, 426 pasan y cinco omisiones Tk; Ruff/mypy (147 archivos) y diff pasan.
+Todavía falta integrar con las intenciones y probar el editor. El caso 7 contiene un
+contraejemplo reproducido; no se declara resuelto por los tests aislados del puente.
+
+Incremento 17: `test_publication_conflicts.py` añade seis casos de creación de nota sin
+sustituir un destino ocupado, con fuente/edición conservadas, conflicto durable,
+recuperación y continuidad de otras notas. Incluye escritura desde otro proceso justo
+antes de instalar y caída tras enlace antes de limpiar el temporal. Batería vigente:
+425 pruebas en 255,751 s; 420 pasan y cinco omisiones Tcl/Tk; Ruff/mypy (146 archivos)
+y diff pasan. Esto no certifica reemplazo condicional de notas existentes ni Obsidian real.
+
+Actualización de observabilidad, incremento 16: el cliente Broker oculta credenciales
+en errores HTTP/de conexión y objetos de error antes de guardarlos. Cinco pruebas
+adicionales cubren rotación con respuesta tardía, almacenamiento semántico/workflow,
+traceback y reintento durable. Batería vigente: 419 pruebas en 187,072 s; 414 pasan,
+cinco omisiones Tcl/Tk; Ruff/mypy (146 archivos) y diff pasan. Todo con credenciales
+ficticias y datos temporales; integración externa y render siguen sin acreditarse.
 
 `services/maintenance_assessment.py` construye descripción, claims, entidades,
 evidencia anterior/nueva, confianza configurada, relación, justificación, impacto,

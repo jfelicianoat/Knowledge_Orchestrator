@@ -981,7 +981,7 @@ En `completed`, `result.result_markdown` contiene la salida y puede incluir uso,
 - Orchestrator y Broker usan SQLite separado, modo WAL, claves foráneas y transacciones para cada transición.
 - El Orchestrator conserva `capture_id`, `revision`, rutas de origen/nota, `task_id`, estado, timestamps y último error.
 - El Broker conserva request normalizado, hash, posición, intento, estado, proveedor/modelo, uso y eventos. Las API keys nunca se persisten en estas tablas.
-- La ingestión usa `staging`, hash SHA-256, commit SQLite y `os.replace` según el protocolo write-then-move. Las publicaciones Markdown usan igualmente temporal + rename atómico y estado recuperable.
+- La ingestión usa `staging`, hash SHA-256, commit SQLite y `os.replace` según el protocolo write-then-move. La publicación inicial de Markdown instala el temporal sincronizado mediante enlace duro sin sustituir un destino ocupado; mantiene intención recuperable y registra `PUBLICATION_CONFLICT` si encuentra contenido distinto. El volumen debe admitir enlaces duros. Las actualizaciones semánticas conservan su protocolo de snapshot y reemplazo.
 
 ### 8.7 Semántica de despacho serial
 

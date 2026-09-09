@@ -14,23 +14,37 @@ El protocolo es:
 
 1. Persistir una nota `PUBLISHING` con ruta final, temporal, hash y destino de la fuente.
 2. Escribir y sincronizar el temporal dentro de la carpeta temática.
-3. Renombrar atómicamente el temporal a la ruta final.
+3. Instalar atómicamente el archivo completo mediante enlace duro, sin sustituir un destino ocupado.
 4. Verificar SHA-256 y marcar la nota `PUBLISHED`.
 5. Mover la fuente de `processing` a `completed`.
 6. Marcar la captura `COMPLETED` únicamente después de ambos efectos.
 
-Los nombres contienen `capture_id` y revisión para evitar sobrescribir otra nota. Los caracteres incompatibles con Windows se eliminan del título.
+Los nombres contienen `capture_id` y revisión. Los caracteres incompatibles con Windows se eliminan del título.
+Desde el incremento 17 de fase 14, la instalación comprueba en la propia operación
+que el destino no existe. Si contiene otra edición, conserva el contenido, la fuente
+en processing y el resultado del workflow, y registra `PUBLICATION_CONFLICT` con la
+nota en `CONFLICT`. Otras publicaciones continúan. No se activa ningún reemplazo de
+respaldo si el volumen no admite enlaces duros; el error deja la intención recuperable.
 
 ## Recuperación
 
 Al arrancar se reconcilian:
 
-- notas `PUBLISHING` cuyo temporal o fichero final ya existe;
+- notas `PUBLISHING` o `CONFLICT` cuyo temporal o fichero final ya existe;
 - notas `PUBLISHED` cuya fuente todavía está en `processing` o ya fue movida;
 - rechazos `REJECTING` parcialmente movidos;
 - reprocesados `PREPARED` o `COPIED`.
 
 Cada destino se decide antes del efecto externo. Las operaciones se repiten de forma idempotente y el hash impide aceptar una nota distinta de la planificada.
+Los conflictos repetidos no duplican eventos. El usuario puede conservar la edición
+en otra ruta y reintentar la recuperación con el destino libre; se conserva el mismo
+identificador de nota y se limpia el error específico de publicación al completar.
+Una caída entre enlace y limpieza no permite que reescribir el temporal altere un
+archivo humano movido: antes de escribir se desvincula cualquier temporal residual.
+
+Este protocolo crea notas nuevas. Las transformaciones semánticas de notas existentes
+y la reversión tienen otro protocolo; no se atribuye a estas rutas una garantía de
+comparación y reemplazo atómicos frente a editores no coordinados.
 
 ## Rechazo
 

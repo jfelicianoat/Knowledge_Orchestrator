@@ -94,6 +94,13 @@ privacidad de estos eventos, decisión de fallback sin cambios, terminal idempot
 rollback completo ante fallo de auditoría. No acredita saneamiento de las respuestas
 remotas persistidas ni modifica registros históricos.
 
+El decimosexto incremento añade saneamiento compartido en `redaction.py` y la frontera
+de errores del cliente Broker. Cubre credencial de petición/configuración vigente,
+respuestas tardías después de rotación y traceback visible de errores de conexión.
+`test_broker_error_privacy.py` verifica persistencia en tareas y trabajos semánticos,
+conservación de códigos/estado y reintentos. No modifica resultados de negocio ni datos
+históricos; no constituye anonimización universal de texto privado.
+
 ## Diez preguntas de reconstrucción
 
 | Pregunta | Cadena verificable |

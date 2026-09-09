@@ -150,8 +150,19 @@ acepta ese acceso. Un 401/403 se trata como credencial rotada y recuperable.
   Guarda de fecha sola verificada: evidencia antigua, observación posterior sin cambio
   e inferencia por fecha sin cita no autorizan reemplazo, incluso con política aprobada,
   avance del reloj de planificación y reinicio. Notas, claims e histórico conservados.
-  Batería actual: 414 pruebas en 220,593 s (409 pasan, cinco omisiones Tcl/Tk);
-  ruff/mypy pasan (145 archivos). Evidencia en `Phase_14_Automation_Governance.md`.
+  Cliente Broker sanea errores HTTP/de conexión y objetos de error antes de persistirlos,
+  usando credenciales de la petición y configuración vigente. Pruebas de rotación,
+  persistencia semántica/workflow y reintento; sin reescribir históricos ni resultados.
+  Publicación inicial sin sustituir destinos ocupados: conflicto durable y recuperación
+  que conserva la edición humana y continúa otras notas. Prueba con escritor separado
+  en la carrera de instalación y caída con enlace residual. Requiere volumen con enlaces
+  duros; no cierra la ventana check/replace de mantenimiento de notas existentes.
+  Puente Obsidian en desarrollo para el entorno confirmado por el usuario: Windows
+  con bóveda local. Plugin y cliente Python con recibos/hashes/autenticación verificados
+  por separado; todavía no conectados a aprobación, recuperación y reversión.
+  Batería actual: 431 pruebas en 188,548 s (426 pasan, cinco omisiones Tcl/Tk),
+  más diez pruebas Node del puente. Ruff/mypy pasan (147 archivos).
+  Evidencia en `Phase_14_Automation_Governance.md`.
 
 ## Límites y evidencia pendiente
 
@@ -165,8 +176,13 @@ acepta ese acceso. Un 401/403 se trata como credencial rotada y recuperable.
   recorrido integral pendientes. Saneamiento de logs/ZIP y errores YAML reforzado;
   mensajes remotos persistidos por otras rutas anteriores y texto libre arbitrario
   aún no tienen una garantía global de anonimización.
-  La prueba dedicada de fecha como único disparador pasa. Sigue pendiente el ensayo
-  con editor externo durante la ventana entre comprobación final y reemplazo del archivo.
+  La prueba dedicada de fecha como único disparador pasa. El ensayo con otro proceso
+  reproduce sobrescritura de una edición después del último hash en mantenimiento y
+  afecta también al método compartido con reversión. Bloqueos nativos simples no
+  proporcionan aún una solución acreditada; TxF devolvió WinError 6832 al abrir el
+  temporal del ensayo. Véase `Note_Replacement_Coordination.md`; el usuario confirmó
+  Obsidian/Windows/local y el puente se está desarrollando. Falta integrarlo y probarlo
+  dentro del editor. Este gate no está superado.
 
 - Hay Web y RSS/Atom; no hay rastreo recursivo, GitHub releases ni búsqueda web autónoma.
 - La evolución por fases 9–14 está en curso: fases 9 y 10 superan sus checkpoints locales;

@@ -14,6 +14,7 @@ from knowledge_orchestrator.domain.broker_contracts import (
     validate_models_response,
     validate_task_status_response,
 )
+from knowledge_orchestrator.redaction import sanitize
 
 
 class BrokerClientError(RuntimeError):
@@ -24,9 +25,9 @@ class BrokerClientError(RuntimeError):
         status_code: int | None = None,
         code: str | None = None,
     ) -> None:
-        super().__init__(message)
+        super().__init__(sanitize(message))
         self.status_code = status_code
-        self.code = code
+        self.code = sanitize(code)
 
 
 class TransientBrokerError(BrokerClientError):
@@ -200,19 +201,31 @@ class BrokerClient:
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         await self.start()
         assert self._client is not None
+        client = self._client
+        sent_token = client.headers.get("X-Admin-Token")
         try:
-            return await self._client.request(method, url, **kwargs)
+            return await client.request(method, url, **kwargs)
         except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as error:
-            raise TransientBrokerError(str(error)) from error
+            secrets = tuple(value for value in (sent_token, self.settings.admin_token) if value)
+            raise TransientBrokerError(sanitize(str(error), known_secrets=secrets)) from None
 
-    @staticmethod
-    def _json(response: httpx.Response) -> dict[str, Any]:
+    def _response_secrets(self, response: httpx.Response) -> tuple[str, ...]:
+        # The response may belong to an older request after a live reconfiguration.
+        try:
+            sent_token = response.request.headers.get("X-Admin-Token")
+        except RuntimeError:
+            sent_token = None
+        return tuple(value for value in (sent_token, self.settings.admin_token) if value)
+
+    def _json(self, response: httpx.Response) -> dict[str, Any]:
         try:
             data = response.json()
-        except ValueError as error:
-            raise PermanentBrokerError("El Broker devolvió JSON inválido") from error
+        except ValueError:
+            raise PermanentBrokerError("El Broker devolvió JSON inválido") from None
         if not isinstance(data, dict):
             raise PermanentBrokerError("El Broker debe devolver un objeto JSON")
+        if isinstance(data.get("error"), dict):
+            data["error"] = sanitize(data["error"], known_secrets=self._response_secrets(response))
         return data
 
     def _raise_for_status(self, response: httpx.Response) -> None:
@@ -239,6 +252,9 @@ class BrokerClient:
                     )
         except ValueError:
             pass
+        secrets = self._response_secrets(response)
+        message = sanitize(message, known_secrets=secrets)
+        code = sanitize(code, known_secrets=secrets)
         if response.status_code in self.TRANSIENT_STATUSES:
             raise TransientBrokerError(message, status_code=response.status_code, code=code)
         raise PermanentBrokerError(message, status_code=response.status_code, code=code)

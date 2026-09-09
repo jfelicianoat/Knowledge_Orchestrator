@@ -25,6 +25,10 @@ class PublicationError(ValueError):
     pass
 
 
+class PublicationConflict(PublicationError):
+    pass
+
+
 class ResultMarkdownError(PublicationError):
     pass
 
@@ -60,7 +64,7 @@ class PublicationService:
 
     Aqui el orden importa bastante:
     - Primero se guarda una intencion durable en SQLite.
-    - Luego se materializan ficheros con temporales y replace atomico.
+    - Luego se instala cada nota nueva completa, sin sustituir destinos ocupados.
     - Al recuperar, repetimos pasos ya hechos sin duplicar notas ni borrar evidencias.
     """
 
@@ -90,6 +94,8 @@ class PublicationService:
                 self.publish(workflow)
             except ResultMarkdownError as error:
                 self.repository.fail_publication(workflow, str(error))
+            except PublicationConflict:
+                continue
             else:
                 published += 1
         return published
@@ -134,7 +140,11 @@ class PublicationService:
         )
         # Este checkpoint prueba que la intencion ya existe antes de tocar el vault.
         self.checkpoint("publication_intent")
-        self._materialize_note(note, document)
+        try:
+            self._materialize_note(note, document)
+        except PublicationConflict:
+            self.repository.conflict_publication(note.note_id)
+            raise
         self.checkpoint("note_renamed")
         self.repository.mark_published(note.note_id)
         self.checkpoint("note_persisted")
@@ -148,9 +158,12 @@ class PublicationService:
     def recover(self) -> None:
         """Continua publicaciones, rechazos y reprocesos que quedaron a medias."""
 
-        for note in self.repository.list_notes_by_status("PUBLISHING"):
+        for note in self.repository.list_notes_by_status("PUBLISHING", "CONFLICT"):
             workflow = self.repository.get_workflow_for_note(note.note_id)
-            self.publish(workflow)
+            try:
+                self.publish(workflow)
+            except PublicationConflict:
+                continue
         for note in self.repository.list_notes_by_status("PUBLISHED"):
             capture = self.captures.get(note.capture_id)
             if capture and capture.status.value != "COMPLETED":
@@ -209,16 +222,30 @@ class PublicationService:
 
     def _materialize_note(self, note: NoteRecord, document: str) -> None:
         encoded = document.encode("utf-8")
-        if note.vault_path.exists() and self._hash(note.vault_path) == note.content_hash:
+        if note.vault_path.exists():
+            if not note.vault_path.is_file() or self._hash(note.vault_path) != note.content_hash:
+                raise PublicationConflict("La nota destino contiene cambios ajenos a esta publicación")
+            if note.temp_path is not None:
+                note.temp_path.unlink(missing_ok=True)
             return
         if note.temp_path is None:
             raise PublicationError("La intención no conserva temporal")
+        # Una caída tras link puede dejar el temporal unido al archivo que un editor
+        # movió. Desvincularlo antes de escribir evita modificar ese otro nombre.
+        note.temp_path.unlink(missing_ok=True)
         write_synced(note.temp_path, encoded)
         note.vault_path.parent.mkdir(parents=True, exist_ok=True)
-        # La intencion ya esta persistida; el replace deja la nota entera o sin tocar.
-        os.replace(note.temp_path, note.vault_path)
+        # Instalación atómica de archivo nuevo: link nunca sustituye un destino que
+        # apareció después de la comprobación. Si el volumen no lo admite, fallar
+        # conserva la intención; no degradar a una copia parcial ni a replace.
+        try:
+            os.link(note.temp_path, note.vault_path)
+        except FileExistsError:
+            if not note.vault_path.is_file() or self._hash(note.vault_path) != note.content_hash:
+                raise PublicationConflict("Otra escritura ocupó el destino de publicación") from None
+        note.temp_path.unlink(missing_ok=True)
         if self._hash(note.vault_path) != note.content_hash:
-            raise PublicationError("El hash de la nota publicada no coincide")
+            raise PublicationConflict("La nota cambió antes de completar la publicación")
 
     def _archive_source(self, note: NoteRecord) -> None:
         capture = self.captures.get(note.capture_id)

@@ -122,8 +122,30 @@ class PublicationRepository:
             connection.execute(
                 "UPDATE notes SET status = 'PUBLISHED', temp_path = NULL, published_at = "
                 "COALESCE(published_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), "
-                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE note_id = ? AND status = 'PUBLISHING'",
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE note_id = ? "
+                "AND status IN ('PUBLISHING','CONFLICT')",
                 (note_id,),
+            )
+
+    def conflict_publication(self, note_id: int) -> None:
+        with self.database.transaction(immediate=True) as connection:
+            changed = connection.execute(
+                "UPDATE notes SET status='CONFLICT', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') "
+                "WHERE note_id=? AND status='PUBLISHING'", (note_id,),
+            )
+            if not changed.rowcount:
+                return
+            row = connection.execute("SELECT capture_id FROM notes WHERE note_id=?", (note_id,)).fetchone()
+            message = "La nota destino cambió. Conserve o mueva su edición antes de reintentar la publicación."
+            connection.execute(
+                "UPDATE captures SET last_error_code='PUBLICATION_CONFLICT',last_error_message=?, "
+                "updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE capture_id=?",
+                (message, row['capture_id']),
+            )
+            connection.execute(
+                "INSERT INTO events(capture_id,event_type,message,details_json) "
+                "VALUES (?,'PUBLICATION_CONFLICT',?,json_object('note_id',?))",
+                (row['capture_id'], message, note_id),
             )
 
     def complete_capture(self, note_id: int) -> None:
@@ -135,6 +157,10 @@ class PublicationRepository:
                 raise ValueError("Nota inexistente")
             connection.execute(
                 "UPDATE captures SET status = 'COMPLETED', archive_path = ?, processing_path = NULL, "
+                "last_error_message = CASE WHEN last_error_code='PUBLICATION_CONFLICT' THEN NULL "
+                "ELSE last_error_message END, "
+                "last_error_code = CASE WHEN last_error_code='PUBLICATION_CONFLICT' THEN NULL "
+                "ELSE last_error_code END, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE capture_id = ? "
                 "AND status IN ('PROCESSING', 'COMPLETED')",
                 (row["source_archive_path"], row["capture_id"]),

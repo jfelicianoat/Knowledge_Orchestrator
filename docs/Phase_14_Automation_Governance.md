@@ -1,5 +1,107 @@
 # Fase 14 — Automatización y gobernanza
 
+## Incremento 18 en curso: coordinación con Obsidian (9 de septiembre de 2026)
+
+1. **Estado encontrado.** Ensayo reproducible con otro proceso confirma pérdida de
+   una edición entre último hash y replace. Se corrigió el inventario: hay evidencia
+   contradictoria, no solo un ensayo pendiente. Bloqueos simples impiden el reemplazo
+   propio o permiten renombrados compartidos; TxF devuelve WinError 6832 en el ensayo.
+2. **Diseño.** El usuario confirma Obsidian/Windows/bóveda local. Se elige un puente
+   con `Vault.process()`: la decisión y autorización siguen en el Orchestrator.
+3. **Cambios.** Plugin, servidor loopback autenticado, validación de base dentro del
+   callback, journal sincronizado e idempotencia ante respuesta perdida. Cliente Python
+   verifica recibo, bóveda y archivo posterior. No hay integración de runtime todavía.
+4. **Archivos.** `obsidian-bridge/`, `integrations/obsidian_bridge.py`, su test Python,
+   `tools/probe_note_replacement.py` y documentación de coordinación/aceptación.
+5. **Migraciones.** Ninguna. Sin instalación, activación ni cambios de bóveda real.
+6. **Tests.** Diez Node (callback simulado, archivos/transporte reales); seis Python.
+   El journal inicialmente usaba un handle append incompatible con truncar en Windows;
+   corregido a apertura de lectura/escritura, con creación exclusiva si falta.
+7. **Verificación.** Diez Node y seis Python pasan; syntax check del plugin, Ruff y
+   mypy (147 archivos) pasan. Batería completa registrada al terminar la ejecución.
+8. **Riesgos/deuda.** Callback aún no probado dentro de Obsidian. Faltan conexión
+   protegida, enlace a aprobación/recuperación/reversión y retirar reemplazo directo.
+   La ruta existente conserva el defecto hasta integrar el puente.
+9. **Checkpoint.** En curso; ninguna afirmación de cierre de la guarda ni del proyecto.
+10. **Próximo paso.** Integrar la conexión y las intenciones existentes con el cliente,
+    conservando idempotencia, conflictos y revisión de resultados ambiguos.
+
+Verificación de componentes del incremento 18: **431 pruebas Python en 188,548 s;
+426 pasan y cinco omisiones Tcl/Tk**. Diez pruebas Node adicionales pasan; sintaxis
+del plugin correcta. Ruff/mypy pasan (147 archivos de producción), diff sin errores.
+El resultado no cierra el defecto de la ruta legacy ni acredita Obsidian real.
+
+## Decimoséptimo incremento: destino ocupado al publicar (8 de septiembre de 2026)
+
+1. **Estado encontrado.** La publicación inicial usaba `os.replace`: si el destino
+   tenía contenido distinto, también durante recuperación tras una caída, lo sustituía.
+2. **Diseño.** Instalar el archivo nuevo completo sin reemplazar un destino ocupado,
+   conservar intención/fuente y registrar el conflicto sin bloquear otras notas.
+3. **Cambios.** Instalación mediante enlace duro del temporal sincronizado, que falla
+   si el destino apareció entretanto. Nota `CONFLICT` y error `PUBLICATION_CONFLICT`
+   visible en la captura; evento único por transición. Recuperación reexamina conflictos;
+   si el usuario conserva la edición en otra ruta, puede completar la intención original.
+   Un temporal residual se desvincula antes de escribir para no modificar otra ruta
+   que aún comparta su archivo tras una caída y un movimiento externo.
+4. **Archivos.** `services/publication.py`, `repositories/publication_repository.py`,
+   `tests/test_publication_conflicts.py` y documentación de publicación/estado/aceptación.
+5. **Migraciones.** Ninguna: el estado textual de notas ya admite `CONFLICT`.
+6. **Tests.** Seis nuevos: destino ocupado, carrera con escritor en otro proceso,
+   edición después de caída, enlace residual después de movimiento, continuidad de
+   otras publicaciones e idempotencia sin temporal. Fuentes y edición humana conservadas.
+7. **Verificación.** 13 pruebas focalizadas pasan en 5,747 s; Ruff y mypy pasan
+   (146 archivos). Resultado de batería completa registrado debajo.
+8. **Riesgos/deuda.** El volumen debe admitir enlaces duros; si no, falla conservando
+   la intención, sin degradar a sobrescritura. Esto cubre creación de notas nuevas;
+   la ventana check/replace de actualizaciones semánticas y reversión sigue abierta.
+   Escritor de prueba independiente no equivale a recorrido real con Obsidian.
+9. **Checkpoint.** Conflicto de publicación inicial verificado localmente;
+   gate global de convivencia con editor externo aún abierto.
+10. **Próximo paso.** Resolver coordinación para sustituir notas existentes y completar
+    los gates nativos/externos cuando el entorno lo permita.
+
+Verificación completa final del incremento 17: **425 pruebas en 255,751 s;
+420 pasan y cinco omisiones explícitas Tcl/Tk**. Ruff/mypy pasan (146 archivos);
+`diff --check` pasa. Sin uso del token real ni cambios en documentos del usuario.
+
+La investigación siguiente debe distinguir renombrado y coordinación de acceso:
+Microsoft documenta que `FILE_RENAME_POSIX_SEMANTICS` puede sustituir un archivo con
+handles abiertos, que siguen apuntando al anterior; eso por sí solo no demuestra
+una comparación condicional de contenido. Los oplocks son otra API con protocolo
+de adquisición/ruptura que necesita un ensayo propio. Fuentes primarias consultadas:
+[FILE_RENAME_INFORMATION](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information)
+y [tipos de oplocks](https://learn.microsoft.com/en-us/windows/win32/fileio/types-of-opportunistic-locks).
+No se ha implementado ni certificado esa coordinación en este incremento.
+
+## Decimosexto incremento: credenciales en errores Broker (8 de septiembre de 2026)
+
+1. **Estado encontrado.** El formateador de logs ocultaba secretos demasiado tarde
+   para errores que ya se habían guardado en tareas y trabajos semánticos.
+2. **Diseño.** Compartir el saneamiento entre diagnóstico y cliente Broker; usar la
+   credencial enviada en cada petición y la configuración vigente, solo en memoria.
+3. **Cambios.** Errores HTTP, mensajes de conexión y objetos `error` de respuestas JSON
+   se sanean antes de propagarlos. Una respuesta anterior a la rotación conserva su
+   contexto de credencial. El traceback visible no recupera la causa de red sin sanear.
+   Se conservan clasificación HTTP, códigos convencionales y reintentos de autenticación.
+4. **Archivos.** `redaction.py`, `integrations/broker_client.py`, `services/operations.py`,
+   `tests/test_broker_error_privacy.py` y documentación de aceptación/estado/checkpoint.
+5. **Migraciones.** Ninguna; no se reescriben datos históricos ni configuración del usuario.
+6. **Tests.** Cinco nuevos: matriz HTTP y variantes de respuesta, traceback de conexión,
+   respuesta tardía con rotación y autenticación posterior, persistencia de errores en
+   workflow/trabajo semántico, y reintento durable ante 503. Solo credenciales ficticias.
+7. **Verificación.** 36 pruebas específicas pasan en 4,606 s; Ruff y mypy pasan sobre
+   146 archivos de producción. Resultado de batería completa registrado debajo.
+8. **Riesgos/deuda.** No anonimiza contenido de resultados, texto privado arbitrario ni
+   históricos. Prueba de Broker real, render nativo y editor externo siguen pendientes.
+9. **Checkpoint.** Protección en la frontera de error verificada localmente;
+   objetivo global abierto.
+10. **Próximo paso.** Revisar la guarda de publicación frente a edición externa y
+    completar los gates visuales/de integración cuando el entorno permita ejecutarlos.
+
+Verificación completa final del decimosexto incremento: **419 pruebas en 187,072 s;
+414 pasan y cinco omisiones explícitas Tcl/Tk**. Ruff/mypy pasan (146 archivos);
+`diff --check` pasa. Token real nuevo no utilizado; prueba externa sigue pendiente.
+
 ## Decimoquinto incremento: una fecha no autoriza cambios (8 de septiembre de 2026)
 
 1. **Estado encontrado.** La auditoría identificó falta de evidencia específica de la

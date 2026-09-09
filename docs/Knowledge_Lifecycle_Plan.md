@@ -170,4 +170,28 @@ La reconciliación detectará diferencias en las notas sin sobrescribir contenid
   (145 archivos), diff sin errores. Sin migración ni cambios en guardas de producción.
   Próximo punto: credenciales en errores Broker y reconfiguración. Render/red/editor
   real y checkpoint global siguen abiertos.
+  Decimosexto incremento: saneamiento compartido en la frontera de errores HTTP,
+  conexión y objetos de error Broker antes de persistencia. Credenciales de petición
+  y configuración vigente, incluyendo respuesta tardía tras rotación; traceback visible
+  sin causa cruda. Cinco pruebas nuevas; se conservan clasificación/códigos/reintentos.
+  Batería: 419 pruebas en 187,072 s (414 pasan, cinco omisiones Tk). Ruff/mypy pasan
+  (146 archivos), diff sin errores. Sin migración ni uso de token real. Resultados y
+  registros históricos conservados; no se promete anonimización universal. Pendientes
+  publicación frente a editor externo y gates de render/integración real.
+  Decimoséptimo incremento: la publicación inicial no reemplaza un destino ocupado.
+  Enlace duro del temporal sincronizado, conflicto durable y recuperación que conserva
+  edición/fuente y permite seguir con otras notas. Seis pruebas nuevas incluyen escritor
+  en otro proceso en la carrera de instalación, edición tras caída y enlace residual.
+  Batería: 425 pruebas en 255,751 s (420 pasan, cinco omisiones Tk). Ruff/mypy pasan
+  (146 archivos), diff sin errores. Sin migración. Volumen requiere enlaces duros;
+  actualizaciones/reversiones de notas existentes aún requieren resolver check/replace.
+  Fuentes primarias de coordinación Windows y limitaciones registradas en fase 14.
+  Incremento 18 en curso: ensayo con otro proceso reproduce sobrescritura en la ruta
+  semántica, después del último hash. Inventario corregido a evidencia contradictoria.
+  El usuario confirma Obsidian/Windows/local. Plugin de puente con Vault.process,
+  autenticación loopback, journal sincronizado y cliente Python preparados. Diez pruebas
+  Node y seis Python nuevas pasan. Batería Python: 431 en 188,548 s (426 pasan, cinco
+  omisiones Tk); Ruff/mypy (147 archivos) y diff pasan. Aún sin instalación ni conexión
+  al runtime: faltan configuración protegida, aprobación/recuperación/reversión y prueba
+  real en Obsidian. La ruta legacy conserva el defecto hasta completar esa integración.
   Registro: `Phase_14_Automation_Governance.md`.
