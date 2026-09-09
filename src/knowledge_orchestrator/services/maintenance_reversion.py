@@ -5,6 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from knowledge_orchestrator.domain.knowledge import KnowledgeConflict
+from knowledge_orchestrator.integrations.obsidian_bridge import ObsidianBridgeUnavailable
 from knowledge_orchestrator.repositories.reversion_guards import text_hash
 from knowledge_orchestrator.repositories.reversion_repository import ReversionRepository
 from knowledge_orchestrator.services.semantic_maintenance import SemanticMaintenanceService
@@ -88,5 +89,5 @@ class MaintenanceReversionService:
         for record in self.repository.pending():
             try:
                 self._apply(record)
-            except (ValueError, OSError):
+            except (ValueError, OSError, ObsidianBridgeUnavailable):
                 continue

@@ -132,7 +132,8 @@ class PhaseNineKnowledgeCoreTests(unittest.TestCase):
             if name == 'semantic_intent':
                 note.vault_path.write_text(edited, encoding='utf-8')
 
-        service = SemanticMaintenanceService(self.runtime.semantic_repository, checkpoint=checkpoint)
+        service = SemanticMaintenanceService(self.runtime.semantic_repository,
+            note_editor=self.runtime.semantic_maintenance.note_editor, checkpoint=checkpoint)
         with self.assertRaises(SemanticContractError):
             service.approve(candidate_id)
         self.assertEqual(note.vault_path.read_text(encoding='utf-8'), edited)
@@ -146,7 +147,8 @@ class PhaseNineKnowledgeCoreTests(unittest.TestCase):
             if name == 'semantic_note_replaced':
                 raise phase_six.SimulatedCrash(name)
 
-        service = SemanticMaintenanceService(self.runtime.semantic_repository, checkpoint=checkpoint)
+        service = SemanticMaintenanceService(self.runtime.semantic_repository,
+            note_editor=self.runtime.semantic_maintenance.note_editor, checkpoint=checkpoint)
         with self.assertRaises(phase_six.SimulatedCrash):
             service.approve(candidate_id)
         self.runtime.semantic_maintenance.recover()

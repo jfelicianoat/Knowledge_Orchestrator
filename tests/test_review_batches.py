@@ -198,7 +198,9 @@ class ReviewBatchTests(unittest.TestCase):
                                     expected_status='PENDING_REVIEW', expected_revision=1)
                 self.assertEqual(repo.get_candidate(candidate.candidate_id).status, 'APPLYING')
 
-        applied = SemanticMaintenanceService(repo, checkpoint=intent).approve(candidate.candidate_id)
+        applied = SemanticMaintenanceService(repo,
+            note_editor=self.runtime.semantic_maintenance.note_editor,
+            checkpoint=intent).approve(candidate.candidate_id)
         self.assertEqual(applied.status, 'APPLIED')
         with closing(self.runtime.database.connect(readonly=True)) as connection:
             self.assertEqual(connection.execute('SELECT count(*) FROM note_revisions').fetchone()[0], 1)
@@ -242,7 +244,8 @@ class ReviewBatchTests(unittest.TestCase):
                 raise RuntimeError('Simulated crash after filesystem write')
 
         service = self.batches()
-        service.maintenance = SemanticMaintenanceService(self.runtime.semantic_repository, checkpoint=crash)
+        service.maintenance = SemanticMaintenanceService(self.runtime.semantic_repository,
+            note_editor=self.runtime.semantic_maintenance.note_editor, checkpoint=crash)
         batch = self.preview(service, candidate)
         self.confirm(service, batch)
         service.run_next()

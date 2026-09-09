@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from knowledge_orchestrator.api.server import ApiServerController
 from knowledge_orchestrator.config import BrokerSettings, PipelinePaths
 from knowledge_orchestrator.integrations.broker_client import BrokerClient
+from knowledge_orchestrator.integrations.obsidian_bridge import NoteEditor
 from knowledge_orchestrator.repositories.automation_repository import AutomationRepository
 from knowledge_orchestrator.repositories.automation_run_repository import AutomationRunRepository
 from knowledge_orchestrator.repositories.automation_schedule_repository import AutomationScheduleRepository
@@ -35,6 +36,7 @@ from knowledge_orchestrator.services.knowledge_access import KnowledgeAccess
 from knowledge_orchestrator.services.knowledge_query import KnowledgeQueryProcessor, KnowledgeQueryService
 from knowledge_orchestrator.services.maintenance_reversion import MaintenanceReversionService
 from knowledge_orchestrator.services.model_discovery import ModelDiscoveryService
+from knowledge_orchestrator.services.obsidian_connection import ObsidianConnection
 from knowledge_orchestrator.services.operations import configure_logging
 from knowledge_orchestrator.services.profile_service import ProfileService
 from knowledge_orchestrator.services.publication import PublicationService
@@ -99,6 +101,7 @@ class OrchestratorRuntime:
     automation_worker: AutomationWorker
     automation_governance: AutomationGovernanceService
     maintenance_reversion: MaintenanceReversionService
+    obsidian_connection: ObsidianConnection
     api_server: ApiServerController = field(init=False)
 
     def __post_init__(self) -> None:
@@ -166,6 +169,7 @@ def build_runtime(
     scan_interval_seconds: float = 5.0,
     broker_settings: BrokerSettings | None = None,
     enable_logging: bool = False,
+    note_editor: NoteEditor | None = None,
 ) -> OrchestratorRuntime:
     """Construye el grafo de dependencias sin arrancar hilos todavia."""
 
@@ -222,7 +226,10 @@ def build_runtime(
     )
     poller = BrokerPoller(workflow_repository, broker_client, workflow_planner)
     discovery = ModelDiscoveryService(workflow_repository, broker_client)
-    semantic_maintenance = SemanticMaintenanceService(semantic_repository)
+    obsidian_connection = ObsidianConnection(pipeline_paths)
+    semantic_maintenance = SemanticMaintenanceService(
+        semantic_repository, note_editor=note_editor if note_editor is not None else obsidian_connection,
+    )
     review_batches = ReviewBatchService(ReviewBatchRepository(database), semantic_maintenance)
     automation_policies = AutomationRepository(database)
     automation_simulation = AutomationSimulationService(automation_policies, semantic_maintenance)
@@ -291,4 +298,5 @@ def build_runtime(
         automation_worker=AutomationWorker(automation_scheduler),
         automation_governance=AutomationGovernanceService(automation_simulation),
         maintenance_reversion=MaintenanceReversionService(ReversionRepository(database), semantic_maintenance),
+        obsidian_connection=obsidian_connection,
     )

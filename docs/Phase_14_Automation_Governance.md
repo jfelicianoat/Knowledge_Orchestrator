@@ -2,34 +2,49 @@
 
 ## Incremento 18 en curso: coordinación con Obsidian (9 de septiembre de 2026)
 
+Preparación de la prueba real: bóveda temporal aislada, cinco documentos ficticios,
+paquete verificado y desactivado, sin credenciales. Obsidian instalado declara 1.12.7;
+Computer Use rechazó abrirlo con `Computer Use was not approved to use Obsidian`.
+Acceso solicitado al usuario; no se ha usado una ruta alternativa de apertura.
+Detalle y artefacto: `Obsidian_Trial_Checkpoint.md`. Ningún escenario real marcado como ejecutado.
+
 1. **Estado encontrado.** Ensayo reproducible con otro proceso confirma pérdida de
    una edición entre último hash y replace. Se corrigió el inventario: hay evidencia
    contradictoria, no solo un ensayo pendiente. Bloqueos simples impiden el reemplazo
    propio o permiten renombrados compartidos; TxF devuelve WinError 6832 en el ensayo.
 2. **Diseño.** El usuario confirma Obsidian/Windows/bóveda local. Se elige un puente
    con `Vault.process()`: la decisión y autorización siguen en el Orchestrator.
-3. **Cambios.** Plugin, servidor loopback autenticado, validación de base dentro del
-   callback, journal sincronizado e idempotencia ante respuesta perdida. Cliente Python
-   verifica recibo, bóveda y archivo posterior. No hay integración de runtime todavía.
-4. **Archivos.** `obsidian-bridge/`, `integrations/obsidian_bridge.py`, su test Python,
-   `tools/probe_note_replacement.py` y documentación de coordinación/aceptación.
+3. **Cambios.** Puente integrado con runtime, aprobación, recuperación y reversión.
+   Retirada la ruta directa de reemplazo; sin conexión se conserva intención pendiente.
+   Configuración DPAPI propia ligada a bóveda y panel de Ajustes. Recibo ambiguo produce
+   conflicto. API 503 explica recuperación pendiente; sin cambios en políticas activas.
+4. **Archivos.** `obsidian-bridge/`, cliente, `services/obsidian_connection.py`, runtime,
+   mantenimiento/reversión, API/OpenAPI, panel de Ajustes/reversión, tests y documentación.
+   `tools/probe_note_replacement.py` conserva el contraejemplo histórico retirado.
 5. **Migraciones.** Ninguna. Sin instalación, activación ni cambios de bóveda real.
-6. **Tests.** Diez Node (callback simulado, archivos/transporte reales); seis Python.
+6. **Tests.** Diez Node (callback simulado, archivos/transporte reales); seis Python
+   iniciales de cliente y diez de conexión/integración, incluida protección DPAPI real.
+   Fixtures de dominio inyectan editor explícito; ningún fallback de ensayo en producción.
    El journal inicialmente usaba un handle append incompatible con truncar en Windows;
    corregido a apertura de lectura/escritura, con creación exclusiva si falta.
-7. **Verificación.** Diez Node y seis Python pasan; syntax check del plugin, Ruff y
-   mypy (147 archivos) pasan. Batería completa registrada al terminar la ejecución.
-8. **Riesgos/deuda.** Callback aún no probado dentro de Obsidian. Faltan conexión
-   protegida, enlace a aprobación/recuperación/reversión y retirar reemplazo directo.
-   La ruta existente conserva el defecto hasta integrar el puente.
+7. **Verificación.** 440 casos en batería general: 435 pasan y cinco omisiones Tk.
+   Diez casos focalizados pasan; uno nuevo acredita API 503 después de la batería general.
+   Diez Node, sintaxis del plugin, Ruff y mypy (149 archivos) pasan.
+8. **Riesgos/deuda.** Callback aún no probado dentro de Obsidian. Falta instalación en
+   bóveda de ensayo, recorrido simultáneo real y render de los ajustes nativos.
+   Broker real sigue sin conexión acreditada; credenciales reales no se han usado.
 9. **Checkpoint.** En curso; ninguna afirmación de cierre de la guarda ni del proyecto.
-10. **Próximo paso.** Integrar la conexión y las intenciones existentes con el cliente,
-    conservando idempotencia, conflictos y revisión de resultados ambiguos.
+10. **Próximo paso.** Probar el protocolo integrado con Obsidian real en una bóveda
+    local de ensayo y completar los gates de interfaz y recorrido externo.
 
-Verificación de componentes del incremento 18: **431 pruebas Python en 188,548 s;
-426 pasan y cinco omisiones Tcl/Tk**. Diez pruebas Node adicionales pasan; sintaxis
-del plugin correcta. Ruff/mypy pasan (147 archivos de producción), diff sin errores.
-El resultado no cierra el defecto de la ruta legacy ni acredita Obsidian real.
+Verificación de integración del incremento 18: **440 pruebas Python en 293,853 s;
+435 pasan y cinco omisiones Tcl/Tk**. Luego pasan diez pruebas focalizadas, con un
+caso nuevo para API 503. Diez Node adicionales pasan; sintaxis del plugin correcta.
+Ruff/mypy pasan (149 archivos de producción), diff sin errores. La ruta legacy ha sido
+retirada; el resultado no acredita una sesión de Obsidian real ni cierra el proyecto.
+Tras ajustar API/OpenAPI y el aviso de reversión pendiente, pasan **40 pruebas**
+focalizadas de API, integración del puente y reversión en 29,873 s; Ruff/mypy y diff
+vuelven a pasar. No se ha repetido la batería general después de ese ajuste de mensajes.
 
 ## Decimoséptimo incremento: destino ocupado al publicar (8 de septiembre de 2026)
 

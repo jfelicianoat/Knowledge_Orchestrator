@@ -190,8 +190,10 @@ La reconciliación detectará diferencias en las notas sin sobrescribir contenid
   semántica, después del último hash. Inventario corregido a evidencia contradictoria.
   El usuario confirma Obsidian/Windows/local. Plugin de puente con Vault.process,
   autenticación loopback, journal sincronizado y cliente Python preparados. Diez pruebas
-  Node y seis Python nuevas pasan. Batería Python: 431 en 188,548 s (426 pasan, cinco
-  omisiones Tk); Ruff/mypy (147 archivos) y diff pasan. Aún sin instalación ni conexión
-  al runtime: faltan configuración protegida, aprobación/recuperación/reversión y prueba
-  real en Obsidian. La ruta legacy conserva el defecto hasta completar esa integración.
+  Node y seis Python iniciales pasan. Integración posterior: runtime, aprobación,
+  recuperación y reversión usan el puente; retirada la ruta directa. Conexión DPAPI
+  propia y panel de Ajustes; API 503 explica intención pendiente. Batería general:
+  440 casos en 293,853 s (435 pasan, cinco omisiones Tk); diez pruebas focalizadas
+  posteriores incluyen un caso nuevo de API. Ruff/mypy (149 archivos) y diff pasan.
+  Falta instalar y probar dentro de Obsidian; no se declara superado el gate real.
   Registro: `Phase_14_Automation_Governance.md`.

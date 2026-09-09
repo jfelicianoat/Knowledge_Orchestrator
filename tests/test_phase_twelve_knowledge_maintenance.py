@@ -16,7 +16,6 @@ from knowledge_orchestrator.domain.knowledge import KnowledgeConflict, Knowledge
 from knowledge_orchestrator.domain.monitoring import FetchResult, SourceConfig, SourceItem
 from knowledge_orchestrator.services.provenance import source_provenance
 from knowledge_orchestrator.services.semantic_maintenance import SemanticContractError, SemanticMaintenanceService
-from knowledge_orchestrator.services.semantic_maintenance.analisis import write_synced
 from tests import test_phase_six_semantic_maintenance as phase_six
 
 
@@ -58,17 +57,20 @@ class PhaseTwelveKnowledgeMaintenanceTests(unittest.TestCase):
         self.assertEqual(old.vault_path.read_bytes(), before)
         self.assertEqual(self.runtime.semantic_repository.get_candidate(candidate_id).status, 'CONFLICT')
 
-    def test_external_edit_during_temporary_write_is_preserved(self):
+    def test_external_edit_before_editor_callback_is_preserved(self):
         old, _, candidate_id, _, new_text = self.prepare_candidate()
         self.runtime.semantic_maintenance.compare(candidate_id, self.decision(new_text))
         human = old.vault_path.read_text(encoding='utf-8') + '\nAnotación humana.\n'
 
-        def changed_during_write(path, content):
-            write_synced(path, content)
-            old.vault_path.write_text(human, encoding='utf-8')
+        editor = self.runtime.semantic_maintenance.note_editor
+        replace = editor.replace
 
-        with patch('knowledge_orchestrator.services.semantic_maintenance.analisis.write_synced',
-                   side_effect=changed_during_write), self.assertRaises(SemanticContractError):
+        def changed_during_write(path, content, **kwargs):
+            old.vault_path.write_text(human, encoding='utf-8')
+            return replace(path, content, **kwargs)
+
+        with patch.object(editor, 'replace', side_effect=changed_during_write), \
+                self.assertRaises(SemanticContractError):
             self.runtime.semantic_maintenance.approve(candidate_id)
         self.assertEqual(old.vault_path.read_text(encoding='utf-8'), human)
         self.assertEqual(self.runtime.semantic_repository.get_candidate(candidate_id).status, 'CONFLICT')
@@ -82,7 +84,8 @@ class PhaseTwelveKnowledgeMaintenanceTests(unittest.TestCase):
             if name == 'semantic_intent':
                 raise RuntimeError('simulated interruption')
 
-        service = SemanticMaintenanceService(self.runtime.semantic_repository, checkpoint=crash)
+        service = SemanticMaintenanceService(self.runtime.semantic_repository,
+            note_editor=self.runtime.semantic_maintenance.note_editor, checkpoint=crash)
         with self.assertRaises(RuntimeError):
             service.approve(candidate_id)
         new.vault_path.write_text('Evidencia sustituida externamente', encoding='utf-8')
@@ -292,7 +295,8 @@ class PhaseTwelveKnowledgeMaintenanceTests(unittest.TestCase):
                                                                        actor='human:late', reason='Tarde')
                 raise RuntimeError('simulated interruption')
 
-        service = SemanticMaintenanceService(self.runtime.semantic_repository, checkpoint=checkpoint)
+        service = SemanticMaintenanceService(self.runtime.semantic_repository,
+            note_editor=self.runtime.semantic_maintenance.note_editor, checkpoint=checkpoint)
         with self.assertRaises(RuntimeError):
             service.approve(candidate_id)
         self.assertEqual(self.runtime.semantic_repository.get_candidate(candidate_id).status, 'APPLYING')
@@ -380,7 +384,8 @@ class PhaseTwelveKnowledgeMaintenanceTests(unittest.TestCase):
                 service.approve(other.candidate_id)
             self.assertEqual(source.vault_path.read_bytes(), before)
 
-        applied = SemanticMaintenanceService(repo, checkpoint=checkpoint).approve(candidate_id)
+        applied = SemanticMaintenanceService(repo,
+            note_editor=self.runtime.semantic_maintenance.note_editor, checkpoint=checkpoint).approve(candidate_id)
         self.assertEqual(applied.status, 'APPLIED')
         self.assertEqual(service.approve(other.candidate_id).status, 'APPLIED')
         self.runtime.knowledge.reconcile()

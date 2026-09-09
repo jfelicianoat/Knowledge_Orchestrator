@@ -12,6 +12,7 @@ import tkinter as tk
 import uuid
 from tkinter import messagebox, simpledialog, ttk
 
+from knowledge_orchestrator.integrations.obsidian_bridge import ObsidianBridgeUnavailable
 from knowledge_orchestrator.services.reversion_view import reversion_view
 from knowledge_orchestrator.ui.automation_plan import text_panel
 from knowledge_orchestrator.ui.review_batch_dialog import ReviewBatchDialog
@@ -143,7 +144,11 @@ class ReversionPanel(ttk.Frame):
             try:
                 results.put((kind, operation(), None))
             except Exception as error:
-                message = str(error) if isinstance(error, ValueError) else 'No se pudo completar la operación.'
+                if isinstance(error, ObsidianBridgeUnavailable):
+                    message = ('Reversión pendiente. Abre y comprueba el puente de Obsidian, '
+                               'y reinicia el Orchestrator para recuperarla.')
+                else:
+                    message = str(error) if isinstance(error, ValueError) else 'No se pudo completar la operación.'
                 results.put((kind, None, message))
         threading.Thread(target=work, name='reversion-review-ui', daemon=True).start()
 

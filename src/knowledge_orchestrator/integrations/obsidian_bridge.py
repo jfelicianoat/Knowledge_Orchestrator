@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -15,6 +15,15 @@ class ObsidianBridgeUnavailable(RuntimeError):
 
 class ObsidianBridgeConflict(ValueError):
     pass
+
+
+class NoteEditor(Protocol):
+    def replace(self, path: Path, content: str, *, base_hash: str, result_hash: str, request_id: str) -> dict: ...
+
+
+class UnconfiguredNoteEditor:
+    def replace(self, path: Path, content: str, *, base_hash: str, result_hash: str, request_id: str) -> dict:
+        raise ObsidianBridgeUnavailable('Configura el puente de Obsidian para actualizar las notas existentes')
 
 
 def _hash(value: bytes) -> str:

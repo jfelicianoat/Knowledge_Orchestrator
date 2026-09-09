@@ -1,8 +1,8 @@
 """Candidatos de actualización: propuesta, comparación y aplicación.
 
-`prepare_application` y `mark_applied` son la parte que toca ficheros del
-vault: se hacen contra un temporal y con hash esperado, para que un fallo a
-mitad no deje una nota a medias.
+`prepare_application` y `mark_applied` persisten intención y resultado. El servicio
+coordina la escritura con Obsidian. El campo histórico temp_path conserva la
+identidad durable de la petición; este repositorio no escribe archivos del vault.
 """
 from __future__ import annotations
 

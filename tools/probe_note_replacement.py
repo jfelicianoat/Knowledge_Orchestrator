@@ -12,8 +12,8 @@ import sys
 import tempfile
 from ctypes import wintypes
 from pathlib import Path
-from unittest.mock import patch
 
+from knowledge_orchestrator.services.filesystem import write_synced
 from knowledge_orchestrator.services.semantic_maintenance import SemanticMaintenanceService
 
 
@@ -33,24 +33,17 @@ def external_write(path: Path) -> dict:
     return json.loads(child.stdout)
 
 
-def existing_protocol(root: Path) -> dict:
+def retired_protocol(root: Path) -> dict:
+    """Historical counterexample, copied here after removing it from production."""
     path, temporary = root / "note.md", root / "note.tmp"
     path.write_bytes(b"base")
-    replace = os.replace
-    writer = {}
-
-    def after_last_check(source, target):
-        writer.update(external_write(target))
-        if not writer['written']:
-            raise RuntimeError("El escritor de prueba no pudo ejecutarse")
-        replace(source, target)
-
-    with patch('knowledge_orchestrator.services.semantic_maintenance.analisis.os.replace', after_last_check):
-        SemanticMaintenanceService._materialize(
-            path, temporary, 'proposed', SemanticMaintenanceService._hash_text('proposed'),
-            expected_base_hash=SemanticMaintenanceService._hash_text('base'),
-        )
-    return {'case': 'existing_protocol', 'writer': writer,
+    write_synced(temporary, b'proposed')
+    assert SemanticMaintenanceService._hash_text(path.read_text()) == SemanticMaintenanceService._hash_text('base')
+    writer = external_write(path)
+    if not writer['written']:
+        raise RuntimeError('El escritor de prueba no pudo ejecutarse')
+    os.replace(temporary, path)
+    return {'case': 'retired_protocol', 'writer': writer,
             'human_edit_preserved': path.read_bytes() == b'human edit',
             'final_content': path.read_text()}
 
@@ -108,7 +101,7 @@ def main() -> None:
         raise SystemExit('Este ensayo requiere Windows; no modifica ningún archivo de usuario.')
     with tempfile.TemporaryDirectory(prefix='ko-replace-probe-') as directory:
         root = Path(directory).resolve()
-        report = [existing_protocol(root), *sharing_probe(root)]
+        report = [retired_protocol(root), *sharing_probe(root)]
         print(json.dumps(report, ensure_ascii=False, indent=2))
 
 

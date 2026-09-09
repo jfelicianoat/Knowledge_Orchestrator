@@ -16,12 +16,18 @@ from __future__ import annotations
 
 import difflib
 import json
+import uuid
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from knowledge_orchestrator.domain.knowledge import KnowledgeConflict
 from knowledge_orchestrator.domain.semantic_models import KnowledgeClaim, UpdateCandidate
+from knowledge_orchestrator.integrations.obsidian_bridge import (
+    NoteEditor,
+    ObsidianBridgeUnavailable,
+    UnconfiguredNoteEditor,
+)
 from knowledge_orchestrator.repositories.semantic_repository import SemanticRepository
 from knowledge_orchestrator.services.maintenance_assessment import assess_proposal
 from knowledge_orchestrator.services.maintenance_layout import plan_layout, valid_layout
@@ -55,9 +61,11 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         repository: SemanticRepository,
         *,
         checkpoint: Callable[[str], None] | None = None,
+        note_editor: NoteEditor | None = None,
     ) -> None:
         self.repository = repository
         self.checkpoint = checkpoint or (lambda _name: None)
+        self.note_editor = note_editor if note_editor is not None else UnconfiguredNoteEditor()
 
     def ingest_embedding_result(self, claim_id: int, model: str, payload: Mapping[str, Any]) -> None:
         if set(payload) != {"vector"} or not isinstance(payload["vector"], list):
@@ -379,7 +387,7 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         updated = current[:patch["start"]] + patch["replacement"] + current[patch["end"]:]
         base_hash = self._hash_text(current)
         result_hash = self._hash_text(updated)
-        temporary = path.with_name(f".{path.name}.semantic-{candidate_id}.tmp")
+        temporary = path.with_name(f".{path.name}.semantic-{candidate_id}-{uuid.uuid4().hex}.tmp")
         prepared = self.repository.prepare_application(
             candidate_id,
             current_content=current,
@@ -450,5 +458,8 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             except SemanticContractError:
                 self.repository.mark_candidate(candidate.candidate_id, 'CONFLICT',
                                                reason='CONTENT_CHANGED_DURING_RECOVERY')
+                continue
+            except ObsidianBridgeUnavailable:
+                # Preserve the durable intent until Obsidian becomes available.
                 continue
             self.repository.mark_applied(candidate.candidate_id)

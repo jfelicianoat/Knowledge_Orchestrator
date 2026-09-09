@@ -1,12 +1,19 @@
 # Estado vigente de Knowledge Orchestrator
 
-Revisión del núcleo, API, fuentes, mantenimiento y gobernanza: **8 de septiembre de 2026**.
+Revisión del núcleo, API, fuentes, mantenimiento y gobernanza: **9 de septiembre de 2026**.
 Las capacidades anteriores conservan su revisión del 23 de agosto; consultar las
 limitaciones de evidencia real y los registros `Phase_9_Knowledge_Core.md` y `Phase_10_Knowledge_API.md`.
 
 Este documento prevalece para cuestiones de estado y compatibilidad. `README.md` explica
 el uso; `System_Architecture.md` y `Data_Contracts.md` contienen el diseño; los documentos
 `Phase_*` son registros históricos de cada entrega.
+
+**Ensayo local de Obsidian (9-sep-2026):** ya es accesible la copia facilitada por el
+usuario. Se prepararon el puente desactivado y cinco notas ficticias, conservando por
+hash los 140 archivos anteriores examinados. Ocho de las diez notas visibles existentes
+no son UTF-8 válido y la base copiada contiene cero notas registradas. El runtime no se
+inició ni se migró esa base. Esta preparación no acredita ejecución en Obsidian ni cierra
+los escenarios reales; detalle en `docs/Obsidian_Trial_Checkpoint.md`.
 
 ## Responsabilidad
 
@@ -157,11 +164,16 @@ acepta ese acceso. Un 401/403 se trata como credencial rotada y recuperable.
   que conserva la edición humana y continúa otras notas. Prueba con escritor separado
   en la carrera de instalación y caída con enlace residual. Requiere volumen con enlaces
   duros; no cierra la ventana check/replace de mantenimiento de notas existentes.
-  Puente Obsidian en desarrollo para el entorno confirmado por el usuario: Windows
-  con bóveda local. Plugin y cliente Python con recibos/hashes/autenticación verificados
-  por separado; todavía no conectados a aprobación, recuperación y reversión.
-  Batería actual: 431 pruebas en 188,548 s (426 pasan, cinco omisiones Tcl/Tk),
-  más diez pruebas Node del puente. Ruff/mypy pasan (147 archivos).
+  Puente Obsidian integrado para el entorno confirmado por el usuario: Windows
+  con bóveda local. Aprobación, recuperación y reversión usan el cliente; retirada
+  la ruta de reemplazo directo. Sin puente, la intención queda pendiente; un conflicto
+  de base/recibo requiere revisión. Ajustes permite guardar y comprobar conexión,
+  con credencial DPAPI propia ligada a la bóveda. API devuelve 503 y estado pendiente.
+  Batería general: 440 pruebas en 293,853 s (435 pasan, cinco omisiones Tcl/Tk).
+  Después se añadió y verificó el caso API 503, dentro de diez pruebas focalizadas de
+  conexión/integración. Diez pruebas Node pasan; Ruff/mypy pasan (149 archivos).
+  Verificación final de API, integración y reversión: 40 casos pasan en 29,873 s,
+  después de añadir el aviso API 503 y el mensaje de reversión pendiente.
   Evidencia en `Phase_14_Automation_Governance.md`.
 
 ## Límites y evidencia pendiente
@@ -177,12 +189,17 @@ acepta ese acceso. Un 401/403 se trata como credencial rotada y recuperable.
   mensajes remotos persistidos por otras rutas anteriores y texto libre arbitrario
   aún no tienen una garantía global de anonimización.
   La prueba dedicada de fecha como único disparador pasa. El ensayo con otro proceso
-  reproduce sobrescritura de una edición después del último hash en mantenimiento y
-  afecta también al método compartido con reversión. Bloqueos nativos simples no
+  reprodujo sobrescritura después del último hash en el antiguo método de mantenimiento
+  y reversión. Ese método se ha sustituido por el puente Obsidian. Bloqueos nativos simples no
   proporcionan aún una solución acreditada; TxF devolvió WinError 6832 al abrir el
   temporal del ensayo. Véase `Note_Replacement_Coordination.md`; el usuario confirmó
-  Obsidian/Windows/local y el puente se está desarrollando. Falta integrarlo y probarlo
-  dentro del editor. Este gate no está superado.
+  Obsidian/Windows/local. La integración se verifica con un editor de ensayo explícito;
+  falta instalar y probar el puente dentro de Obsidian. Este gate no está superado.
+  Se preparó una bóveda temporal con cinco notas ficticias y el puente desactivado.
+  Computer Use responde, pero rechazó abrir Obsidian: `Computer Use was not approved
+  to use Obsidian`, también después de la autorización expresa del usuario para usar
+  Obsidian y la bóveda de ensayo. Acceso efectivo pendiente; ejecución real sin acreditar. Evidencia
+  y ubicación del ensayo en `Obsidian_Trial_Checkpoint.md`.
 
 - Hay Web y RSS/Atom; no hay rastreo recursivo, GitHub releases ni búsqueda web autónoma.
 - La evolución por fases 9–14 está en curso: fases 9 y 10 superan sus checkpoints locales;

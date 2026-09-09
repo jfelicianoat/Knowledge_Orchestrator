@@ -134,7 +134,8 @@ def specification() -> dict:
                                               (409, 'Conflicto o consulta obsoleta'), (413, 'Cuerpo demasiado grande'),
                                               (405, 'Método no permitido'), (411, 'Content-Length requerido'),
                                               (415, 'Se requiere application/json'),
-                                              (500, 'Error interno saneado'), (502, 'Fallo de consulta IA')]},
+                                              (500, 'Error interno saneado'), (502, 'Fallo de consulta IA'),
+                                              (503, 'Puente Obsidian no disponible; intención pendiente')]},
             },
         }
         if body:

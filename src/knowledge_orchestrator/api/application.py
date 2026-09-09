@@ -17,6 +17,7 @@ from knowledge_orchestrator.api.openapi import ROUTES, specification
 from knowledge_orchestrator.api.reversions import dispatch as reversion_dispatch
 from knowledge_orchestrator.domain.knowledge import KnowledgeConflict, KnowledgeState
 from knowledge_orchestrator.domain.monitoring import SourceConfig
+from knowledge_orchestrator.integrations.obsidian_bridge import ObsidianBridgeUnavailable
 
 if TYPE_CHECKING:
     from knowledge_orchestrator.runtime import OrchestratorRuntime
@@ -93,6 +94,12 @@ class KnowledgeApi:
             status, payload = error.status, {'error': {'code': error.code, 'message': error.message}}
         except KnowledgeConflict as error:
             status, payload = 409, {'error': {'code': 'CONFLICT', 'message': str(error)}}
+        except ObsidianBridgeUnavailable:
+            status, payload = 503, {'error': {
+                'code': 'OBSIDIAN_UNAVAILABLE',
+                'message': 'La operación queda pendiente. Abre y comprueba el puente de Obsidian '
+                           'y reinicia el Orchestrator para recuperar la intención autorizada.',
+            }}
         except LookupError:
             status, payload = 404, {'error': {'code': 'NOT_FOUND', 'message': 'Recurso no disponible'}}
         except (ValueError, TypeError, OverflowError, RecursionError):

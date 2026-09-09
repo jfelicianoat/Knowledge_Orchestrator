@@ -163,6 +163,7 @@ class AutomationExecutionTests(unittest.TestCase):
 
         service = AutomationExecutionService(self.runtime.automation_execution.repository,
                                               SemanticMaintenanceService(self.runtime.semantic_repository,
+            note_editor=self.runtime.semantic_maintenance.note_editor,
                                                                          checkpoint=crash))
         service.run_next()
         self.assertEqual(self.receipt(run)['status'], 'RECOVERY_REQUIRED')

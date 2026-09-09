@@ -18,6 +18,7 @@ from knowledge_orchestrator.services.broker_connection import (
 )
 from knowledge_orchestrator.services.path_settings import PipelinePathStore
 from knowledge_orchestrator.ui.dashboard.temas import TemasMixin
+from knowledge_orchestrator.ui.obsidian_connection_panel import ObsidianConnectionPanel
 
 STRATEGY_LABELS = {
     "single": "Respuesta directa",
@@ -80,7 +81,7 @@ class ConfiguracionMixin(TemasMixin):
     def _build_config(self) -> None:
         page = self._new_scrollable_page("config")
         page.columnconfigure(0, weight=1)
-        page.rowconfigure(4, weight=1)
+        page.rowconfigure(5, weight=1)
         self._page_heading(page, "Ajustes", "Define cómo se procesarán los documentos nuevos.")
         self._path_store = PipelinePathStore()
         self.paths_var = tk.StringVar(value=data_root_label(self.runtime))
@@ -164,8 +165,10 @@ class ConfiguracionMixin(TemasMixin):
             fg=self.colors["muted"], font=("Segoe UI", 9), anchor="w",
         ).grid(row=3, column=0, columnspan=4, sticky="ew", padx=14, pady=(5, 12))
 
+        self.obsidian_connection_panel = ObsidianConnectionPanel(page, self.runtime.obsidian_connection)
+        self.obsidian_connection_panel.grid(row=4, column=0, sticky='ew', padx=24, pady=(0, 14))
         content = tk.PanedWindow(page, orient="horizontal", bg=self.colors["border"], sashwidth=2, bd=0)
-        content.grid(row=4, column=0, sticky="nsew", padx=24, pady=(0, 24))
+        content.grid(row=5, column=0, sticky="nsew", padx=24, pady=(0, 24))
         list_frame = tk.Frame(content, bg=self.colors["surface"])
         editor = tk.Frame(content, bg=self.colors["surface"])
         content.add(list_frame, minsize=500, stretch="always")

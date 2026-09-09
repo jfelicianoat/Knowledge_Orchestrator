@@ -91,7 +91,7 @@ especificación; no se presentan como implementadas.
 | 12.6 | Riesgos | assessment con blockers/risks/trust; T12 contradicción de fuentes y confianza no autorizante | L |
 | 12.7 | Actualización Obsidian | `maintenance_layout.py` y publicación semántica; T12 secciones actuales/históricas o snapshot, texto no afectado intacto | L; editor real concurrente pendiente |
 | 12.8 | CURRENT/HISTORICAL | `maintenance_states.py`; T9/T12 sucesión y proyección en nota destino | L |
-| 12.9 | Conflictos | guardas de aplicación/evidencia; T12 hash antes/después de intención y escritura temporal | P: sobrescritura reproducida entre último hash y replace; `Note_Replacement_Coordination.md` |
+| 12.9 | Conflictos | Puente Obsidian integrado; T12 edición antes del callback, Node base dentro del callback y pruebas runtime sin fallback/recibo ambiguo | L con editor simulado; Obsidian real pendiente, `Note_Replacement_Coordination.md` |
 | 12.10 | Reindexado | `maintenance_projection.py`, FTS/vector; T12 offsets, fuente original, embeddings y reextracción sin resucitar histórico | L |
 | 12.11 | Casos normales/negativos | T12: evidencia inventada, solapamientos, edición concurrente, fuentes contradictorias, API y recuperación | L |
 
@@ -209,7 +209,7 @@ plan de su autorización. No se eliminó un endpoint existente para introducirla
 |---|---|
 | No borrar histórico ni perder provenance | T9/T12/TR conservan versiones/citas, proyecciones y sucesores; migraciones 012–021 aditivas. L |
 | No sobrepasar manual_lock | T9/T12/TE/TR, guardas compartidas y reservas. L en rutas cubiertas |
-| No sobrescribir base/hash diferente | T9/T12/TR detectan edición anterior al chequeo. Ensayo con otro proceso reproduce sobrescritura después del último hash; invariante aún incumplido en esa ventana |
+| No sobrescribir base/hash diferente | Ruta check/replace retirada; puente compara dentro del callback. T9/T12/TR y pruebas de integración conservan ediciones/intenciones con editor simulado; prueba Obsidian real pendiente |
 | No presentar contenido no verificado como verificado ni consenso como evidencia factual | Claims etiquetados `evidence_linked_not_independently_verified`, query con incertidumbre, assessment distingue trust/certeza. P: legibilidad visual y modelo real |
 | No actualizar solo por fecha caducada | `test_temporal_authorization.py`: claim fechado sin evidencia nueva, observación posterior de texto idéntico y reemplazo inferido por fecha sin cita; política autorizada, reloj avanzado y reinicio no publican. L |
 | No aplicar solo por confianza del modelo | T12 reemplazo sin cita rechazado; TG/TE exigen fuente, evidencia, relación y autorización. L |
@@ -232,7 +232,7 @@ plan de su autorización. No se eliminó un endpoint existente para introducirla
 | 6 | Revisión masiva funciona | TB parcial por tarea/idempotencia; falta interacción/render real | P |
 | 7 | Autoaprobación gobernada | 14.1–14.4/14.7–14.9; autorización y reservas revalidadas | L |
 | 8 | manual_lock inviolable | Guardas y tests 9/12/TE/TR; todas las rutas cubiertas lo respetan | L local; no afirmación universal sobre código futuro |
-| 9 | Obsidian/modelo razonablemente consistentes | Reconciliación/proyección/reindexado/reversión; sobrescritura externa reproducida en ventana filesystem | P: evidencia contradictoria en `Note_Replacement_Coordination.md` |
+| 9 | Obsidian/modelo razonablemente consistentes | Reconciliación/proyección/reindexado/reversión; ruta vulnerable sustituida por puente integrado | P: falta probar el puente dentro de Obsidian, `Note_Replacement_Coordination.md` |
 | 10 | API distingue current/history | T10 claims/search/entity_history y conflicto documental | L |
 | 11 | Query fundamentado | T10 citas/IDs/insuficiencia/obsolescencia; inferencia real pendiente | P |
 | 12 | Conectores se recuperan | T11/worker y entrega idempotente; red real pendiente | P |
@@ -270,8 +270,10 @@ Acciones concretas pendientes:
    de saneamiento de credenciales (incremento 16, `test_broker_error_privacy.py`),
    incluyendo rotación. Resultados de negocio y texto libre arbitrario conservan su
    contenido; no se promete anonimización universal ni se reescriben históricos.
-4. Resolver/comprobar convivencia con editor externo durante el último check/replace
-   de mantenimiento y reversión. La creación inicial usa instalación sin sustitución
+4. Comprobar el puente integrado dentro de Obsidian, que sustituye el antiguo check/replace
+   de mantenimiento y reversión. `Obsidian_Trial_Checkpoint.md` registra una bóveda de
+   ensayo preparada y el rechazo de acceso de Computer Use; no acredita una ejecución.
+   La creación inicial usa instalación sin sustitución
    desde el incremento 17: `test_publication_conflicts.py` prueba destino ocupado,
    escritor en otro proceso durante instalación y recuperación después de edición.
    Esta evidencia no certifica reemplazo condicional atómico de notas existentes.

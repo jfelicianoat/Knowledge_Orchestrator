@@ -19,7 +19,7 @@ controlado descrito; no demuestra comportamiento de un modelo real ni una sesió
 | 4 | Fuente secundaria contradice oficial sin actualización silenciosa | `test_phase_twelve_knowledge_maintenance.py::test_secondary_conflicting_source_requires_explicit_human_resolution`; ambas DISPUTED y archivo intacto antes de decisión | Local |
 | 5 | Dos fuentes fiables requieren revisión | `test_two_high_trust_sources_do_not_resolve_by_trust_or_model_confidence`, mismo archivo; PENDING_REVIEW y autoapproval no elegible | Local |
 | 6 | manual_lock impide actualización | `test_phase_nine_knowledge_core.py::test_manual_lock_after_diff_prevents_note_and_claim_changes` y `test_automation_execution.py::test_manual_lock_added_after_simulation_is_absolute` | Local |
-| 7 | Edición externa después del diff da CONFLICT | Test de fase 9 conserva edición anterior al chequeo; `tools/probe_note_replacement.py` demuestra sobrescritura si otro proceso edita después del último hash | Incompleto: defecto reproducido; ver `Note_Replacement_Coordination.md` |
+| 7 | Edición externa después del diff da CONFLICT | Ruta check/replace retirada. T12 conserva edición antes del callback; Node comprueba base dentro del callback; `test_obsidian_maintenance_integration.py` verifica runtime sin fallback, recibo ambiguo, respuesta perdida y recuperación | Integración local verificada con editor simulado; Obsidian real pendiente, ver `Note_Replacement_Coordination.md` |
 | 8 | Aprobación individual | `test_phase_twelve_knowledge_maintenance.py::test_api_review_scopes_revision_conflict_and_repeated_approval` y prueba de sucesor de fase 9 | Local; widgets pendientes |
 | 9 | Selección masiva y resultados parciales por tarea | `test_review_batches.py::test_confirmed_selection_reports_partial_results_and_preserves_late_edit`; una APPLIED, otra CONFLICT, repetición sin trabajo adicional | Local; widgets pendientes |
 | 10 | Autoaprobación solo de elegibles | `test_automation_execution.py`: política desactivada/pausa, fuente revocada, edición y manual_lock revalidados antes de reserva | Local |
@@ -79,12 +79,13 @@ modificado documentos del usuario para obtener esta evidencia.
 
 ## Hallazgo al revisar los campos de propuesta
 
-Incremento 18 en curso: entorno Obsidian/Windows/local confirmado. Puente y cliente
-Python se verifican por separado: diez pruebas Node de callback simulado/journal/HTTP
-real y seis Python nuevas de autenticación/recibo/archivo posterior. Batería Python:
-431 en 188,548 s, 426 pasan y cinco omisiones Tk; Ruff/mypy (147 archivos) y diff pasan.
-Todavía falta integrar con las intenciones y probar el editor. El caso 7 contiene un
-contraejemplo reproducido; no se declara resuelto por los tests aislados del puente.
+Incremento 18: entorno Obsidian/Windows/local confirmado. Puente integrado con runtime,
+aprobación, recuperación y reversión; conexión DPAPI propia y panel de Ajustes. Se retiró
+la sustitución directa de notas existentes. Batería general: 440 casos en 293,853 s,
+435 pasan y cinco omisiones Tk. Diez pruebas de conexión/integración pasan, incluyendo
+un caso API 503 añadido después de esa batería. Diez Node adicionales pasan;
+Ruff/mypy (149 archivos) y diff pasan. El caso 7 ahora tiene integración verificada con
+editor simulado, sin acreditar todavía una sesión real de Obsidian ni render de Ajustes.
 
 Incremento 17: `test_publication_conflicts.py` añade seis casos de creación de nota sin
 sustituir un destino ocupado, con fuente/edición conservadas, conflicto durable,

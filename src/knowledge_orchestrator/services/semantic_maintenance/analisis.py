@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 from collections.abc import Mapping
 from datetime import date, datetime
@@ -16,13 +15,15 @@ from pathlib import Path
 from typing import Any
 
 from knowledge_orchestrator.domain.semantic_models import ComparisonDecision, ExtractedClaim
-from knowledge_orchestrator.services.filesystem import write_synced
+from knowledge_orchestrator.integrations.obsidian_bridge import NoteEditor, ObsidianBridgeConflict
 from knowledge_orchestrator.services.maintenance_layout import history_boundary
 from knowledge_orchestrator.services.semantic_maintenance.contratos import SemanticContractError
 
 
 class AnalisisMixin:
     """Parseo del resultado del modelo y materialización del cambio."""
+
+    note_editor: NoteEditor
 
     @staticmethod
     def _parse_extraction(payload: Mapping[str, Any], document: str) -> list[ExtractedClaim]:
@@ -130,19 +131,19 @@ class AnalisisMixin:
         match = re.search(r"\n---\s*\n", document[3:])
         return match.end() + 3 if match else len(document)
 
-    @staticmethod
-    def _materialize(path: Path, temporary: Path, content: str, expected_hash: str,
+    def _materialize(self, path: Path, temporary: Path, content: str, expected_hash: str,
                      *, expected_base_hash: str | None = None) -> None:
-        write_synced(temporary, content.encode("utf-8"))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if expected_base_hash is not None and (
-            not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != expected_base_hash
-        ):
-            raise SemanticContractError('La nota cambió mientras se preparaba el archivo temporal')
-        # La aplicacion ya tiene intencion durable; replace atomico evita notas a medio escribir.
-        os.replace(temporary, path)
-        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_hash:
-            raise RuntimeError("El hash de la actualización semántica no coincide")
+        if expected_base_hash is None:
+            raise SemanticContractError('La publicación requiere una base versionada')
+        # temp_path is the persisted identity of the intent, including a UUID for
+        # new approvals. No temporary note is written by the Orchestrator anymore.
+        identity = [str(temporary.resolve()).replace('\\', '/').lower(), expected_base_hash, expected_hash]
+        request_id = self._hash_text(json.dumps(identity, ensure_ascii=False))
+        try:
+            self.note_editor.replace(path, content, base_hash=expected_base_hash,
+                                     result_hash=expected_hash, request_id=request_id)
+        except ObsidianBridgeConflict:
+            raise SemanticContractError('La nota o el recibo de Obsidian requieren revisión') from None
 
     @staticmethod
     def _hash_text(content: str) -> str:

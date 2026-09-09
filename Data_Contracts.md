@@ -1051,7 +1051,7 @@ La implementación usa IDs SQLite enteros, estados en mayúsculas y dos respuest
 
 Estados de candidato: `PENDING_COMPARISON`, `PENDING_REVIEW`, `APPLYING`, `APPLIED`, `REJECTED`, `CONFLICT` y `ERROR`. Estados de job: `READY`, `SUBMITTING`, `QUEUED`, `PROCESSING`, `SUCCESS` y `ERROR`.
 
-Toda propuesta debe citar fuentes y spans existentes en el repositorio local. El conocimiento interno del LLM no es evidencia. `manual_lock: true` impide incluso almacenar un patch. La aprobación conserva primero un snapshot en `note_revisions` y aplica mediante temporal sincronizado más `os.replace`.
+Toda propuesta debe citar fuentes y spans existentes en el repositorio local. El conocimiento interno del LLM no es evidencia. `manual_lock: true` impide incluso almacenar un patch. La aprobación conserva primero un snapshot en `note_revisions` y una intención durable. Las actualizaciones y reversiones de notas existentes se materializan mediante el puente local de Obsidian, que compara la base dentro de `Vault.process()`; el Orchestrator no usa `os.replace` como alternativa. Sin conexión, `APPLYING` queda recuperable. Un recibo ambiguo o una base distinta producen conflicto. Contrato, identidad idempotente y configuración protegida en `obsidian-bridge/README.md`; la prueba dentro del editor real sigue pendiente.
 
 ### 8.11 Compatibilidad Broker 2.8/2.9 y Multitasking_LLM
 

@@ -11,6 +11,7 @@ from knowledge_orchestrator.runtime import build_runtime
 from knowledge_orchestrator.services.file_stability import FileStabilityChecker
 from knowledge_orchestrator.services.semantic_maintenance import SemanticContractError, SemanticMaintenanceService
 from tests.helpers import generic_markdown
+from tests.note_editor import FakeNoteEditor
 
 
 class SimulatedCrash(RuntimeError):
@@ -21,7 +22,8 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.runtime = build_runtime(PipelinePaths.under(self.root))
+        paths = PipelinePaths.under(self.root)
+        self.runtime = build_runtime(paths, note_editor=FakeNoteEditor(paths.obsidian_vault))
         self.runtime.ingestion.stability_checker = FileStabilityChecker(interval_seconds=0, sleep=lambda _: None)
 
     def tearDown(self) -> None:
@@ -218,7 +220,8 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             if name == "semantic_note_replaced":
                 raise SimulatedCrash(name)
 
-        crashing = SemanticMaintenanceService(self.runtime.semantic_repository, checkpoint=checkpoint)
+        crashing = SemanticMaintenanceService(self.runtime.semantic_repository,
+            note_editor=self.runtime.semantic_maintenance.note_editor, checkpoint=checkpoint)
         with self.assertRaises(SimulatedCrash):
             crashing.approve(candidate_id)
         self.assertEqual(self.runtime.semantic_repository.get_candidate(candidate_id).status, "APPLYING")
@@ -241,7 +244,8 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
             if name == "semantic_intent":
                 raise SimulatedCrash(name)
 
-        crashing = SemanticMaintenanceService(self.runtime.semantic_repository, checkpoint=checkpoint)
+        crashing = SemanticMaintenanceService(self.runtime.semantic_repository,
+            note_editor=self.runtime.semantic_maintenance.note_editor, checkpoint=checkpoint)
         with self.assertRaises(SimulatedCrash):
             crashing.approve(candidate_id)
         self.assertNotIn(new_text, old_note.vault_path.read_text(encoding="utf-8"))

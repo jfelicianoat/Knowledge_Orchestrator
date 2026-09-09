@@ -319,7 +319,8 @@ class MaintenanceReversionTests(unittest.TestCase):
         def interrupt(name):
             if name == 'semantic_intent':
                 raise Interrupted()
-        service = SemanticMaintenanceService(self.runtime.semantic_repository, checkpoint=interrupt)
+        service = SemanticMaintenanceService(self.runtime.semantic_repository,
+            note_editor=self.runtime.semantic_maintenance.note_editor, checkpoint=interrupt)
         with self.assertRaises(Interrupted):
             service.approve(dependency.candidate_id)
         with self.assertRaisesRegex(KnowledgeConflict, 'pendiente'):

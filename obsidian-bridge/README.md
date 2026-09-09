@@ -1,7 +1,9 @@
 # Puente de publicación para Obsidian
 
-**En desarrollo: todavía no conectado al flujo de mantenimiento del Orchestrator.**
-No está instalado ni activado en ninguna bóveda del usuario.
+**Integrado con aprobación, recuperación y reversión; prueba en Obsidian real pendiente.**
+El paquete está copiado y desactivado en la copia local de ensayo facilitada por el
+usuario. No se ha probado su ejecución dentro de Obsidian; consultar
+`docs/Obsidian_Trial_Checkpoint.md` en el proyecto para rutas y evidencia.
 
 Entorno acordado: Obsidian en Windows y bóveda local. Requiere Obsidian 1.11.4 o
 posterior para su selector/almacén de credenciales. No migra la interfaz del Orchestrator.
@@ -58,16 +60,44 @@ El paquete consta de `manifest.json`, `main.js`, `bridge-core.cjs`, `server.cjs`
 Node instaladas en Obsidian. No distribuir `receipts.jsonl`, credenciales o `data.json`
 de otra instalación. La activación viene deshabilitada y requiere configuración expresa.
 
-Antes de instalarlo en una bóveda real quedan pendientes:
+El runtime usa el puente para actualizaciones y reversiones de notas existentes.
+Sin conexión deja la intención `APPLYING` pendiente; no reemplaza archivos directamente.
+Al reiniciar con el puente disponible recupera las intenciones y conserva la identidad
+de la petición. Un 409 produce conflicto; una respuesta perdida se resuelve comprobando
+el archivo y el recibo. La publicación inicial conserva su instalación sin sobrescritura.
 
-1. Integrar el cliente con las intenciones de aprobación, recuperación y reversión.
-2. Configurar la conexión y credencial protegida desde el Orchestrator.
-3. Sustituir la ruta vulnerable de reemplazo directo; no ocultarla como fallback.
-4. Probar edición simultánea, respuesta perdida y reinicio en Obsidian real.
+## Configuración y prueba en una bóveda local de ensayo
+
+1. Copiar los cinco archivos del paquete a
+   `.obsidian/plugins/knowledge-orchestrator-bridge/` de la bóveda de ensayo.
+2. Activar el complemento en Obsidian. Crear/seleccionar una credencial exclusiva
+   de al menos 32 caracteres en su selector de secretos y habilitar la recepción.
+3. En Orchestrator, Ajustes → Edición segura en Obsidian, guardar la dirección
+   `http://127.0.0.1:8766` y la misma credencial del puente. La bóveda configurada
+   en el Orchestrator debe ser la misma que está abierta en Obsidian.
+4. Comprobar la conexión. La comprobación solo consulta protocolo e identidad;
+   no aplica propuestas. La clave vacía conserva la guardada.
+5. Probar una aprobación, edición simultánea, respuesta perdida, reinicio y reversión
+   con documentos de ensayo antes de habilitar su uso con documentos reales.
+
+El Orchestrator guarda dirección, identidad de bóveda y credencial cifrada con DPAPI
+en un único JSON sustituido de forma atómica, bajo `state/credentials/obsidian-bridge.json`.
+La configuración queda ligada al usuario de Windows y a la bóveda; no reutiliza
+variables ni archivos de credenciales del Broker. No cambia las carpetas configuradas.
+Sin puente disponible, reiniciar después de abrirlo permite recuperar operaciones
+ya autorizadas; no hace falta volver a aprobarlas.
+
+Las nuevas intenciones usan un UUID en el campo durable `temp_path` existente,
+que identifica la petición sin crear un temporal de nota. Intenciones anteriores
+conservan su ruta guardada; las reversiones usan su identificador durable propio.
+No hay migración de SQLite ni fallback de reemplazo directo.
 
 Pruebas de desarrollo: `node --test obsidian-bridge/bridge.test.cjs` desde la raíz.
 Los tests del callback usan un Vault simulado; el transporte loopback y el journal
-usan Node y archivos reales temporales. No certifican la ejecución dentro de Obsidian.
+usan Node y archivos reales temporales. Los tests de dominio inyectan explícitamente
+un editor de ensayo que utiliza el cliente HTTP con transporte simulado. También se
+verifican runtime sin configurar, recuperación/reversión e intercambio DPAPI real.
+No certifican la ejecución dentro de Obsidian ni el render del panel de Ajustes.
 
 Referencias oficiales:
 [Vault.process](https://docs.obsidian.md/Plugins/Vault),

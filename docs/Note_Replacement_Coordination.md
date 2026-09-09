@@ -1,17 +1,19 @@
 # Coordinación al sustituir notas existentes
 
-Estado: **defecto reproducido; puente Obsidian en desarrollo, aún sin integrar**.
+Estado: **ruta vulnerable retirada; puente integrado, prueba en Obsidian real pendiente**.
 Ensayo del 8 de septiembre de 2026. Este documento no rebaja la exigencia de conservar
 ediciones humanas ni autoriza cambios de tecnología o restricciones de uso.
 
 ## Invariante y reproducción
 
 La especificación exige que una nota distinta de la base del patch produzca `CONFLICT`
-sin sobrescribirla. El `os.replace` de `SemanticMaintenanceService._materialize` deja
-una ventana después de calcular el último hash. La reversión reutiliza ese método.
+sin sobrescribirla. El antiguo `os.replace` de `SemanticMaintenanceService._materialize`
+dejaba una ventana después de calcular el último hash. La reversión reutilizaba ese método.
 
-`tools/probe_note_replacement.py` ejecuta el método real sobre un directorio temporal
-propio e interpone una escritura de otro proceso inmediatamente antes de `os.replace`.
+El ensayo original de `tools/probe_note_replacement.py` ejecutó el método real sobre
+un directorio temporal propio, interponiendo otra escritura antes de `os.replace`.
+Tras retirar esa implementación, el script conserva una copia del protocolo antiguo
+como contraejemplo histórico, identificada en su salida como `retired_protocol`.
 El escritor terminó correctamente, pero el contenido final fue `proposed`:
 `human_edit_preserved=false`. El diagnóstico **contradice el invariante en esa ventana**.
 Los tests anteriores de edición antes del chequeo siguen siendo válidos para ese
@@ -58,7 +60,7 @@ Fuentes primarias de las operaciones y límites:
 - [FILE_RENAME_INFORMATION: reemplazo POSIX y handles abiertos](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information).
 - [Transactional NTFS y recomendación de alternativas](https://learn.microsoft.com/en-us/windows/win32/fileio/transactional-ntfs-portal).
 
-## Decisión de integración pendiente
+## Integración y prueba real pendiente
 
 El usuario ha confirmado expresamente **Obsidian en Windows y bóveda local**.
 La vía elegida es coordinar la escritura mediante un puente a Obsidian. El paquete
@@ -66,9 +68,9 @@ se está preparando y verificando; aún no se han sustituido documentos, activad
 políticas ni instalado el puente en una bóveda real.
 
 Para el caso Obsidian, su API documenta `Vault.process()` como lectura/modificación
-coordinada. Se desarrolla el puente de publicación, conservando en
+coordinada. El runtime usa el puente de publicación, conservando en
 el Orchestrator propuesta, autorización, hash, snapshot, intención y recibo durable.
-El puente no decidiría conocimiento ni políticas. Una prueba debe acreditar edición
+El puente no decide conocimiento ni políticas. Una prueba debe acreditar edición
 concurrente, respuesta perdida, reinicio e idempotencia antes de usarlo en una bóveda.
 La documentación de esa API no prueba por sí sola coordinación de escritores externos.
 [Fuente: API Vault de Obsidian](https://docs.obsidian.md/Plugins/Vault).
@@ -81,12 +83,16 @@ No se selecciona silenciosamente un entorno más restringido para cerrar el chec
 ## Consecuencias para la aceptación
 
 - El incremento 17 protege instalación de notas **nuevas** y sigue vigente.
-- La actualización y reversión de notas **existentes** conservan el defecto reproducido.
+- La actualización y reversión de notas **existentes** ya usan el cliente del puente.
+  Sin conexión no se escribe: la intención sigue pendiente para recuperación.
 - No se han activado políticas, ejecutado cambios reales ni instalado un puente.
 - La batería anterior (425 casos, 420 pasan, cinco omisiones Tk) no cubría esta carrera.
-- El gate de publicación con editor externo y el criterio global de consistencia quedan
-  abiertos por evidencia contradictoria, no solo por falta de una prueba visual.
+- El gate de publicación con editor externo y el criterio global de consistencia siguen
+  abiertos hasta probar el protocolo integrado dentro de Obsidian, incluida edición activa.
 
-Implementación inicial del puente y contrato: `../obsidian-bridge/README.md`.
-Diez pruebas Node cubren callback, journal y transporte; seis pruebas Python verifican
-el cliente y los recibos. La ruta vulnerable sigue vigente hasta completar la integración.
+Contrato y configuración: `../obsidian-bridge/README.md`. Diez pruebas Node cubren
+callback, journal y transporte; seis Python prueban el cliente y diez nuevas cubren
+conexión protegida e integración de mantenimiento/reversión. DPAPI se prueba realmente
+en Windows. Se comprueba que el runtime sin puente conserva la nota y la intención,
+que los reintentos reutilizan ID y que no se llama a `os.replace` para actualizarla.
+La integración se prueba con editor/transporte simulados, sin instalación real.
