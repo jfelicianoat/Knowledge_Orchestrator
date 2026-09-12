@@ -32,7 +32,7 @@ def prepare(project: Path) -> Path:
     for name, content in originals.items():
         with (plugin / name).open('xb') as output:
             output.write(content)
-    (plugin / 'data.json').write_text(json.dumps({'enabled': False, 'secretName': '', 'port': 8766}),
+    (plugin / 'data.json').write_text(json.dumps({'enabled': False, 'secretName': '', 'port': 8767}),
                                     encoding='utf-8')
     (vault / '.obsidian' / 'community-plugins.json').write_text('[]\n', encoding='utf-8')
     notes = {}

@@ -7,7 +7,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from knowledge_orchestrator.config import PipelinePaths
-from knowledge_orchestrator.integrations.obsidian_bridge import ObsidianBridgeClient, ObsidianBridgeUnavailable
+from knowledge_orchestrator.integrations.obsidian_bridge import (
+    DEFAULT_BRIDGE_URL,
+    ObsidianBridgeClient,
+    ObsidianBridgeUnavailable,
+)
 from knowledge_orchestrator.services.broker_connection import _protect_windows, _unprotect_windows
 from knowledge_orchestrator.services.filesystem import atomic_write_json
 
@@ -58,7 +62,18 @@ class ObsidianConnection:
         try:
             return self.client().base_url
         except ObsidianBridgeUnavailable:
-            return 'http://127.0.0.1:8766'
+            # An existing bridge may use the former default or a chosen port.
+            # This is only a UI suggestion; no credential is read or connection saved.
+            settings = self.vault / '.obsidian' / 'plugins' / 'knowledge-orchestrator-bridge' / 'data.json'
+            try:
+                with settings.open(encoding='utf-8') as stream:
+                    data = json.loads(stream.read(65536))
+                port = data.get('port') if isinstance(data, dict) else None
+                if type(port) is int and 1024 <= port <= 65535:
+                    return f'http://127.0.0.1:{port}'
+            except (OSError, ValueError):
+                pass
+            return DEFAULT_BRIDGE_URL
 
     def status(self) -> dict:
         return self.client().status()

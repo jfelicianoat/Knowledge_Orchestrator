@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+DEFAULT_BRIDGE_URL = 'http://127.0.0.1:8767'
+
 
 class ObsidianBridgeUnavailable(RuntimeError):
     pass
@@ -31,7 +33,7 @@ def _hash(value: bytes) -> str:
 
 
 class ObsidianBridgeClient:
-    def __init__(self, vault: Path, token: str, *, base_url: str = 'http://127.0.0.1:8766',
+    def __init__(self, vault: Path, token: str, *, base_url: str = DEFAULT_BRIDGE_URL,
                  transport: httpx.BaseTransport | None = None) -> None:
         parsed = urlsplit(base_url)
         if parsed.scheme != 'http' or parsed.hostname != '127.0.0.1' or parsed.port is None \

@@ -25,6 +25,7 @@ def _profile(row: sqlite3.Row) -> ProfileDefinition:
         chunk_prompt=row["chunk_prompt"],
         synthesis_prompt=row["synthesis_prompt"],
         preferred_model=row["preferred_model"],
+        analysis_model=row["analysis_model"],
         fallback_allowed=bool(row["fallback_allowed"]),
         temperature=float(row["temperature"]),
         max_output_tokens=int(row["max_output_tokens"]),
@@ -93,12 +94,13 @@ class DomainRepository:
             if profile.profile_id is None:
                 cursor = connection.execute(
                     "INSERT INTO profiles (name, config_json, system_prompt, user_prompt, chunk_prompt, "
-                    "synthesis_prompt, preferred_model, fallback_allowed, temperature, max_output_tokens, "
+                    "synthesis_prompt, preferred_model, analysis_model, fallback_allowed, temperature, "
+                    "max_output_tokens, "
                     "enabled, revision, execution_strategy, multitasking_steps_json, consensus_preset, "
                     "consensus_max_proposers, consensus_timeout_seconds, consensus_fallback_to_single, "
                     "cloud_allowed, allowed_providers_json, data_classification, max_cost_usd, "
                     "human_review_required, long_context, prompt_compression) VALUES "
-                    "(?, '{}', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(?, '{}', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         profile.name,
                         profile.system_prompt,
@@ -106,6 +108,7 @@ class DomainRepository:
                         profile.chunk_prompt,
                         profile.synthesis_prompt,
                         profile.preferred_model,
+                        profile.analysis_model,
                         int(profile.fallback_allowed),
                         profile.temperature,
                         profile.max_output_tokens,
@@ -129,7 +132,8 @@ class DomainRepository:
             else:
                 cursor = connection.execute(
                     "UPDATE profiles SET name = ?, system_prompt = ?, user_prompt = ?, chunk_prompt = ?, "
-                    "synthesis_prompt = ?, preferred_model = ?, fallback_allowed = ?, temperature = ?, "
+                    "synthesis_prompt = ?, preferred_model = ?, analysis_model = ?, fallback_allowed = ?, "
+                    "temperature = ?, "
                     "max_output_tokens = ?, enabled = ?, execution_strategy = ?, multitasking_steps_json = ?, "
                     "consensus_preset = ?, consensus_max_proposers = ?, consensus_timeout_seconds = ?, "
                     "consensus_fallback_to_single = ?, cloud_allowed = ?, allowed_providers_json = ?, "
@@ -144,6 +148,7 @@ class DomainRepository:
                         profile.chunk_prompt,
                         profile.synthesis_prompt,
                         profile.preferred_model,
+                        profile.analysis_model,
                         int(profile.fallback_allowed),
                         profile.temperature,
                         profile.max_output_tokens,

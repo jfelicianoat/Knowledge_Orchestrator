@@ -33,6 +33,22 @@ class ControlMixin(EnvioMixin):
             if task is None:
                 return False
             request = json.loads(task["request_json"])
+            # Reintentar es «vuelve a intentarlo con lo que hay ahora». La
+            # petición se congela al planificar, así que sin esto se reenviaba
+            # el modelo y la longitud con los que ya había fallado: cambiar el
+            # modelo en Ajustes no servía de nada (reproducido con un modelo que
+            # agotaba su presupuesto razonando). El prompt no se toca.
+            policy = connection.execute(
+                "SELECT p.preferred_model, p.temperature, p.max_output_tokens FROM workflows w "
+                "JOIN profiles p ON p.profile_id = w.profile_id WHERE w.workflow_id = ?",
+                (task["workflow_id"],),
+            ).fetchone()
+            if policy is not None and isinstance(request.get("generation"), dict):
+                request.setdefault("model_requirements", {})["preferred_model"] = (
+                    policy["preferred_model"] or None
+                )
+                request["generation"]["temperature"] = float(policy["temperature"])
+                request["generation"]["max_output_tokens"] = int(policy["max_output_tokens"])
             retry_number = int(task["attempt"] or 0) + 1
             base_key = str(task["idempotency_key"]).split(":manual-", 1)[0]
             idempotency_key = f"{base_key}:manual-{retry_number}"

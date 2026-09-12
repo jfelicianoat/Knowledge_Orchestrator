@@ -105,6 +105,8 @@ class ProfileDefinition:
     chunk_prompt: str
     synthesis_prompt: str
     preferred_model: str
+    #: Modelo para las tareas con esquema JSON. Vacío = lo elige la aplicación.
+    analysis_model: str = ""
     fallback_allowed: bool = True
     temperature: float = 0.3
     max_output_tokens: int = 4000

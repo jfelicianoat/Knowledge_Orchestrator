@@ -9,6 +9,7 @@ o no se escribe.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from typing import Any
@@ -47,6 +48,44 @@ STATUS_MAP = {
     "cancel_requested": TaskStatus.CANCEL_REQUESTED,
     "cancelled": TaskStatus.CANCELLED,
 }
+
+#: El proveedor devolvió una respuesta vacía por quedarse sin presupuesto. Con
+#: un modelo que razona, el razonamiento se come `max_output_tokens` y no queda
+#: nada para la respuesta; el Broker lo dice con `done_reason=length`.
+BUDGET_EXHAUSTED_CODES = frozenset({"INVALID_PROVIDER_RESPONSE"})
+#: Techo del reintento automático. No se sube sin límite: un presupuesto enorme
+#: convierte un fallo rápido en una espera larguísima con el mismo final.
+BUDGET_CEILING = 16_000
+#: Una sola ampliación automática. Si con el doble tampoco responde, el problema
+#: es el modelo elegido y eso lo decide una persona, no un bucle.
+MAX_BUDGET_RETRIES = 1
+
+
+def presupuesto_agotado(error: dict[str, Any]) -> bool:
+    """Distingue «se quedó sin tokens» de cualquier otro fallo del proveedor."""
+
+    if str(error.get("code") or "") not in BUDGET_EXHAUSTED_CODES:
+        return False
+    mensaje = str(error.get("message") or "").lower()
+    return "done_reason=length" in mensaje or "max_output_tokens" in mensaje
+
+
+def ampliar_presupuesto(request: dict[str, Any], *, ceiling: int = BUDGET_CEILING) -> dict[str, Any] | None:
+    """Duplica `max_output_tokens` sin pasar del techo. `None` si ya no cabe subir."""
+
+    generation = request.get("generation")
+    if not isinstance(generation, dict):
+        return None
+    actual = generation.get("max_output_tokens")
+    if not isinstance(actual, int) or isinstance(actual, bool) or actual < 1:
+        return None
+    ampliado = min(actual * 2, max(ceiling, 1))
+    if ampliado <= actual:
+        return None
+    copia = json.loads(json.dumps(request))
+    copia["generation"]["max_output_tokens"] = ampliado
+    return copia
+
 
 #: Claves del resultado del Broker que se conservan como metadatos de la tarea.
 CLAVES_METADATA = (
@@ -128,6 +167,10 @@ class EstadoMixin(ControlMixin):
                         "message": study_notes_quality_message(quality_code),
                         "retryable": True,
                     }
+            if target is TaskStatus.ERROR and self._reintentar_con_mas_presupuesto(
+                connection, current, task_id, error
+            ):
+                return True
             self._escribir_tarea(connection, task_id, payload, target, broker_result, error)
 
             if target is TaskStatus.PROCESSING:
@@ -137,6 +180,58 @@ class EstadoMixin(ControlMixin):
             elif target in {TaskStatus.ERROR, TaskStatus.CANCELLED}:
                 self._cerrar_paso_con_fallo(connection, current, task_id, target, error)
             return True
+
+    def _reintentar_con_mas_presupuesto(
+        self,
+        connection: sqlite3.Connection,
+        current: sqlite3.Row,
+        task_id: str,
+        error: dict[str, Any],
+    ) -> bool:
+        """Reabre la tarea con el doble de presupuesto cuando el modelo se quedó sin tokens.
+
+        Es el único fallo del proveedor con una causa conocida y una solución
+        mecánica. Quien usa la aplicación no tiene por qué saber qué es
+        `done_reason=length`: se reintenta una vez y queda escrito en la
+        cronología. La clave idempotente cambia porque el contenido cambia; con
+        la misma clave y otro cuerpo el Broker respondería 409.
+        """
+
+        if not presupuesto_agotado(error):
+            return False
+        base_key = str(current["idempotency_key"]).split(":budget-", 1)[0]
+        ampliaciones = str(current["idempotency_key"]).count(":budget-")
+        if ampliaciones >= MAX_BUDGET_RETRIES:
+            return False
+        request = json.loads(current["request_json"])
+        ampliado = ampliar_presupuesto(request, ceiling=BUDGET_CEILING)
+        if ampliado is None:
+            return False
+        anterior = request["generation"]["max_output_tokens"]
+        nuevo = ampliado["generation"]["max_output_tokens"]
+        idempotency_key = f"{base_key}:budget-{ampliaciones + 1}"
+        ampliado["idempotency_key"] = idempotency_key
+        encoded = json.dumps(ampliado, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        connection.execute(
+            "UPDATE tasks SET status = 'READY', request_json = ?, request_hash = ?, idempotency_key = ?, "
+            "response_json = NULL, result_json = NULL, status_url = NULL, cancel_url = NULL, "
+            "broker_task_id = NULL, error_code = NULL, error_message = NULL, error_retryable = NULL, "
+            "next_retry_at = NULL, model_used = NULL, queued_at = NULL, started_at = NULL, "
+            "completed_at = NULL, progress_json = '{}', "
+            "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?",
+            (encoded, hashlib.sha256(encoded.encode("utf-8")).hexdigest(), idempotency_key, task_id),
+        )
+        connection.execute(
+            "INSERT INTO events(capture_id, event_type, message, details_json) "
+            "VALUES (?, 'BROKER_BUDGET_RETRY', ?, ?)",
+            (
+                current["capture_id"],
+                f"El modelo agotó su presupuesto de respuesta; se reintenta con {nuevo} tokens "
+                f"en lugar de {anterior}.",
+                json.dumps({"task_id": task_id, "previous_tokens": anterior, "tokens": nuevo}),
+            ),
+        )
+        return True
 
     # ---------------------------------------------------------------- escribir
 

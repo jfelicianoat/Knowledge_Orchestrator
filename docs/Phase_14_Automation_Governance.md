@@ -1,5 +1,168 @@
 # Fase 14 — Automatización y gobernanza
 
+## Incremento 23: arranque Tcl y ejecución de pruebas nativas (11 de septiembre de 2026)
+
+1. **Estado encontrado.** Python 3.14.0/Windows no cargaba `init.tcl`, aunque Python
+   podía leerlo y la DLL y los scripts correspondían a Tcl 8.6.15. La prueba mínima
+   `tkinter.Tcl()` fallaba. El usuario tampoco veía una ventana al abrir el ensayo.
+2. **Diseño.** Cargar el escritorio de forma diferida e inicializar Tcl antes de importar
+   `_tkinter`, solo en el runtime comprobado. Conservar otras versiones, compilaciones
+   empaquetadas y variables del entorno. No reinstalar Python ni copiar bibliotecas.
+3. **Cambios.** Arranque de UI mediante `desktop_bootstrap`; inicialización con
+   `Tcl_FindExecutable` de la DLL absoluta del Python base. El plan de automatización
+   reserva 220 píxeles para la comparación, además de sus márgenes verticales: antes
+   los márgenes reducían el espacio real a 204 píxeles. Acceso de ensayo con log de error.
+   Consultas de conocimiento/indicadores capturan solo servicio y cola, sin retener
+   la ventana. Al destruir la raíz se cancelan sus callbacks Tcl pendientes, dejando
+   que cada panel hijo gestione sus propios callbacks.
+4. **Archivos.** `app.py`, `ui/desktop_bootstrap.py`, `ui/automation_plan.py`,
+   `dashboard/base.py`, `dashboard/conocimiento.py`, `dashboard/operaciones.py`,
+   `tests/test_desktop_bootstrap.py`, `tests/test_knowledge_reader_lifetime.py`,
+   `tools/verify_desktop.py` y acceso/guía de ensayo.
+5. **Migraciones.** Ninguna.
+6. **Tests.** Una regresión en proceso nuevo verifica inicialización de dos intérpretes
+   sin modificar las variables de biblioteca. Falló por `init.tcl` antes de corregirse.
+   Cinco pruebas nativas existentes ahora se ejecutan; la de automatización reprodujo
+   204 < 220 antes del ajuste de espacio y pasa después.
+   El test de arranque verifica además que destruir la ventana retira sus timers;
+   una prueba de referencias débiles verifica que la consulta puede terminar tras
+   liberarse la ventana. Ambas aserciones fallaban antes de la corrección de cierre.
+7. **Verificación.** Regresión de arranque: pasa en 0,491 s. Cinco pruebas nativas:
+   pasan en 10,496 s, sin omisiones. Ruff y mypy de 150 archivos pasan.
+   La primera regresión completa con Tk activo terminó con `Tcl_AsyncDelete` desde
+   otro hilo, sin resultado final de unittest. Tras corregir las referencias y timers,
+   **70 pruebas de los cinco módulos de UI pasan en 39,196 s**, sin el aviso de callback.
+   Regresión completa final mediante `tools/verify_desktop.py`: **454 pruebas en
+   325,693 s, cero fallos y cero omisiones**. Ruff y mypy de 150 archivos pasan.
+8. **Riesgos/deuda.** La captura visual humana integral
+   sigue abierta. El arranque automático de ensayo no expuso una ventana en el
+   inventario de Computer Use; no se considera comprobado en el escritorio del usuario.
+9. **Checkpoint.** Funcionalidad nativa comprobada con inicialización de escritorio;
+   integración autenticada y recorrido visual real pendientes.
+10. **Próximo paso.** Abrir el acceso corregido desde el escritorio del usuario, guardar
+    la clave propia del puente y comprobar la identidad de la bóveda.
+
+Referencia técnica: [Tcl_FindExecutable](https://www.tcl-lang.org/man/tcl8.6/TclLib/FindExec.htm).
+La inicialización previa resuelve el fallo en este entorno; no se afirma una causa
+general para todas las instalaciones de Python ni una reparación de la instalación.
+
+Comando reproducible que usa la misma carga de escritorio antes de descubrir pruebas:
+
+```powershell
+& .venv/Scripts/python.exe -B tools/verify_desktop.py discover -s tests -v
+```
+
+## Incremento 22: conservar saltos de línea al comprobar notas (11 de septiembre de 2026)
+
+1. **Estado encontrado.** La lectura de texto normalizaba CRLF a LF. Podía ocultar
+   una edición externa durante recuperación o invalidar los hashes y posiciones de
+   evidencia de una nota publicada con saltos de línea de Windows.
+2. **Diseño.** Decodificar los bytes UTF-8 sin transformar saltos de línea. Hashes y
+   posiciones se calculan sobre el contenido exacto, conservando las guardas existentes.
+3. **Cambios.** Extracción, comparación, vista previa, aprobación, evidencia y recuperación
+   comparten la lectura comprobada. No se normalizan ni convierten notas existentes.
+4. **Archivos.** `services/semantic_maintenance/__init__.py`,
+   `tests/test_maintenance_windows_newlines.py` y documentos de estado/aceptación.
+5. **Migraciones.** Ninguna.
+6. **Tests.** Cuatro casos: edición a CRLF después de una respuesta perdida, cambio de
+   la base antes de recuperar, cambio de la evidencia antes de aprobar y recorrido
+   con CRLF desde extracción hasta aprobación y reversión exacta del original.
+7. **Verificación.** Antes del cambio: tres fallos y un error reproducidos. Después:
+   14 pruebas focalizadas pasan en 9,259 s. Ruff y mypy de 149 archivos pasan.
+   Regresión completa: **452 casos en 256,941 s; 447 pasan y cinco omisiones Tcl/Tk**.
+8. **Riesgos/deuda.** Los documentos y SQLite de las pruebas son temporales; el editor
+   está simulado. No demuestra ejecución del callback en una sesión real de Obsidian.
+9. **Checkpoint.** Corrección local verificada; el recorrido real permanece abierto.
+10. **Próximo paso.** Recargar el puente de ensayo y comprobar su estado y conexión
+    autenticada antes de ejecutar los cinco escenarios reales preparados.
+
+## Incremento 21: coexistencia de API y puente (11 de septiembre de 2026)
+
+1. **Estado encontrado.** API y puente compartían el puerto inicial 8766; no podían
+   enlazarse ambos a esa dirección. La API permite elegir puerto, pero el valor inicial
+   del nuevo puente no contemplaba su coexistencia.
+2. **Diseño.** API conserva su default 8766; puentes nuevos desde 0.1.2 usan 8767.
+   No modificar puertos guardados ni mover un listener existente.
+3. **Cambios.** Defaults de cliente/puente/preparador coherentes. Ajustes prioriza su
+   dirección protegida; en ausencia de una válida sugiere el puerto del plugin local
+   cuando es un entero válido. No guarda credenciales ni conecta al leer esa sugerencia.
+   Servicios propone 8767 para la API si detecta el puente en 8766, y 8766 en otro caso.
+   Mensaje de puerto ocupado explica que ambos servicios necesitan puertos diferentes.
+4. **Archivos.** Cliente y conexión Obsidian, panel Servicios, plugin/manifest, preparador,
+   pruebas de conexión y documentación.
+5. **Migraciones.** Ninguna. Las direcciones guardadas y el default público de la API
+   quedan intactos. La copia de ensayo conserva el puerto 8766 del puente.
+6. **Tests.** Tres nuevos: instalación nueva, sugerencia de puerto antiguo con prioridad
+   de conexión guardada y rechazo de configuración inválida. Verifican que no se crean
+   credenciales ni cambian archivos al sugerir una dirección.
+7. **Verificación.** 13 casos Python focalizados y 14 Node pasan; Ruff/mypy de 149 archivos,
+   sintaxis y diff pasan. Un error de longitud de línea se corrigió y Ruff se repitió.
+   La lectura real de la copia sigue sugiriendo `http://127.0.0.1:8766`.
+   Regresión completa: **448 casos en 261,038 s, 443 pasan y cinco omisiones Tcl/Tk**.
+   Paquete 0.1.2 copiado al ensayo, con ajustes/recibos iguales y puerto guardado 8766.
+8. **Riesgos/deuda.** No acredita los dos programas funcionando simultáneamente con
+   Obsidian real. Sigue pendiente recarga/credencial/conexión de ensayo y render Tk.
+9. **Checkpoint.** Configuración y regresión comprobadas localmente; integración real abierta.
+10. **Próximo paso.** Comprobar el puente real de ensayo sin cambiar
+    su puerto. Cuando se active su API, usar un puerto distinto.
+
+## Incremento 20: recuperación ante notas ilegibles (11 de septiembre de 2026)
+
+1. **Estado encontrado.** La copia del usuario contiene ocho notas visibles que no
+   admiten decodificación UTF-8. Cuatro pruebas nuevas reprodujeron `UnicodeDecodeError`
+   sin gestionar antes/después de la intención de aprobación, al leer evidencia y al
+   recuperar: una nota podía impedir que se recuperaran otras operaciones.
+2. **Diseño.** Fallo de lectura como conflicto de dominio, preservando bytes y snapshots.
+   No adivinar codificaciones ni convertir automáticamente una nota humana.
+3. **Cambios.** Lectura comprobada en aprobación, evidencia y recuperación. Una nota
+   ilegible registra conflicto; la recuperación sigue con el resto. Errores de acceso
+   y codificación dan un mensaje fijo sin contenido de documento ni detalle privado.
+4. **Archivos.** `services/semantic_maintenance/__init__.py`,
+   `tests/test_maintenance_unreadable_notes.py` y documentación de estado/aceptación.
+5. **Migraciones.** Ninguna. No se ejecutó este escenario sobre documentos del usuario.
+6. **Tests.** Cuatro nuevos con Windows-1252: cambio antes de aprobar, cambio después
+   de la intención, evidencia ilegible y recuperación con otra nota independiente.
+   Se comprueban bytes, snapshot original, ausencia de escritura indebida y recuperación
+   repetida sin duplicación; SQLite y archivos reales, editor de ensayo explícito.
+7. **Verificación.** Los cuatro fallaron antes del cambio por el error reproducido.
+   Después pasan diez pruebas focalizadas (cuatro nuevas y seis de integración).
+   Batería completa: **445 casos en 240,910 s, 440 pasan y cinco omisiones Tcl/Tk**.
+   Ruff, mypy de 149 archivos y diff pasan.
+8. **Riesgos/deuda.** Esto protege las rutas de mantenimiento verificadas; no convierte
+   los documentos existentes ni acredita su importación. Continúan los gates de
+   conexión autenticada a Obsidian, recorrido Broker y experiencia visual integral.
+9. **Checkpoint.** Corrección y regresión local verificadas; objetivo global abierto.
+10. **Próximo paso.** Retomar la comprobación real del puente
+    cuando su estado indique escucha y esté configurada la conexión del ensayo.
+
+## Incremento 19: estado visible del puente (11 de septiembre de 2026)
+
+1. **Estado encontrado.** Las capturas prueban el panel en Obsidian 1.13.7. Recepción
+   activada no equivale a listener funcionando: el usuario confirmó el aviso de clave
+   ausente/corta y la petición local volvió a fallar con WinError 10061. Sigue sin
+   configuración del cliente en el Orchestrator de ensayo.
+2. **Diseño.** Estado permanente ligado al ciclo real del listener, explicación del
+   nombre frente al valor del secreto y reintento después de editar el Llavero.
+3. **Cambios.** Plugin 0.1.1: indicador, reintento, captura de errores de arranque sin
+   detalles privados, espera del cierre previo y rechazo de eventos de un servidor
+   antiguo. Solo el evento `listening` acredita que está escuchando.
+4. **Archivos.** `obsidian-bridge/main.js`, `manifest.json`, `settings.test.cjs`, README
+   y documentación. Dos archivos actualizados en la copia de ensayo; copia previa
+   registrada en `actualizacion-puente-0.1.1.json` junto a la guía.
+5. **Migraciones.** Ninguna. No se modifican `data.json`, `receipts.jsonl` ni documentos.
+6. **Tests.** Cuatro casos adicionales: secreto ausente/corto/multilínea, lectura del
+   valor editado y listener HTTP real, puerto ocupado/errores privados, eventos obsoletos
+   tras reintento o descarga. Host Obsidian sustituido; transporte real.
+7. **Verificación.** 14 pruebas Node pasan en 199,1562 ms; sintaxis y diff correctos.
+   Cinco archivos del paquete instalado coinciden con el proyecto; configuración y
+   recibos conservados byte a byte durante la actualización. Python no cambió y no se
+   repitió su batería; sus resultados anteriores no se amplían con este ensayo.
+8. **Riesgos/deuda.** Nueva fila pendiente de render real y plugin pendiente de recarga.
+   Faltan credencial de cliente, cinco escenarios integrados, UI Tk y recorrido Broker.
+9. **Checkpoint.** Mejora local verificada; integración y objetivo global abiertos.
+10. **Próximo paso.** Recargar el complemento instalado, observar su estado y completar
+    la comprobación autenticada del cliente antes de aplicar cambios de ensayo.
+
 ## Incremento 18 en curso: coordinación con Obsidian (9 de septiembre de 2026)
 
 Preparación de la prueba real: bóveda temporal aislada, cinco documentos ficticios,

@@ -36,9 +36,13 @@ controlado descrito; no demuestra comportamiento de un modelo real ni una sesió
 
 ## Evidencia que aún no permite cerrar el proyecto
 
-- Fase 13 exige checkpoint **visual y funcional**. Cinco pruebas de widgets se omiten
-  porque Tcl/Tk no inicializa `init.tcl`; las pruebas de controladores no reemplazan
-  la inspección de ventanas, foco, contraste ni navegación real.
+- Fase 13 exige checkpoint **visual y funcional**. En el incremento 23 las cinco
+  pruebas nativas antes omitidas se ejecutan al inicializar Tcl antes del escritorio;
+  los 70 casos de sus módulos pasan. Esto añade comportamiento real de widgets,
+  pero no reemplaza la inspección visual de ventanas, foco, contraste y navegación
+  integral por el usuario. La batería vigente consta en `CURRENT_STATE.md`.
+  Tras corregir el cierre de ventanas, la batería completa con inicialización de
+  escritorio pasa: **454 pruebas en 325,693 s, sin omisiones**.
 - La revisión independiente de reversión y del puente propuesta/política terminó sin
   correcciones pendientes. La revisión integral anterior de Servicios/políticas quedó
   sin completar por cuota; la revisión acotada del décimo incremento no reemplaza el
@@ -78,6 +82,20 @@ No se han activado políticas ni
 modificado documentos del usuario para obtener esta evidencia.
 
 ## Hallazgo al revisar los campos de propuesta
+
+Incremento 22: `test_maintenance_windows_newlines.py` añade cuatro casos que verifican
+conflictos por cambios LF/CRLF en base, resultado y evidencia, además de aprobación y
+reversión de una nota CRLF conservando exactamente sus bytes originales. Fallaban antes
+de corregir la normalización implícita de lectura. Refuerzan los escenarios 7 y 12 con
+editor simulado; el resultado general vigente figura en `CURRENT_STATE.md`.
+
+Incremento 20: cuatro regresiones adicionales de mantenimiento reproducen cambios de
+codificación antes/después de la intención, evidencia ilegible y recuperación con otra
+nota independiente. Tras corregir el manejo de lectura, se conserva el archivo humano,
+el snapshot previo y el conflicto durable; otra aplicación recupera sin duplicarse.
+No se convierten documentos del usuario ni se acredita una sesión real de Obsidian.
+Regresión completa: 445 casos, 440 pasan y cinco omisiones Tcl/Tk; Ruff/mypy correctos.
+Alcance en `Phase_14_Automation_Governance.md`.
 
 Incremento 18: entorno Obsidian/Windows/local confirmado. Puente integrado con runtime,
 aprobación, recuperación y reversión; conexión DPAPI propia y panel de Ajustes. Se retiró

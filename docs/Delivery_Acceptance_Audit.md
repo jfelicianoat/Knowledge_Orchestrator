@@ -34,6 +34,22 @@ Referencias abreviadas a pruebas bajo `tests/`:
 Las rutas de producción siguientes parten de `src/knowledge_orchestrator/`.
 La batería vigente y los comandos de calidad están en [CURRENT_STATE.md](CURRENT_STATE.md).
 
+Evidencia adicional del 11 de septiembre: `test_maintenance_unreadable_notes.py`
+prueba cuatro fallos de lectura UTF-8 en aprobación, evidencia y recuperación.
+Se conservan archivo/snapshot, se registra conflicto y la recuperación prosigue con
+otra nota. Regresión completa: 445 casos (440 pasan, cinco omisiones Tcl/Tk).
+Refuerza los criterios 2, 9 y 14 en el entorno de prueba; no cierra los gates externos.
+
+El incremento 22 añade cuatro pruebas en `test_maintenance_windows_newlines.py`:
+los cambios LF/CRLF ya no se ocultan al comprobar base, resultado ni evidencia, y una
+nota CRLF puede aprobarse y revertirse conservando los bytes originales. Evidencia
+local con editor simulado; la integración real sigue pendiente.
+
+Incremento 23: arranque Tcl corregido para el runtime comprobado y cinco pruebas
+nativas ejecutadas. Tras corregir espacio de comparación y cierre del escritorio,
+**454 pruebas pasan en 325,693 s, sin omisiones**, con `tools/verify_desktop.py`.
+La apertura visible del ensayo y el recorrido autenticado siguen pendientes.
+
 ## Entregables explícitos de cada fase
 
 | ID | Fase 9: requisito | Fuente actual y evidencia | Estado |
@@ -72,7 +88,7 @@ La batería vigente y los comandos de calidad están en [CURRENT_STATE.md](CURRE
 | 11.6 | Errores recuperables | `SourceMonitoringService.check/deliver_ready`; T11 caída entre recibo/enlace y trabajador antiguo rechazado | L |
 | 11.7 | Backoff | `repositories/source_repository.py`; T11 espera creciente y fuente/ingesta fallida sin bloquear otra | L |
 | 11.8 | Auditoría | `source_checks`, `source_changes`, revisiones; T11 procedencia original y edición concurrente | L |
-| 11.9 | Configuración visual mínima | `ui/dashboard/fuentes.py`; prueba nativa T11 implementada pero omitida por Tcl/Tk | R |
+| 11.9 | Configuración visual mínima | `ui/dashboard/fuentes.py`; prueba nativa T11 ejecutada en incremento 23; uso visual integral pendiente | P |
 | 11.10 | Tests | T11 incluye atomicidad, errores, red protegida, normalización y recuperación | L salvo render/red real |
 
 El protocolo admite nuevas implementaciones por composición. `SourceConfig.kind` y
@@ -253,13 +269,13 @@ criterios anteriores ni por el número total de tests.
 | Fase 10 | Contratos y listener loopback; `Phase_10_Knowledge_API.md` | Local superado, integración externa pendiente |
 | Fase 11 | Scheduler/conectores simulados/recuperación; `Phase_11_Source_Monitoring.md` | Pantalla y descarga real pendientes |
 | Fase 12 | Núcleo/API/evidencia/publicación local; `Phase_12_Knowledge_Maintenance.md` | Local superado; modelo/editor real pendientes |
-| Fase 13 visual y funcional | Cinco pruebas nativas omitidas por init.tcl; revisión parcial de controladores | Abierto; código no reemplaza render |
+| Fase 13 visual y funcional | Cinco pruebas nativas ejecutadas en incremento 23; 70 casos de sus módulos pasan; falta recorrido visual humano integral | Abierto; pruebas de widgets no reemplazan revisión visual integral |
 | Fase 14 | Políticas, simulación, ejecución, cuotas y reversión locales; registro por incrementos | Abierto; auditoría global/visual/externa incompleta |
 | Calidad después de cambios | unittest, ruff, mypy y diff; resultado vigente en CURRENT_STATE | No implica cierre de requisitos P/R |
 
 Acciones concretas pendientes:
 
-1. Ejecutar las cinco pruebas nativas y recorrer las pantallas a tamaños reales,
+1. Las cinco pruebas nativas ya se ejecutan en el incremento 23. Recorrer las pantallas a tamaños reales,
    incluyendo comparación, lote parcial, políticas, pausa, reintento y auditoría.
    La revisión integral anterior de Servicios/políticas no terminó por cuota; las
    revisiones acotadas posteriores no la sustituyen. No insistir sin cambio del entorno.

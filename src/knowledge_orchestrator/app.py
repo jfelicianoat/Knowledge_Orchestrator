@@ -8,7 +8,7 @@ from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.runtime import OrchestratorRuntime, build_runtime
 from knowledge_orchestrator.services.operations import backup_database, export_diagnostics
 from knowledge_orchestrator.services.path_settings import load_pipeline_paths
-from knowledge_orchestrator.ui.dashboard import run_dashboard
+from knowledge_orchestrator.ui.desktop_bootstrap import load_dashboard
 
 
 def initialize_phase_one(paths: PipelinePaths | None = None) -> OrchestratorRuntime:
@@ -47,7 +47,7 @@ def main() -> None:
         report = runtime.recover_once(ingest_inbox=True)
         print(f"Recuperación e ingesta completadas: {report}")
     elif arguments.ui or getattr(sys, "frozen", False):
-        run_dashboard(runtime)
+        load_dashboard()(runtime)
     else:
         runtime.run_forever()
 

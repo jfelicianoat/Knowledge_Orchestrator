@@ -31,6 +31,7 @@ from knowledge_orchestrator.integrations.obsidian_bridge import (
 from knowledge_orchestrator.repositories.semantic_repository import SemanticRepository
 from knowledge_orchestrator.services.maintenance_assessment import assess_proposal
 from knowledge_orchestrator.services.maintenance_layout import plan_layout, valid_layout
+from knowledge_orchestrator.services.model_selection import json_model_from_catalog
 from knowledge_orchestrator.services.provenance import source_provenance
 from knowledge_orchestrator.services.semantic_maintenance.analisis import AnalisisMixin
 from knowledge_orchestrator.services.semantic_maintenance.contratos import (
@@ -38,7 +39,7 @@ from knowledge_orchestrator.services.semantic_maintenance.contratos import (
     EXTRACTION_SCHEMA,
     SemanticContractError,
 )
-from knowledge_orchestrator.services.semantic_maintenance.prompts import PromptsMixin
+from knowledge_orchestrator.services.semantic_maintenance.prompts import TASK_BUDGETS, PromptsMixin
 
 __all__ = [
     "COMPARISON_SCHEMA",
@@ -76,12 +77,14 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         context = self.repository.note_context(note_id)
         if context["status"] != "PUBLISHED":
             raise SemanticContractError("Solo se puede analizar una nota publicada")
-        document = Path(context["vault_path"]).read_text(encoding="utf-8")
+        document = self._read_checked_note(Path(context["vault_path"]))
         job_id = f"semantic_extract_note_{note_id}"
         request = self.broker_json_request(
             request_id=job_id,
             prompt=self.extraction_prompt(document, source_id=context["capture_id"]),
             schema=EXTRACTION_SCHEMA,
+            max_output_tokens=TASK_BUDGETS["extraction"],
+            preferred_model=json_model_from_catalog(self.repository.database),
         )
         self.repository.create_job(
             job_id=job_id,
@@ -113,6 +116,8 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
                                 'new': source_provenance(self.repository.database, new_claim.source_capture_id)},
             ),
             schema=COMPARISON_SCHEMA,
+            max_output_tokens=TASK_BUDGETS["comparison"],
+            preferred_model=json_model_from_catalog(self.repository.database),
         )
         self.repository.create_job(
             job_id=job_id,
@@ -156,7 +161,7 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         if context["status"] != "PUBLISHED":
             raise SemanticContractError("Solo se indexan notas publicadas")
         path = Path(context["vault_path"])
-        document = path.read_text(encoding="utf-8")
+        document = self._read_checked_note(path)
         if self._hash_text(document) != context['content_hash']:
             raise SemanticContractError('La nota cambió externamente; requiere reconciliación')
         claims = self._parse_extraction(payload, document)
@@ -208,7 +213,7 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             if not decision.replacement_text or not decision.replacement_text.strip():
                 raise SemanticContractError("La relación requiere replacement_text")
             context = self.repository.note_context(target.note_id)
-            document = Path(context["vault_path"]).read_text(encoding="utf-8")
+            document = self._read_checked_note(Path(context["vault_path"]))
             base_hash = self._hash_text(document)
             if base_hash != context['content_hash']:
                 raise SemanticContractError('La nota cambió externamente; requiere reconciliación')
@@ -282,10 +287,7 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             context = self.repository.note_context(claim.note_id)
             if context['status'] != 'PUBLISHED':
                 raise SemanticContractError('La evidencia ya no está publicada')
-            try:
-                document = Path(context['vault_path']).read_text(encoding='utf-8')
-            except OSError as error:
-                raise SemanticContractError('La evidencia no está disponible') from error
+            document = self._read_checked_note(Path(context['vault_path']))
             if self._hash_text(document) != context['content_hash'] or \
                     document[claim.span_start:claim.span_end] != self.repository.evidence_quote(claim.claim_id):
                 raise SemanticContractError('La evidencia cambió; requiere nueva comparación')
@@ -329,7 +331,7 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
                 raise SemanticContractError('La propuesta requiere revisión o regeneración')
             context = self.repository.note_context(candidate.target_note_id)
             result['title'] = context['title']
-            current = Path(context['vault_path']).read_text(encoding='utf-8')
+            current = self._read_checked_note(Path(context['vault_path']))
             if self._hash_text(current) != candidate.base_hash:
                 raise SemanticContractError('La nota cambió desde que se generó el diff')
             patch = self._validate_patch(candidate.patch_json, current)
@@ -351,6 +353,17 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
                                   else 'No se pudo leer la nota o evidencia']
         return result
 
+    @staticmethod
+    def _read_checked_note(path: Path) -> str:
+        try:
+            # Preserve CRLF for content hashes and character offsets in claims.
+            return path.read_bytes().decode('utf-8')
+        except (OSError, UnicodeError):
+            # Never guess another encoding or include document bytes in the error.
+            raise SemanticContractError(
+                'No se puede comprobar la nota: revisa su acceso y codificación UTF-8'
+            ) from None
+
     def approve(self, candidate_id: int, *, expected_revision: int | None = None,
                 actor: str = 'human:review', review_batch_id: str | None = None,
                 automation_run_id: str | None = None) -> UpdateCandidate:
@@ -367,8 +380,8 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         if context["status"] != "PUBLISHED":
             raise SemanticContractError("La nota objetivo ya no está publicada")
         path = Path(context["vault_path"])
-        current = path.read_text(encoding="utf-8")
         try:
+            current = self._read_checked_note(path)
             if not candidate.base_hash or self._hash_text(current) != candidate.base_hash:
                 raise SemanticContractError('La nota cambió desde que se generó el diff')
             patch = self._validate_patch(candidate.patch_json, current)
@@ -402,9 +415,12 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         )
         # Este checkpoint garantiza que recovery conoce base_hash, result_hash y temporal.
         self.checkpoint("semantic_intent")
-        if self._hash_text(path.read_text(encoding='utf-8')) != base_hash:
+        try:
+            if self._hash_text(self._read_checked_note(path)) != base_hash:
+                raise SemanticContractError('La nota cambió durante la aprobación')
+        except SemanticContractError:
             self.repository.mark_candidate(candidate_id, 'CONFLICT', reason='NOTE_CHANGED_DURING_APPLICATION')
-            raise SemanticContractError('La nota cambió durante la aprobación')
+            raise
         try:
             self._validate_new_evidence(candidate, patch)
             self._materialize(path, temporary, updated, result_hash, expected_base_hash=base_hash)
@@ -436,7 +452,12 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             if not path.exists() or not candidate.base_hash or not candidate.result_hash or not candidate.patch_json:
                 self.repository.mark_candidate(candidate.candidate_id, "ERROR", reason="INCOMPLETE_APPLICATION_INTENT")
                 continue
-            current = path.read_text(encoding="utf-8")
+            try:
+                current = self._read_checked_note(path)
+            except SemanticContractError:
+                self.repository.mark_candidate(candidate.candidate_id, 'CONFLICT',
+                                               reason='NOTE_UNREADABLE_DURING_RECOVERY')
+                continue
             current_hash = self._hash_text(current)
             if current_hash == candidate.result_hash:
                 self.repository.mark_applied(candidate.candidate_id)

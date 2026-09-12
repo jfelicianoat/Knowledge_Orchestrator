@@ -5,6 +5,7 @@ import queue
 import threading
 import tkinter as tk
 from tkinter import ttk
+from urllib.parse import urlsplit
 
 from knowledge_orchestrator.services.operations_status import OperationsStatusService
 from knowledge_orchestrator.ui.automation_panel import AutomationPanel
@@ -13,7 +14,8 @@ from knowledge_orchestrator.ui.review_batch_dialog import ReviewBatchDialog
 
 API_STATES = {'STOPPED': 'Detenida', 'RUNNING': 'Escuchando en este equipo', 'STOPPING': 'Cerrando', 'ERROR': 'Error'}
 API_ERRORS = {'API_CREDENTIALS_NOT_CONFIGURED': 'No hay consumidores con credenciales válidas.',
-              'API_BIND_FAILED': 'El puerto está ocupado o restringido.',
+              'API_BIND_FAILED': ('El puerto está ocupado o restringido. '
+                                  'La API y el puente necesitan puertos distintos.'),
               'API_START_FAILED': 'No se pudo iniciar el servidor.', 'API_SERVER_FAILED': 'El servidor se interrumpió.',
               'API_SERVER_STOPPED_UNEXPECTEDLY': 'El servidor dejó de atender solicitudes.',
               'API_STOP_PENDING': 'El cierre sigue pendiente.'}
@@ -37,7 +39,7 @@ class ServiciosMixin(OperacionesMixin):
         page = self._new_page('services')
         page.columnconfigure(0, weight=1)
         page.rowconfigure(1, weight=1)
-        self._page_heading(page, 'API y automatizaciones',
+        self._page_heading(page, 'Automatización y API',
                            'Consulta quién utiliza el conocimiento y qué procesos están trabajando.')
         notebook = ttk.Notebook(page)
         self._services_tabs = notebook
@@ -58,7 +60,8 @@ class ServiciosMixin(OperacionesMixin):
         actions = ttk.Frame(page)
         actions.grid(row=1, column=0, sticky='ew', padx=12)
         ttk.Label(actions, text='Puerto local').pack(side='left', padx=4)
-        self.api_port_var = tk.StringVar(value='8766')
+        bridge_port = urlsplit(self.runtime.obsidian_connection.configured_url()).port
+        self.api_port_var = tk.StringVar(value='8767' if bridge_port == 8766 else '8766')
         self.api_port_entry = ttk.Entry(actions, textvariable=self.api_port_var, width=7)
         self.api_port_entry.pack(side='left', padx=4)
         self.api_start_button = ttk.Button(actions, text='Iniciar API', command=lambda: self._change_api(True))

@@ -1,7 +1,7 @@
 {
   "id": "knowledge-orchestrator-bridge",
   "name": "Knowledge Orchestrator Bridge",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "minAppVersion": "1.11.4",
   "description": "Aplica propuestas autorizadas comprobando la base dentro de Obsidian.",
   "author": "Knowledge Orchestrator",

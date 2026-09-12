@@ -163,7 +163,7 @@ class ReversionPanel(ttk.Frame):
             self.busy = False
             if error:
                 self.uncertain = self.uncertain or kind == 'confirmed'
-                self.status.set(error + (' Pulsa «Actualizar recibo» antes de volver a decidir.'
+                self.status.set(error.rstrip('. ') + '.' + (' Pulsa «Actualizar recibo» antes de volver a decidir.'
                                          if self.uncertain else ' Actualiza o prepara una nueva revisión.'))
             else:
                 self._receive(kind, value)

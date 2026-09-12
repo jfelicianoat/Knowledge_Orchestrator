@@ -95,7 +95,8 @@ class FuentesMixin(ConfiguracionMixin):
         preview.columnconfigure(0, weight=1)
         preview.rowconfigure(0, weight=1)
         self.source_preview = tk.Text(preview, wrap='word', height=8, width=40, state='disabled',
-                                      bg=self.colors['root'], fg=self.colors['text'], relief='flat', padx=12, pady=12)
+                                      bg=self.colors['raised'], fg=self.colors['text'], relief='flat', padx=14,
+                                      pady=12, font=('Segoe UI', 10), highlightthickness=0)
         self.source_preview.grid(row=0, column=0, sticky='nsew')
         preview_scroll = ttk.Scrollbar(preview, command=self.source_preview.yview)
         preview_scroll.grid(row=0, column=1, sticky='ns')

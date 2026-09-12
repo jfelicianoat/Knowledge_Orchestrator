@@ -57,16 +57,22 @@ ampliada siguen en desarrollo; los checkpoints distinguen pruebas locales y prue
 ## UI (Centro de operaciones)
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ Knowledge Orchestrator  Resumen Documentos Biblioteca Revisión │
-├──────────────────────────────────────────────────────────────┤
-│ Importar documentos   Abrir carpeta vigilada   Broker        │
-├──────────────────────────────┬───────────────────────────────┤
-│ Filtros y búsqueda           │ Documento seleccionado        │
-│ Lista de trabajos            │ Estado y recuperación         │
-│ Estado · edad · actualización│ Línea de tiempo · acciones    │
-└──────────────────────────────┴───────────────────────────────┘
+┌──────────────────┬─────────────────────────────┬───────────────────────────┐
+│ KO  v0.3.0       │ Documentos                  │ Documento seleccionado    │
+│ [+ Importar]     │ [En proceso 2][Atención 2]… │ ✓──✓──○──○──○  (5 pasos)  │
+│ TRABAJO          │ 🔍 Buscar…                  │ ┃ Qué pasa y cómo seguir  │
+│  Inicio          │ ● Título      Estado  hace… │ ┃ [Reintentar] [Abrir]    │
+│  Documentos  (2) │   archivo.md                │ Línea de tiempo           │
+│  Revisión    (1) │                             │ ● 21:15 Documento…        │
+│ CONOCIMIENTO     │                             │                           │
+│  Biblioteca …    │                             │ ▸ Detalles técnicos       │
+│ SISTEMA  …       │                             │                           │
+│ ● Broker         ├─────────────────────────────┴───────────────────────────┤
+└──────────────────┴ Barra de estado                   Pausar actualización  ┘
 ```
+
+Navegación lateral agrupada por intención (Trabajo, Conocimiento, Sistema), con
+contadores de lo pendiente y atajos Ctrl+1…Ctrl+0. Diseño en [`DESIGN.md`](DESIGN.md).
 
 ## Flujo de datos
 

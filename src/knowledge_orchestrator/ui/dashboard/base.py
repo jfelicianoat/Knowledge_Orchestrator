@@ -6,16 +6,107 @@ limpio.
 """
 from __future__ import annotations
 
+import gc
 import tkinter as tk
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime, timezone
+from pathlib import PureWindowsPath
 from tkinter import ttk
 from typing import Any
 
 from knowledge_orchestrator.runtime import OrchestratorRuntime
 from knowledge_orchestrator.services.broker_connection import BrokerConnectionStore
-from knowledge_orchestrator.ui.dashboard.estilo import EstiloMixin
+from knowledge_orchestrator.ui.dashboard.estilo import STATUS_GLYPHS, EstiloMixin
 from knowledge_orchestrator.ui.snapshots import LibraryItem, ProfileItem, ReviewItem, UiSnapshotService, WorkItem
 from knowledge_orchestrator.ui.startup import RuntimeStartup
+
+#: Tipo de evento -> rótulo para la cronología y la actividad reciente. Sin
+#: entrada, el rótulo se deriva del código en inglés: cada evento que el usuario
+#: pueda ver debería estar aquí.
+EVENT_LABELS = {
+    "CAPTURE_COMPLETED": "Documento publicado",
+    "BROKER_TASK_FAILED": "El Broker no pudo procesarlo", "BROKER_TASK_CANCELLED": "Procesamiento cancelado",
+    "BROKER_CANCEL_PENDING": "Cancelación pendiente", "BROKER_UNAVAILABLE": "Broker no disponible",
+    "BROKER_CYCLE_ERROR": "Incidencia del Broker", "BROKER_WORKER_CRASH": "Fallo del proceso del Broker",
+    "BROKER_CONTRACT_WARNING": "Aviso de compatibilidad del Broker",
+    "BROKER_CAPABILITIES_UNAVAILABLE": "Capacidades del Broker no disponibles",
+    "PUBLICATION_PREPARED": "Publicación preparada", "PUBLICATION_FAILED": "Error al publicar",
+    "PUBLICATION_CONFLICT": "Conflicto al publicar", "NOTE_REJECTED": "Nota rechazada",
+    "INGESTION_REJECTED": "Archivo rechazado", "INGESTION_ERROR": "Error de ingesta",
+    "INGESTION_CRASH": "Fallo de ingesta", "SOURCE_CHANGED_AFTER_STAGING": "El archivo cambió al prepararlo",
+    "CAPTURE_CHANGED_AFTER_RECEIPT": "El documento cambió tras recibirlo",
+    "MAINTENANCE_CANDIDATE_STATE_CHANGED": "Propuesta actualizada",
+    "MAINTENANCE_PROPOSAL_REVISED": "Propuesta revisada", "MAINTENANCE_PROPOSAL_REJECTED": "Propuesta descartada",
+    "SEMANTIC_UPDATE_APPLIED": "Cambio aplicado a la nota",
+    "MAINTENANCE_REVERSION_CONFIRMED": "Reversión confirmada", "MAINTENANCE_REVERSION_APPLIED": "Reversión aplicada",
+    "MAINTENANCE_REVERSION_CONFLICT": "Conflicto en la reversión",
+    "CLAIM_STATE_CHANGED": "Vigencia actualizada", "CLAIM_STATE_REVIEWED": "Vigencia revisada",
+    "CLAIM_MANUAL_LOCK_CHANGED": "Bloqueo manual cambiado",
+    "SEMANTIC_CONTRACT_FAILED": "Respuesta de análisis no válida",
+    "SOURCE_CREATED": "Fuente añadida", "SOURCE_CONFIGURED": "Fuente configurada",
+    "SOURCE_CHECK_REQUESTED": "Comprobación solicitada", "SOURCE_CHECK_RECOVERED": "Comprobación recuperada",
+    "SOURCE_CHANGE_ACCEPTED": "Novedad aceptada", "SOURCE_CHANGE_DELIVERED": "Novedad incorporada",
+    "SOURCE_DELIVERY_ERROR": "Error al incorporar una novedad",
+    "REVIEW_BATCH_PREVIEWED": "Lote preparado", "REVIEW_BATCH_CONFIRMED": "Lote confirmado",
+    "REVIEW_BATCH_COMPLETED": "Lote completado", "REVIEW_BATCH_ITEM_FINISHED": "Elemento del lote aplicado",
+    "REVIEW_BATCH_RECOVERY_REQUIRED": "Lote pendiente de recuperar",
+    "AUTOMATION_POLICY_CREATED": "Política creada", "AUTOMATION_POLICY_REVISED": "Política revisada",
+    "AUTOMATION_POLICY_ENABLED": "Política autorizada", "AUTOMATION_POLICY_DISABLED": "Política desactivada",
+    "AUTOMATION_PAUSED": "Autoaprobación en pausa", "AUTOMATION_RESUMED": "Autoaprobación reanudada",
+    "AUTOMATION_SIMULATED": "Simulación de política", "AUTOMATION_RUN_QUEUED": "Ejecución programada",
+    "AUTOMATION_RUN_FINISHED": "Ejecución terminada", "AUTOMATION_ITEM_FINISHED": "Aplicado por una política",
+    "AUTOMATION_RECOVERY_REQUIRED": "Ejecución pendiente de recuperar",
+    "QUERY_CREATED": "Consulta creada", "API_INGESTION_RECEIVED": "Documento recibido por API",
+    "API_INGESTION_DELIVERED": "Documento de API incorporado",
+    "INGESTION_RESULT": "Importación", "NOTES_PUBLISHED": "Notas publicadas",
+    "BROKER_QUEUE_UPDATED": "Cola actualizada", "BROKER_TASKS_UPDATED": "Tareas actualizadas",
+    "SEMANTIC_JOBS_UPDATED": "Análisis actualizados", "BROKER_MODELS_UPDATED": "Modelos actualizados",
+    "BROKER_CAPABILITIES_UPDATED": "Capacidades del Broker", "BROKER_CONNECTION_UPDATED": "Conexión actualizada",
+}
+
+#: Eventos del worker que dicen si el Broker responde. Solo viajan por el puente
+#: de eventos (no se guardan en SQLite), así que la vista los recoge al vuelo:
+#: antes el resumen leía la base y el Broker figuraba siempre «sin comprobar».
+BROKER_STATUS_EVENTS = {"BROKER_ONLINE": "online", "BROKER_OFFLINE": "incidencia",
+                        "BROKER_CYCLE_ERROR": "incidencia", "BROKER_WORKER_CRASH": "incidencia"}
+
+INGESTION_MESSAGES = {
+    "DUPLICATE_CAPTURE": ("Este documento ya estaba importado; no se ha duplicado. "
+                          "La copia repetida queda en cuarentena."),
+    "UNSUPPORTED_FILE": "Solo se admiten documentos Markdown (.md).",
+    "FILE_LOCKED": "El archivo está en uso por otro programa; aparecerá en «Necesitan atención» para reintentarlo.",
+    "FILE_UNSTABLE": "El archivo aún se está escribiendo; aparecerá en «Necesitan atención» para reintentarlo.",
+    "TRANSCRIPTION_MISSING": "El documento no incluye transcripción; queda en cuarentena sin procesar.",
+    "INGESTION_CANCELLED": "Importación interrumpida al cerrar el servicio; se reanudará al volver a abrir.",
+}
+
+
+def provider_error_text(code: str | None, message: str) -> str:
+    """Traduce el fallo del proveedor a algo que diga qué hacer.
+
+    El Broker explica el suyo en su idioma («done_reason=length»); aquí hace
+    falta la causa y la salida, que está en Ajustes.
+    """
+
+    lowered = message.lower()
+    if code == "INVALID_PROVIDER_RESPONSE" and ("done_reason=length" in lowered or "max_output_tokens" in lowered):
+        return ("El modelo agotó su presupuesto de respuesta razonando antes de contestar. "
+                "Se reintenta una vez con el doble de presupuesto; si vuelve a fallar, elige en Ajustes "
+                "un modelo sin razonamiento o sube «Longitud máxima de la respuesta».")
+    return message
+
+
+def ingestion_status_text(details: Mapping[str, Any], message: str) -> str:
+    """Resultado de una importación en una frase: antes llegaba «$: falta la apertura…»."""
+
+    if details.get("accepted"):
+        return "Documento importado: se procesará automáticamente."
+    code = str(details.get("error_code") or "")
+    if code in INGESTION_MESSAGES:
+        return INGESTION_MESSAGES[code]
+    reason = message[3:] if message.startswith("$: ") else message
+    return (f"No se pudo importar: el archivo no sigue el formato de captura ({reason}). "
+            "Queda en cuarentena; el original no se modifica.")
 
 
 class DashboardBase(EstiloMixin):
@@ -29,7 +120,7 @@ class DashboardBase(EstiloMixin):
     page_host: tk.Frame
     pages: dict[str, tk.Widget]
     _scrollable_canvases: dict[str, tk.Canvas]
-    nav_buttons: dict[str, tk.Button]
+    nav_buttons: dict[str, tk.Frame]
     status_var: tk.StringVar
     refresh_button: tk.Button
     service_var: tk.StringVar
@@ -52,6 +143,13 @@ class DashboardBase(EstiloMixin):
     issue_title_var: tk.StringVar
     issue_message_var: tk.StringVar
     timeline: tk.Text
+    work_steps: tk.Canvas
+    _work_steps_state: tuple[int, str] | None
+    issue_bar: tk.Frame
+    issue_icon: tk.Label
+    issue_title_label: tk.Label
+    service_dot: tk.Label
+    broker_dot: tk.Label
     technical_var: tk.StringVar
     technical_button: tk.Button
     technical_label: tk.Label
@@ -107,6 +205,7 @@ class DashboardBase(EstiloMixin):
         self.minsize(1080, 680)
         self.configure(background=self.colors["root"])
 
+        self._live_broker: tuple[str, str] | None = None
         self._selected_review: ReviewItem | None = None
         self._review_items: dict[str, ReviewItem] = {}
         self._library_items: dict[str, LibraryItem] = {}
@@ -138,11 +237,15 @@ class DashboardBase(EstiloMixin):
         outer.grid(row=0, column=0, sticky="nsew")
         outer.columnconfigure(0, weight=1)
         outer.rowconfigure(0, weight=1)
+        # width/height mínimos: el lienzo no debe pedir tamaño a la ventana;
+        # lo recibe de la rejilla. Sin esto Ajustes ensanchaba la ventana.
         canvas = tk.Canvas(
             outer,
             bg=self.colors["surface"],
             highlightthickness=0,
             borderwidth=0,
+            width=1,
+            height=1,
         )
         scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -173,21 +276,28 @@ class DashboardBase(EstiloMixin):
 
     def _page_heading(self, page: tk.Frame, title: str, subtitle: str) -> None:
         heading = tk.Frame(page, bg=self.colors["surface"])
-        heading.grid(row=0, column=0, sticky="ew", padx=24, pady=(22, 18))
+        heading.grid(row=0, column=0, sticky="ew", padx=28, pady=(24, 16))
         tk.Label(heading, text=title, bg=self.colors["surface"], fg=self.colors["text"],
                  font=("Segoe UI Semibold", 20), anchor="w").pack(fill="x")
         tk.Label(heading, text=subtitle, bg=self.colors["surface"], fg=self.colors["muted"],
-                 font=("Segoe UI", 10), anchor="w").pack(fill="x", pady=(3, 0))
+                 font=("Segoe UI", 10), anchor="w", justify="left").pack(fill="x", pady=(2, 0))
+
+    def _paint_navigation(self, page: str) -> None:
+        """Marca la entrada activa de la navegación; la pinta quien la construye."""
+
+    def _show_page_event(self, page: str, _event: object = None) -> None:
+        """Adaptador para `bind`: los manejadores reciben el evento y aquí no hace falta."""
+
+        self._show_page(page)
+
+    @staticmethod
+    def _invoke(action: Callable[[], object], _event: object = None) -> None:
+        action()
 
     def _show_page(self, page: str) -> None:
         self._current_page = page
         self.pages[page].tkraise()
-        for key, button in self.nav_buttons.items():
-            selected = key == page
-            button.configure(
-                fg=self.colors["text"] if selected else self.colors["muted"],
-                bg=self.colors["raised"] if selected else self.colors["header"],
-            )
+        self._paint_navigation(page)
         if page == "work":
             self.after_idle(self.search_entry.focus_set)
         elif page == "library":
@@ -196,9 +306,20 @@ class DashboardBase(EstiloMixin):
 
     def _drain_events(self) -> None:
         events = self.runtime.bridge.drain()
+        for event in events:
+            status = BROKER_STATUS_EVENTS.get(event.event_type)
+            if status is not None:
+                self._live_broker = (status, event.message)
         if events:
             event = events[-1]
-            self.status_var.set(event.message)
+            if event.event_type == "INGESTION_RESULT":
+                self.status_var.set(ingestion_status_text(event.details or {}, event.message))
+                return
+            # El mensaje puede ser un error técnico del cliente HTTP en inglés
+            # («All connection attempts failed»): delante va qué ha pasado.
+            label = self._event_label(event.event_type)
+            self.status_var.set(f"{label}: {event.message}" if event.message and label != event.message
+                                else event.message or label)
 
     def _selected_item(self) -> WorkItem | None:
         return self._work_items.get(self._selected_work_id or "")
@@ -241,8 +362,60 @@ class DashboardBase(EstiloMixin):
 
     @staticmethod
     def _work_row_text(item: WorkItem) -> str:
-        location = item.path or item.filename
+        # En la lista basta el nombre del archivo: la ruta completa se truncaba
+        # y no aportaba nada. Sigue entera en el detalle.
+        location = PureWindowsPath(item.path).name if item.path else item.filename
+        location = location or item.filename
+        if location == item.title:
+            # Un archivo que no se pudo leer no tiene título propio: repetir el
+            # nombre no aporta; decir dónde está, sí.
+            location = "En la carpeta vigilada" if item.incident_id is not None else ""
         return f"{item.title}\n{location}"
+
+    @staticmethod
+    def _work_tone(item: WorkItem) -> str:
+        """Tono visual del estado: el color nunca va solo, siempre con texto."""
+
+        if item.incident_id is not None:
+            return "warning"
+        if item.category == "attention":
+            return "error"
+        if item.category == "completed":
+            return "neutral" if item.status in {"CANCELLED", "REJECTED"} else "success"
+        return "neutral" if item.status in {"READY", "PENDING", "STAGED"} else "accent"
+
+    def _status_text(self, item: WorkItem) -> str:
+        return f"{STATUS_GLYPHS[self._work_tone(item)]}  {item.status_label}"
+
+    @staticmethod
+    def _relative_label(value: str | None) -> str:
+        """«hace 5 min» para la lista; la hora exacta queda en la cronología."""
+
+        if not value:
+            return "—"
+        try:
+            moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return str(value)
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        seconds = int((datetime.now(timezone.utc) - moment).total_seconds())
+        if seconds < 60:
+            return "ahora mismo"
+        if seconds < 3600:
+            return f"hace {seconds // 60} min"
+        if seconds < 86400:
+            return f"hace {seconds // 3600} h"
+        if seconds < 7 * 86400:
+            return f"hace {seconds // 86400} d"
+        return moment.astimezone().strftime("%d/%m/%Y")
+
+    @staticmethod
+    def _middle_ellipsis(text: str, limit: int = 90) -> str:
+        if len(text) <= limit:
+            return text
+        keep = (limit - 1) // 2
+        return f"{text[:keep]}…{text[-keep:]}"
 
     @staticmethod
     def _event_label(event_type: str) -> str:
@@ -253,8 +426,12 @@ class DashboardBase(EstiloMixin):
             "CAPTURE_IGNORED": "Incidencia ignorada",
             "BROKER_RESULT_WARNING": "Aviso del Broker",
             "BROKER_CITATION_WARNING": "Revisión de citas necesaria",
+            "BROKER_ONLINE": "Broker disponible", "BROKER_OFFLINE": "Broker no disponible",
+            "KNOWLEDGE_RECONCILED": "Coherencia comprobada", "API_REQUEST": "Consulta por API",
+            "FILE_LOCKED": "Archivo bloqueado", "FILE_UNSTABLE": "Archivo inestable",
+            "INGESTION_CANCELLED": "Ingesta cancelada",
         }
-        return labels.get(event_type, event_type.replace("_", " ").capitalize())
+        return EVENT_LABELS.get(event_type) or labels.get(event_type, event_type.replace("_", " ").capitalize())
 
     @staticmethod
     def _format_elapsed(seconds: int) -> str:
@@ -265,6 +442,37 @@ class DashboardBase(EstiloMixin):
         if minutes:
             return f"{minutes}m"
         return f"{rest}s"
+
+    def destroy(self) -> None:
+        if self.__dict__.get('_released'):
+            return  # segunda llamada (limpieza de pruebas, cierre repetido): ya no queda nada
+        # Tk removes commands on destruction but leaves their timers registered.
+        # Cancel only callbacks owned by this root; child panels cancel their own.
+        commands = set(getattr(self, '_tclCommands', None) or ())
+        for job in self.tk.call('after', 'info'):
+            script = self.tk.call('after', 'info', job)[0]
+            if script in commands:
+                self.after_cancel(job)
+        super().destroy()
+        self._release_after_destroy()
+
+    def _release_after_destroy(self) -> None:
+        """Libera la ventana ya destruida en este hilo, el de Tk.
+
+        Cada widget guardado como atributo apunta a su padre y, por él, a esta
+        ventana: el conjunto es un ciclo que solo el recolector libera, en el
+        hilo que esté activo en ese momento. Si es un hilo de lectura, Python
+        borra ahí las variables Tk y el intérprete Tcl, y el proceso aborta con
+        «Tcl_AsyncDelete: async handler deleted by the wrong thread»
+        (reproducido: dos pruebas con la ventana seguidas de otra con hilos).
+        Se vacían los atributos, salvo el intérprete y el nombre de la ventana,
+        y se recoge la basura aquí mismo.
+        """
+
+        keep: dict[str, Any] = {name: self.__dict__[name] for name in ('tk', '_w') if name in self.__dict__}
+        self.__dict__.clear()
+        self.__dict__.update(keep, _released=True)
+        gc.collect()
 
     def _close(self) -> None:
         if self._library_search_job is not None:

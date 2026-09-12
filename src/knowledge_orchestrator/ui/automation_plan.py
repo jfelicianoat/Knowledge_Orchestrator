@@ -42,7 +42,8 @@ class AutomationPlanView(ttk.Frame):
         self.canvas.configure(yscrollcommand=outer_scroll.set)
         body = ttk.Frame(self.canvas)
         body.columnconfigure(0, weight=1)
-        body.rowconfigure(2, weight=1, minsize=220)
+        # The comparison needs 220 pixels in addition to its vertical margins.
+        body.rowconfigure(2, weight=1, minsize=220 + 16)
         window = self.canvas.create_window((0, 0), anchor='nw', window=body)
         body.bind('<Configure>', lambda _event: self.canvas.configure(scrollregion=self.canvas.bbox('all')))
         self.canvas.bind('<Configure>', lambda event: self.canvas.itemconfigure(

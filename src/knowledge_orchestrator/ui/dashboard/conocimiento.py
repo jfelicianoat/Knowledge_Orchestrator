@@ -35,7 +35,8 @@ class ConocimientoMixin(FuentesMixin):
         page = self._new_page('knowledge')
         page.columnconfigure(0, weight=1)
         page.rowconfigure(2, weight=1)
-        self._page_heading(page, 'Conocimiento', 'Explora afirmaciones, evidencia y evolución por estado o entidad.')
+        self._page_heading(page, 'Afirmaciones',
+                           'Cada dato extraído de tus notas, con su evidencia, vigencia y evolución.')
         filters = ttk.Frame(page, style='Dark.TFrame')
         filters.grid(row=1, column=0, sticky='ew', padx=24, pady=(0, 12))
         filters.columnconfigure(3, weight=1)
@@ -110,13 +111,14 @@ class ConocimientoMixin(FuentesMixin):
         criteria = (self._knowledge_applied_state, self._knowledge_applied_query, self._knowledge_offset)
         self._knowledge_refreshing = True
         self.knowledge_summary.set('Comprobando notas y vigencia…')
+        operations, results = self.operations, self._knowledge_results
 
         def load() -> None:
             try:
-                result = self.operations.refresh_knowledge(state=criteria[0], query=criteria[1], offset=criteria[2])
-                self._knowledge_results.put((criteria, result))
+                result = operations.refresh_knowledge(state=criteria[0], query=criteria[1], offset=criteria[2])
+                results.put((criteria, result))
             except Exception as error:
-                self._knowledge_results.put((criteria, error))
+                results.put((criteria, error))
 
         threading.Thread(target=load, name='knowledge-explorer-read', daemon=True).start()
         self.after(50, self._poll_knowledge)

@@ -35,6 +35,10 @@ LONG_CONTEXT_LABELS = {
     "fail": "Dividir el documento localmente",
     "map_reduce": "Procesar documentos extensos por bloques",
 }
+AUTOMATIC_MODEL = "Automático (Broker)"
+#: Por debajo de esto, un modelo con razonamiento se queda sin tokens antes de
+#: responder: lo reprodujo un documento real con 1200.
+THINKING_MINIMUM_TOKENS = 2000
 COMPRESSION_LABELS = {
     "": "Decisión automática del Broker",
     "off": "Sin compresión",
@@ -189,17 +193,20 @@ class ConfiguracionMixin(TemasMixin):
         self.profiles_tree.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
         self.profiles_tree.bind("<<TreeviewSelect>>", lambda _event: self._select_profile())
 
+        self._model_labels: dict[str, str] = {AUTOMATIC_MODEL: ""}
+        self._thinking_models: set[str] = set()
         self.profile_form = {
-            "model": tk.StringVar(value="Automático (Broker)"),
+            "model": tk.StringVar(value=AUTOMATIC_MODEL),
             "strategy": tk.StringVar(value=STRATEGY_LABELS["single"]),
             "classification": tk.StringVar(value=CLASSIFICATION_LABELS["local_only"]),
             "long_context": tk.StringVar(value=LONG_CONTEXT_LABELS["fail"]),
             "compression": tk.StringVar(value=COMPRESSION_LABELS[""]), "max_cost": tk.StringVar(value="0.05"),
             "max_output_tokens": tk.StringVar(value="8000"),
             "human_review": tk.BooleanVar(value=False),
+            "only_chosen_model": tk.BooleanVar(value=False),
         }
         fields = [
-            ("Modelo", "model", ("Automático (Broker)",)),
+            ("Modelo", "model", (AUTOMATIC_MODEL,)),
             ("Método de procesamiento", "strategy", tuple(STRATEGY_LABELS.values())),
             ("Privacidad", "classification", tuple(CLASSIFICATION_LABELS.values())),
             ("Documentos extensos", "long_context", tuple(LONG_CONTEXT_LABELS.values())),
@@ -223,9 +230,16 @@ class ConfiguracionMixin(TemasMixin):
         ttk.Entry(editor, textvariable=self.profile_form["max_cost"], width=27, style="Dark.TEntry").grid(
             row=6, column=1, sticky="ew", padx=(12, 0), pady=6
         )
+        # Sin esto el Broker podía responder con otro modelo distinto del
+        # elegido (sustituyó gemma4:12b por nemotron, que también razona), y
+        # entonces elegir bien en esta pantalla no servía de nada.
+        ttk.Checkbutton(editor, text="Usar solo el modelo elegido (sin sustituciones del Broker)",
+                        variable=self.profile_form["only_chosen_model"], style="Dark.TCheckbutton").grid(
+            row=7, column=0, columnspan=2, sticky="w", pady=(10, 0)
+        )
         ttk.Checkbutton(editor, text="Exigir revisión humana antes de publicar",
                         variable=self.profile_form["human_review"], style="Dark.TCheckbutton").grid(
-            row=7, column=0, columnspan=2, sticky="w", pady=(10, 6)
+            row=8, column=0, columnspan=2, sticky="w", pady=(4, 6)
         )
         tk.Label(
             editor,
@@ -235,7 +249,7 @@ class ConfiguracionMixin(TemasMixin):
             ),
             bg=self.colors["surface"], fg=self.colors["muted"], font=("Segoe UI", 9), wraplength=430,
             justify="left",
-        ).grid(row=8, column=0, columnspan=2, sticky="ew", pady=(8, 14))
+        ).grid(row=9, column=0, columnspan=2, sticky="ew", pady=(8, 14))
         self.save_profile_button = ttk.Button(
             editor, text="Guardar política", style="Accent.TButton", command=self._save_profile
         )
@@ -243,8 +257,8 @@ class ConfiguracionMixin(TemasMixin):
             editor, text="Editar instrucciones de extracción…", style="Secondary.TButton",
             command=self._open_prompt_editor,
         )
-        self.edit_prompt_button.grid(row=9, column=0, sticky="w")
-        self.save_profile_button.grid(row=9, column=1, sticky="e")
+        self.edit_prompt_button.grid(row=10, column=0, sticky="w")
+        self.save_profile_button.grid(row=10, column=1, sticky="e")
         self.save_profile_button.state(["disabled"])
         self.edit_prompt_button.state(["disabled"])
         self._loading_profile = False
@@ -371,17 +385,34 @@ class ConfiguracionMixin(TemasMixin):
         if not selection:
             return
         profile_id = int(selection[0])
+        # El refresco automático vuelve a fijar la selección cada dos segundos y
+        # eso repintaba el formulario: lo que la persona estaba escribiendo se
+        # perdía y «Guardar política» volvía a deshabilitarse. Mientras haya
+        # cambios sin guardar en el mismo perfil, la recarga no toca el formulario.
+        if profile_id == self._selected_profile_id and self._profile_dirty:
+            return
         item = self._profile_items.get(profile_id)
         if item is None:
             return
         self._selected_profile_id = profile_id
         current = self.runtime.profiles.get_profile(profile_id)
         self._loading_profile = True
-        models = ["Automático (Broker)", *self.snapshots.model_names()]
-        if item.preferred_model and item.preferred_model not in models:
+        # El desplegable enseña para qué sirve cada modelo; al guardar se
+        # traduce la etiqueta a su nombre real, que es lo que viaja al Broker.
+        options = self.snapshots.models()
+        self._model_labels = {AUTOMATIC_MODEL: ""}
+        self._thinking_models = {option.name for option in options if option.thinking}
+        models = [AUTOMATIC_MODEL]
+        for option in options:
+            self._model_labels[option.label] = option.name
+            models.append(option.label)
+        if item.preferred_model and item.preferred_model not in self._model_labels.values():
+            self._model_labels[item.preferred_model] = item.preferred_model
             models.append(item.preferred_model)
         self.profile_combos["model"].configure(values=models)
-        self.profile_form["model"].set(item.preferred_model or "Automático (Broker)")
+        chosen = next((label for label, name in self._model_labels.items()
+                       if name == item.preferred_model and name), AUTOMATIC_MODEL)
+        self.profile_form["model"].set(chosen)
         self.profile_form["strategy"].set(_label_for(STRATEGY_LABELS, item.execution_strategy))
         self.profile_form["classification"].set(_label_for(CLASSIFICATION_LABELS, item.data_classification))
         self.profile_form["long_context"].set(_label_for(LONG_CONTEXT_LABELS, item.long_context))
@@ -389,6 +420,7 @@ class ConfiguracionMixin(TemasMixin):
         self.profile_form["max_cost"].set(str(item.max_cost_usd))
         self.profile_form["max_output_tokens"].set(str(current.max_output_tokens))
         self.profile_form["human_review"].set(item.human_review_required)
+        self.profile_form["only_chosen_model"].set(not current.fallback_allowed)
         self._profile_prompts = {
             "system_prompt": current.system_prompt,
             "user_prompt": current.user_prompt,
@@ -463,9 +495,36 @@ class ConfiguracionMixin(TemasMixin):
     def _save_profile(self) -> None:
         if self._selected_profile_id is None:
             return
+        # Validación con mensajes para personas: antes llegaba «invalid literal
+        # for int() with base 10» directamente al diálogo.
         try:
-            max_cost = float(self.profile_form["max_cost"].get())
-            max_output_tokens = int(self.profile_form["max_output_tokens"].get())
+            max_cost = float(self.profile_form["max_cost"].get().strip().replace(",", "."))
+        except ValueError:
+            messagebox.showerror("No se pudo guardar la política",
+                                 "El presupuesto por documento debe ser un número en dólares, por ejemplo 0.05.",
+                                 parent=self)
+            return
+        try:
+            max_output_tokens = int(self.profile_form["max_output_tokens"].get().strip())
+        except ValueError:
+            messagebox.showerror("No se pudo guardar la política",
+                                 "La longitud máxima de la respuesta debe ser un número entero de tokens, "
+                                 "por ejemplo 8000.", parent=self)
+            return
+        # Un modelo que razona gasta su presupuesto pensando: con una longitud
+        # corta se queda sin tokens antes de contestar y el documento falla.
+        chosen_model = self._model_labels.get(self.profile_form["model"].get(),
+                                              self.profile_form["model"].get())
+        if (chosen_model in getattr(self, "_thinking_models", set())
+                and max_output_tokens < THINKING_MINIMUM_TOKENS
+                and not messagebox.askyesno(
+                    "Este modelo razona antes de responder",
+                    f"«{chosen_model}» dedica parte de su respuesta a razonar. Con "
+                    f"{max_output_tokens} tokens puede agotarlos antes de escribir el apunte.\n\n"
+                    f"Se recomiendan al menos {THINKING_MINIMUM_TOKENS}. ¿Guardar de todas formas?",
+                    parent=self)):
+            return
+        try:
             current = self.runtime.profiles.get_profile(self._selected_profile_id)
             capabilities = self.runtime.broker_worker.capabilities_snapshot()
             strategy = _value_for(STRATEGY_LABELS, self.profile_form["strategy"].get())
@@ -476,11 +535,7 @@ class ConfiguracionMixin(TemasMixin):
                 raise ValueError("El Broker actual no permite procesar documentos extensos por bloques")
             updated = replace(
                 current,
-                preferred_model=(
-                ""
-                if self.profile_form["model"].get() == "Automático (Broker)"
-                else self.profile_form["model"].get()
-            ),
+                preferred_model=chosen_model,
                 execution_strategy=strategy,
                 data_classification=_value_for(
                     CLASSIFICATION_LABELS, self.profile_form["classification"].get()
@@ -494,6 +549,7 @@ class ConfiguracionMixin(TemasMixin):
                 max_cost_usd=max_cost,
                 max_output_tokens=max_output_tokens,
                 human_review_required=bool(self.profile_form["human_review"].get()),
+                fallback_allowed=not bool(self.profile_form["only_chosen_model"].get()),
                 system_prompt=self._profile_prompts["system_prompt"],
                 user_prompt=self._profile_prompts["user_prompt"],
                 chunk_prompt=self._profile_prompts["chunk_prompt"],

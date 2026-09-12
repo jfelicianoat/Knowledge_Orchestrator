@@ -23,13 +23,17 @@ if ($LASTEXITCODE -ne 0) {
     throw "La instalación de Python no tiene un Tcl/Tk funcional. Repara Python antes de generar la app Windows."
 }
 
+# PyInstaller resuelve --add-data desde --specpath (build/pyinstaller), no desde
+# el proyecto: con una ruta relativa no encuentra las migraciones y aborta.
+$Migrations = Join-Path $ProjectRoot "src\knowledge_orchestrator\migrations"
 python -m PyInstaller `
     --name Knowledge-Orchestrator `
     --noconfirm `
     --clean `
     --windowed `
     --onedir `
-    --add-data "src/knowledge_orchestrator/migrations;knowledge_orchestrator/migrations" `
+    --paths (Join-Path $ProjectRoot "src") `
+    --add-data "$Migrations;knowledge_orchestrator/migrations" `
     --distpath $OutputDir `
     --workpath build/pyinstaller `
     --specpath build/pyinstaller `

@@ -10,6 +10,12 @@ from knowledge_orchestrator.repositories.database import Database
 
 ACTIVE_CAPTURE_STATUSES = ("STAGED", "PENDING", "SUBMITTING", "QUEUED", "PROCESSING")
 ACTIVE_TASK_STATUSES = ("READY", "SUBMITTING", "QUEUED", "PROCESSING", "CANCEL_REQUESTED")
+#: Latidos que se repiten solos y taparían la actividad real de los documentos.
+ACTIVITY_NOISE = (
+    "BROKER_ONLINE", "KNOWLEDGE_RECONCILED", "API_REQUEST", "BROKER_QUEUE_UPDATED", "BROKER_TASKS_UPDATED",
+    "SEMANTIC_JOBS_UPDATED", "BROKER_MODELS_UPDATED", "BROKER_CAPABILITIES_UPDATED", "BROKER_CONNECTION_UPDATED",
+    "SEMANTIC_JOB_STATE_CHANGED", "QUERY_STATE_CHANGED",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +79,15 @@ class WorkEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivityItem:
+    event_type: str
+    message: str
+    title: str
+    created_at: str
+    created_label: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewItem:
     candidate_id: int
     status: str
@@ -109,6 +124,26 @@ class TopicItem:
     position: int
     enabled: bool
     default_profile: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModelOption:
+    name: str
+    provider: str
+    context_window: int | None
+    thinking: bool
+
+    @property
+    def label(self) -> str:
+        """Lo que se lee en Ajustes: el nombre solo no dice si sirve para esto."""
+
+        parts = [self.name]
+        if self.thinking:
+            parts.append("razona")
+        if self.context_window:
+            parts.append(f"{self.context_window // 1000}k contexto" if self.context_window >= 1000
+                         else f"{self.context_window} contexto")
+        return " · ".join(parts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +253,33 @@ class UiSnapshotService:
             for row in reversed(rows)
         ]
 
+    def recent_activity(self, *, limit: int = 8) -> list[ActivityItem]:
+        """Últimos eventos con el título del documento, para el resumen.
+
+        Se omiten los latidos que se repiten solos (Broker disponible,
+        reconciliación documental, cada petición API): taparían lo que de
+        verdad le ha pasado a los documentos.
+        """
+
+        with closing(self.database.connect(readonly=True)) as connection:
+            rows = connection.execute(
+                "SELECT e.event_type, e.message, e.created_at, c.title FROM events e "
+                "LEFT JOIN captures c ON c.capture_id = e.capture_id "
+                f"WHERE e.event_type NOT IN ({','.join('?' for _ in ACTIVITY_NOISE)}) "
+                "ORDER BY e.created_at DESC, e.event_id DESC LIMIT ?",
+                (*ACTIVITY_NOISE, max(1, limit)),
+            ).fetchall()
+        return [
+            ActivityItem(
+                event_type=str(row["event_type"]),
+                message=str(row["message"] or ""),
+                title=str(row["title"] or ""),
+                created_at=str(row["created_at"]),
+                created_label=_clock_label(row["created_at"]),
+            )
+            for row in rows
+        ]
+
     def reviews(self) -> list[ReviewItem]:
         with closing(self.database.connect(readonly=True)) as connection:
             rows = connection.execute(
@@ -320,13 +382,38 @@ class UiSnapshotService:
             for row in rows
         ]
 
-    def model_names(self) -> list[str]:
+    def models(self) -> list[ModelOption]:
+        """Modelos que el Broker dice tener **y** poder usar.
+
+        El catálogo trae más de lo que sirve: modelos que el propio Broker marcó
+        incompatibles al probarlos y modelos en cuarentena. Ofrecerlos es una
+        trampa —elegir uno de esos hace fallar el primer documento—, así que no
+        entran en la lista. De los que quedan se conserva si razonan antes de
+        responder (`thinking`), porque ese razonamiento consume el presupuesto
+        de salida y cambia qué longitud máxima hay que darles.
+        """
+
         with closing(self.database.connect(readonly=True)) as connection:
             rows = connection.execute(
-                "SELECT name FROM model_catalog WHERE status IN ('available', 'loaded', 'online') "
-                "ORDER BY name COLLATE NOCASE"
+                "SELECT name, provider, context_window, capabilities_json FROM model_catalog "
+                "WHERE status IN ('available', 'loaded', 'online') ORDER BY name COLLATE NOCASE"
             ).fetchall()
-        return [str(row["name"]) for row in rows]
+        options: list[ModelOption] = []
+        for row in rows:
+            catalog = _safe_json(row["capabilities_json"])
+            if catalog.get("quarantined") or catalog.get("compatibility") == "incompatible":
+                continue
+            capabilities = catalog.get("capabilities")
+            options.append(ModelOption(
+                name=str(row["name"]),
+                provider=str(row["provider"] or catalog.get("provider") or "desconocido"),
+                context_window=int(row["context_window"]) if row["context_window"] else None,
+                thinking="thinking" in capabilities if isinstance(capabilities, list) else False,
+            ))
+        return options
+
+    def model_names(self) -> list[str]:
+        return [option.name for option in self.models()]
 
     @staticmethod
     def _queue_item(position: int, row: Any) -> QueueItem:

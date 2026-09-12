@@ -15,7 +15,8 @@ e intenciones durables. El puente solo recibe una sustitución autenticada y com
 el hash de la base dentro del callback síncrono de `Vault.process()`. Rechaza una
 base distinta. No extrae claims, decide confianza, ejecuta prompts ni aprueba propuestas.
 
-El servidor se enlaza exclusivamente a `127.0.0.1`, puerto 8766 por defecto. Requiere
+El servidor se enlaza exclusivamente a `127.0.0.1`, puerto 8767 para instalaciones
+nuevas desde 0.1.2. Conserva el puerto guardado en instalaciones existentes. Requiere
 Bearer token y rechaza `Origin`, Host distinto y peticiones ligadas a otra bóveda.
 La credencial es exclusiva de este puente y diferente de la del Broker. Se selecciona
 mediante SecretStorage de Obsidian; `data.json` conserva su nombre, no el valor.
@@ -70,15 +71,44 @@ el archivo y el recibo. La publicación inicial conserva su instalación sin sob
 
 1. Copiar los cinco archivos del paquete a
    `.obsidian/plugins/knowledge-orchestrator-bridge/` de la bóveda de ensayo.
-2. Activar el complemento en Obsidian. Crear/seleccionar una credencial exclusiva
-   de al menos 32 caracteres en su selector de secretos y habilitar la recepción.
-3. En Orchestrator, Ajustes → Edición segura en Obsidian, guardar la dirección
-   `http://127.0.0.1:8766` y la misma credencial del puente. La bóveda configurada
+2. Activar el complemento en Obsidian y abrir los ajustes de **Knowledge Orchestrator
+   Bridge**. La versión 0.1.1 añade **Estado del puente** y **Reintentar conexión**.
+   Las filas de configuración son **Permitir propuestas del Orchestrator**
+   (interruptor), **Credencial compartida** (selector de nombre de secreto) y **Puerto
+   local** (número). Seleccionar primero una credencial exclusiva de al menos 32
+   caracteres, usar un puerto distinto al de la API y después activar la recepción. Los controles
+   originales aparecen en las capturas del usuario con Obsidian 1.13.7; el render del
+   nuevo indicador de estado sigue pendiente.
+3. En Orchestrator, Ajustes → Edición segura en Obsidian, guardar
+   la dirección local indicada por el puente y la misma credencial. En instalaciones
+   nuevas es `http://127.0.0.1:8767`. La bóveda configurada
    en el Orchestrator debe ser la misma que está abierta en Obsidian.
 4. Comprobar la conexión. La comprobación solo consulta protocolo e identidad;
    no aplica propuestas. La clave vacía conserva la guardada.
 5. Probar una aprobación, edición simultánea, respuesta perdida, reinicio y reversión
    con documentos de ensayo antes de habilitar su uso con documentos reales.
+
+**Dos ventanas distintas:** `Edición segura en Obsidian` pertenece al programa
+Knowledge Orchestrator. No es el nombre de un apartado de Obsidian. En el puente se
+configura solo el número de puerto; en el Orchestrator, la dirección HTTP completa.
+
+La API conserva su puerto predeterminado `8766`. Desde 0.1.2, un puente nuevo usa
+`8767` para poder convivir con ella. No se reescriben puertos ni conexiones guardadas:
+la copia de ensayo del usuario mantiene su puente en `8766`. Cuando el panel de
+Servicios detecta ese puerto del puente, sugiere `8767` para la API; la persona puede
+cambiarlo antes de arrancar. El arranque programático/CLI de la API mantiene su default.
+Si aún no hay conexión del cliente guardada, Ajustes sugiere el puerto del `data.json`
+del puente de esa bóveda cuando es válido. Esa lectura no guarda credenciales ni
+acredita conexión. La dirección protegida ya guardada tiene prioridad.
+
+El nombre de secreto es una etiqueta. Su **valor** debe contener una clave de al menos
+32 caracteres en una sola línea. Si se edita en el Llavero sin cambiar el nombre,
+**Reintentar conexión** vuelve a leerla. El estado solo declara **Escuchando** después
+del evento del servidor; esto no sustituye la comprobación autenticada desde el cliente.
+Los fallos de lectura/inicio se muestran sin incluir el mensaje privado de la excepción.
+
+Al sustituir una versión instalada, conservar `data.json` y `receipts.jsonl`, y recargar
+el complemento desde la lista de complementos instalados para cargar el código nuevo.
 
 El Orchestrator guarda dirección, identidad de bóveda y credencial cifrada con DPAPI
 en un único JSON sustituido de forma atómica, bajo `state/credentials/obsidian-bridge.json`.
@@ -92,12 +122,15 @@ que identifica la petición sin crear un temporal de nota. Intenciones anteriore
 conservan su ruta guardada; las reversiones usan su identificador durable propio.
 No hay migración de SQLite ni fallback de reemplazo directo.
 
-Pruebas de desarrollo: `node --test obsidian-bridge/bridge.test.cjs` desde la raíz.
+Pruebas de desarrollo: `node --test obsidian-bridge/bridge.test.cjs obsidian-bridge/settings.test.cjs` desde la raíz.
 Los tests del callback usan un Vault simulado; el transporte loopback y el journal
 usan Node y archivos reales temporales. Los tests de dominio inyectan explícitamente
 un editor de ensayo que utiliza el cliente HTTP con transporte simulado. También se
 verifican runtime sin configurar, recuperación/reversión e intercambio DPAPI real.
 No certifican la ejecución dentro de Obsidian ni el render del panel de Ajustes.
+Las pruebas de estado usan el arranque real del plugin con un host Obsidian sustituido
+y puertos loopback reales; cubren credenciales inválidas, reintento, puerto ocupado,
+errores privados y eventos de servidores anteriores.
 
 Referencias oficiales:
 [Vault.process](https://docs.obsidian.md/Plugins/Vault),

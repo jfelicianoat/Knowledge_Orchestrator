@@ -6,6 +6,7 @@ aplicación.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from typing import Any
@@ -20,6 +21,14 @@ from knowledge_orchestrator.services.semantic_maintenance.contratos import (
 def prompt_data(value: Any) -> str:
     """JSON reversible que no puede cerrar los delimitadores del prompt anfitrión."""
     return json.dumps(value, ensure_ascii=False).replace('<', '\\u003c').replace('>', '\\u003e')
+
+
+#: Presupuesto de salida por tipo de tarea. Antes era un 4000 fijo escrito en la
+#: petición: ningún tipo de tarea podía pedir más ni menos, y con un modelo que
+#: razona el razonamiento se lo comía antes de escribir la respuesta. La
+#: extracción recorre el documento entero y necesita más holgura; un embedding
+#: devuelve un vector y no necesita casi nada.
+TASK_BUDGETS = {"extraction": 6000, "comparison": 4000, "embedding": 2000, "query": 4000}
 
 
 class PromptsMixin:
@@ -72,13 +81,23 @@ class PromptsMixin:
         schema: Mapping[str, Any],
         preferred_model: str | None = None,
         max_cost_usd: float | None = None,
+        max_output_tokens: int = TASK_BUDGETS["extraction"],
     ) -> dict[str, Any]:
+        # La clave idempotente lleva una firma del contenido. Con la clave fija
+        # («semantic_extract_note_1»), reintentar la misma nota con otro modelo o
+        # otro presupuesto chocaba con el 409 del Broker, que conserva la petición
+        # anterior: el trabajo moría sin llegar a ejecutarse. Mismo contenido,
+        # misma clave: el replay idempotente sigue funcionando igual.
+        signature = hashlib.sha256(json.dumps(
+            {"prompt": prompt, "schema": dict(schema), "model": preferred_model, "tokens": max_output_tokens},
+            ensure_ascii=False, sort_keys=True,
+        ).encode("utf-8")).hexdigest()[:12]
         request = {
-            "idempotency_key": request_id,
+            "idempotency_key": f"{request_id}:{signature}",
             "request_id": request_id,
             "content": {"prompt": prompt, "attachments": [], "metadata": {"purpose": "semantic_maintenance"}},
             "output": {"format": "json", "json_schema": dict(schema), "language": "es"},
-            "generation": {"temperature": 0.0, "max_output_tokens": 4000},
+            "generation": {"temperature": 0.0, "max_output_tokens": max_output_tokens},
             "model_requirements": {
                 "preferred_model": preferred_model,
                 "fallback_allowed": True,
@@ -116,4 +135,5 @@ class PromptsMixin:
         )
         return PromptsMixin.broker_json_request(
             request_id=f"claim_embedding:{claim_id}", prompt=prompt, schema=schema, preferred_model=model,
+            max_output_tokens=TASK_BUDGETS["embedding"],
         )

@@ -31,7 +31,7 @@ Une en una sola herramienta de escritorio el ciclo completo del documento, la bi
 - El formato de entrada admitido actualmente es Markdown con el contrato de captura de Knowledge Orchestrator.
 - El Broker procesa las tareas fuera del hilo de interfaz.
 - La interfaz no inventa porcentajes cuando el Broker no informa progreso cuantificable.
-- La navegación separa operación (`Documentos`) de resultados (`Biblioteca`) y administración (`Organización`, `Ajustes`).
+- La navegación lateral agrupa trabajo (`Inicio`, `Documentos`, `Revisión`), conocimiento (`Biblioteca`, `Afirmaciones`, `Fuentes`) y sistema (`Actividad`, `Automatización y API`, `Organización`, `Ajustes`), con contadores de lo pendiente.
 - La futura API deberá exponer el conocimiento mediante una capa de consulta estable, sin acoplar consumidores externos a widgets, rutas internas o tablas SQLite.
 - La API documental es una evolución prevista, no una capacidad disponible en esta versión.
 

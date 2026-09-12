@@ -104,3 +104,106 @@ integrado falta abrir esta copia en Obsidian, configurar el puente y preparar un
 de ensayo que registre sus documentos sin apuntar a la bóveda original. La codificación
 de las notas existentes requiere revisión antes de actualizarlas; los cinco documentos
 ficticios nuevos sí se escribieron en UTF-8. Las puertas de aceptación reales siguen abiertas.
+
+## Corrección de instrucciones del puente (10 de septiembre)
+
+El usuario informó que la guía no coincidía con los ajustes del puente. Se revisó
+`main.js` y se corrigieron la guía de ensayo y el README con las tres etiquetas exactas
+del complemento y la separación entre sus ajustes y el panel del programa Orchestrator.
+No se atribuye el problema a una versión diferente sin evidencia visual.
+
+La documentación oficial de SecretComponent coincide con la API usada en el código.
+El archivo ejecutable sigue declarando 1.12.7; existe además un paquete de actualización
+1.13.7, por lo que la versión del ejecutable no certifica la versión cargada.
+El inventario de Computer Use no devolvió ventanas de Obsidian. Una nueva apertura con
+el control nativo actualizado volvió a ser rechazada con
+`Computer Use was not approved to use Obsidian`, sin motivo adicional. No se empleó
+otra vía de apertura. La pantalla concreta del usuario sigue pendiente de observar;
+las instrucciones corregidas se identifican como contrastadas con código, no con render.
+
+## Panel real y diagnóstico de credencial (10 de septiembre)
+
+Las tres capturas posteriores del usuario prueban Obsidian **1.13.7**, el puente
+instalado/activado, el menú **tres puntos → Ajustes** y el render de sus tres controles.
+La recepción aparece encendida, la credencial seleccionada oculta y el puerto 8766.
+Esto acredita ese panel concreto, no el recorrido de publicación ni el panel de Tk.
+
+La lectura acotada de `data.json` de la copia confirma `enabled=true`, puerto 8766 y
+referencia al nombre `chatgpt`; no se leyó el valor del secreto. `receipts.jsonl` existe
+vacío. El Orchestrator aún carece de `obsidian-bridge.json` para esta copia.
+Una petición GET sin credencial a `127.0.0.1:8766/v1/status` no llegó a HTTP:
+**WinError 10061 / ConnectionRefusedError**. La comprobación del listener no encontró
+puerto 8766 en escucha. No se interpreta como 401 ni como token Broker inválido.
+
+El usuario apagó/encendió recepción y confirmó el aviso de una credencial de al menos
+32 caracteres. La guarda de `restart()` lo emite cuando `getSecret()` devuelve un valor
+ausente o corto, antes de iniciar el servidor. No se puede distinguir ambas causas
+solo por ese aviso. Falta configurar el valor de un secreto exclusivo para el puente.
+
+Se preparó un runtime independiente en
+`D:\Desarrollo\Proyectos TFM\Obsidian_prueba\Orchestrator_ensayo`, ligado a la copia local.
+Construcción sin iniciar workers: SQLite quick_check `ok`, 21 migraciones y cero notas.
+No se migró la base copiada de 11 migraciones ni se guardaron credenciales.
+`Abrir Orchestrator de ensayo.cmd` fija raíz, inbox y bóveda para ese proceso; la
+interfaz aún no se ejecutó. El bloqueo histórico de Tk no se considera resuelto.
+
+## Diagnóstico permanente disponible para recargar (11 de septiembre)
+
+La nueva comprobación mantuvo WinError 10061 y ausencia de configuración del cliente.
+Se implementó y copió el puente 0.1.1 al ensayo: **Estado del puente** y **Reintentar
+conexión**. Detalle técnico/pruebas en incremento 19 de fase 14. Los cinco archivos
+del paquete se verificaron contra el proyecto; ajustes y recibos permanecieron iguales.
+No se recargó automáticamente Obsidian ni se probó autenticación con una clave real.
+El informe `Obsidian_prueba/actualizacion-puente-0.1.1.json` registra los hashes nuevos,
+la copia previa de los dos archivos sustituidos y `USER_RELOAD_REQUIRED`.
+
+La selección de nombre sigue sin acreditar el valor. La nueva fila evita confundir
+interruptor activado con servicio disponible. Los cinco escenarios integrados siguen
+sin ejecutar; las pruebas Node del arranque no sustituyen una sesión real del plugin.
+
+## Puertos separados para nuevas instalaciones (11 de septiembre)
+
+El incremento 21 corrige la colisión de defaults: API mantiene 8766 y puentes nuevos
+usan 8767. La copia existente conserva `data.json`, sus recibos y el puerto 8766.
+Solo se sustituyeron los archivos de código/manifest, tras contrastar sus hashes con
+la versión preparada antes. El informe `actualizacion-puente-0.1.2.json` conserva los
+hashes nuevos y la ruta del paquete anterior. Requiere recarga del complemento.
+
+La lectura real desde `ObsidianConnection.configured_url()` sigue sugiriendo para
+este ensayo `http://127.0.0.1:8766`. No se guardó una credencial ni se inició un listener.
+En ese caso Servicios propone 8767 para la API, sin iniciarla ni cambiar el puerto de
+Obsidian. Se reescribió la guía alrededor de los pasos observados y la configuración
+actual, evitando instrucciones mezcladas de versiones anteriores. La nueva sugerencia
+de Tk y la conexión autenticada real todavía no están verificadas visualmente.
+
+Comprobación al retomar el 11 de septiembre: paquete preparado 0.1.2, permiso activado,
+referencia a secreto configurada y puerto 8766. La consulta sin credencial a
+`/v1/status` sigue devolviendo `ConnectError`; no existe aún el archivo protegido de
+conexión del Orchestrator de ensayo. Estos datos no prueban que Obsidian haya cargado
+el paquete nuevo ni que el valor del secreto sea válido. Se solicitó el texto visible
+de **Estado del puente** tras recargar el complemento, sin pedir la clave.
+
+El usuario confirmó recarga; la consulta posterior mantuvo `ConnectError`. Sus nuevas
+capturas muestran Obsidian 1.13.7 y Knowledge Orchestrator Bridge **0.1.2** instalado
+y activado, junto con una búsqueda vacía en el catálogo. Acreditan la versión visible,
+pero todavía no la fila **Estado del puente**. Se indicó abrir **⋮ → Ajustes** junto
+al interruptor del complemento en la lista de instalados.
+
+La captura siguiente acredita finalmente la fila **Estado del puente** de 0.1.2:
+«Falta una clave válida: el VALOR del secreto debe tener al menos 32 caracteres,
+en una sola línea. El nombre es solo una etiqueta». El permiso sigue activado y el
+puerto es 8766. La causa observada es la validación del valor del secreto seleccionado
+(ausente, corto o con salto de línea); no se inspeccionó ni solicitó su contenido.
+El próximo paso es corregir ese valor en **Llavero**, comprobar la selección en
+**Credencial compartida** y pulsar **Reintentar conexión**.
+
+Una nueva captura muestra **Escuchando en http://127.0.0.1:8766**. La consulta local
+sin credencial obtiene **HTTP 401**: el listener está accesible y exige autenticación.
+El archivo de conexión del Orchestrator de ensayo aún no existe. El usuario informa
+que el acceso no abre ventana ni muestra error. Se corrigió el arranque Tcl verificado
+en Python 3.14.0 y el acceso ahora recoge la salida en `arranque-orchestrator.log`.
+Los intentos de apertura automática devolvieron procesos iniciados, pero no una
+ventana visible en el inventario de Computer Use. No equivalen a un arranque visual
+confirmado. El intento de cerrar el primer proceso iniciado fue denegado por el sistema;
+no se volvieron a iniciar instancias tras el segundo intento. Evitar nuevos intentos
+automáticos hasta que se confirme el estado de esos procesos.

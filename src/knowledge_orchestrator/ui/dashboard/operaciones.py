@@ -12,9 +12,11 @@ import queue
 import sqlite3
 import threading
 import tkinter as tk
+from functools import partial
 from tkinter import messagebox, ttk
 
 from knowledge_orchestrator.ui.dashboard.conocimiento import ConocimientoMixin
+from knowledge_orchestrator.ui.dashboard.estilo import FONT, FONT_SEMIBOLD, TONES
 from knowledge_orchestrator.ui.dashboard.fuentes import CHANGE_LABELS, source_time
 from knowledge_orchestrator.ui.dashboard.revision import RELATION_LABELS
 
@@ -36,8 +38,8 @@ class OperacionesMixin(ConocimientoMixin):
         page = self._new_page('operations')
         page.columnconfigure(0, weight=1)
         page.rowconfigure(2, weight=1)
-        self._page_heading(page, 'Cambios y actividad',
-                           'Sigue las novedades hasta su análisis, revisión y publicación.')
+        self._page_heading(page, 'Actividad',
+                           'Sigue cada novedad hasta su análisis, revisión y publicación.')
         controls = ttk.Frame(page, style='Dark.TFrame')
         controls.grid(row=1, column=0, sticky='ew', padx=24, pady=(0, 12))
         self.flow_stage = tk.StringVar(value='Cambios')
@@ -278,7 +280,11 @@ class OperacionesMixin(ConocimientoMixin):
         self._show_page('operations')
 
     def _build_pipeline(self) -> None:
+        """Etapas como nodos numerados y unidos: se lee de izquierda a derecha."""
+
+        c = self.colors
         self.pipeline_vars: dict[str, tk.StringVar] = {}
+        self._pipeline_nodes: dict[str, tuple[tk.Canvas, int, int]] = {}
         self._pipeline_refreshing = False
         self._pipeline_results: queue.SimpleQueue[dict | Exception] = queue.SimpleQueue()
         stages = [('sources', 'Fuentes', lambda: self._show_page('sources')),
@@ -287,30 +293,51 @@ class OperacionesMixin(ConocimientoMixin):
                   ('proposals', 'Propuestas', lambda: self._open_flow('proposals')),
                   ('review', 'Revisión', lambda: self._show_page('review')),
                   ('published', 'Publicación', lambda: self._show_page('library'))]
+        host = self.lifecycle_host
         for index, (key, label, action) in enumerate(stages):
-            self.lifecycle_host.columnconfigure(index * 2, weight=1)
-            variable = self.pipeline_vars[key] = tk.StringVar(value=label)
-            ttk.Button(self.lifecycle_host, textvariable=variable, command=action).grid(
-                row=0, column=index * 2, sticky='ew', pady=8)
+            column = index * 2
+            canvas = tk.Canvas(host, width=46, height=46, bg=c['raised'], highlightthickness=0, cursor='hand2')
+            canvas.grid(row=0, column=column, padx=6, pady=(6, 2))
+            oval = canvas.create_oval(3, 3, 43, 43, outline=c['border'], width=2)
+            number = canvas.create_text(23, 23, text='0', fill=c['faint'], font=(FONT_SEMIBOLD, 13))
+            caption = tk.Label(host, text=label, bg=c['raised'], fg=c['muted'], font=(FONT, 9), cursor='hand2')
+            caption.grid(row=1, column=column, padx=2, pady=(0, 4))
+            for widget in (canvas, caption):
+                widget.bind('<Button-1>', partial(self._invoke, action))
+            self.pipeline_vars[key] = tk.StringVar(value='0')
+            self._pipeline_nodes[key] = (canvas, oval, number)
             if index < len(stages) - 1:
-                ttk.Label(self.lifecycle_host, text='→', style='Muted.TLabel').grid(row=0, column=index * 2 + 1, padx=4)
+                host.columnconfigure(column + 1, weight=1)
+                tk.Frame(host, bg=c['border'], height=2).grid(row=0, column=column + 1, sticky='ew')
         self.lifecycle_summary = tk.StringVar(value='Conocimiento y cambios según el registro local.')
-        ttk.Label(self.lifecycle_host, textvariable=self.lifecycle_summary, style='Muted.TLabel').grid(
-            row=1, column=0, columnspan=11, sticky='w', pady=(0, 10))
+        tk.Label(host, textvariable=self.lifecycle_summary, bg=c['raised'], fg=c['faint'], font=(FONT, 9),
+                 anchor='w').grid(row=2, column=0, columnspan=len(stages) * 2 - 1, sticky='w', pady=(8, 12))
+
+    def _set_stage(self, key: str, count: int) -> None:
+        canvas, oval, number = self._pipeline_nodes[key]
+        color = {'published': TONES['success'][1], 'review': TONES['warning'][1]}.get(key, self.colors['accent'])
+        active = count > 0
+        canvas.itemconfigure(oval, outline=color if active else self.colors['border'])
+        canvas.itemconfigure(number, text=str(count), fill=color if active else self.colors['faint'])
+        self.pipeline_vars[key].set(str(count))
 
     def _refresh_dashboard(self) -> None:
         super()._refresh_dashboard()
-        self.pipeline_vars['review'].set(f"Revisión · {self.dashboard_vars['review'].get()}")
-        self.pipeline_vars['published'].set(f"Publicación · {self.dashboard_vars['published'].get()}")
+        for key in ('review', 'published'):
+            try:
+                self._set_stage(key, int(self.dashboard_vars[key].get()))
+            except ValueError:
+                pass
         if self._pipeline_refreshing:
             return
         self._pipeline_refreshing = True
+        operations, results = self.operations, self._pipeline_results
 
         def load() -> None:
             try:
-                self._pipeline_results.put(self.operations.refresh_counts())
+                results.put(operations.refresh_counts())
             except Exception as error:
-                self._pipeline_results.put(error)
+                results.put(error)
 
         threading.Thread(target=load, name='knowledge-pipeline-read', daemon=True).start()
         self.after(50, self._poll_pipeline)
@@ -326,9 +353,8 @@ class OperacionesMixin(ConocimientoMixin):
             self.lifecycle_summary.set('No se pudieron actualizar los indicadores. Usa Actualizar para reintentar.')
             return
         counts = result
-        for key, label in (('sources', 'Fuentes'), ('changes', 'Cambios'), ('analysis', 'Análisis'),
-                           ('proposals', 'Propuestas')):
-            self.pipeline_vars[key].set(f'{label} · {counts[key]}')
+        for key in ('sources', 'changes', 'analysis', 'proposals'):
+            self._set_stage(key, int(counts[key]))
         self.lifecycle_summary.set(f"{counts['current']} afirmaciones vigentes · {counts['historical']} históricas · "
                                    f"{counts['review']} en revisión · {counts['contradictions']} contradicciones · "
                                    f"{counts['source_errors']} fuentes con errores")
