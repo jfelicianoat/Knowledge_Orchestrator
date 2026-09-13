@@ -53,7 +53,28 @@ el Broker real), cero errores** —igual que el baseline de 0.3.0, así que la i
 entre 0.3.1 y 0.3.3—, más **5 pasos nuevos** que ejercitan el selector de análisis y la memoria de
 fallos desde la propia pantalla de Ajustes.
 
-**Pendiente de validación en vivo, por credencial del Broker.** El worker exige `health()` **y**
+**Validación en vivo, con el token administrativo renovado (13-sep-2026).** El circuito completo
+funciona: Broker detectado en 1,1 s, 88 modelos descubiertos, modelos de redacción y de análisis
+elegidos desde Ajustes, nota de 6989 caracteres publicada. **La extracción todavía no deja
+afirmaciones**, y la causa ya no es la aplicación sino el modelo. Tres obstáculos encadenados:
+
+1. *Offsets imposibles* — corregido en este incremento (`locate_quote`).
+2. *`TASK_TIMEOUT` a los 600 s* — corregido: las peticiones semánticas fijaban
+   `execution.timeout_seconds: 600` y el Broker cortaba la tarea mientras un modelo de 28.9B seguía
+   generando. Ahora 1800 s; el contrato solo exige entero positivo. Son tareas de fondo: que tarden
+   no molesta, que se corten sí.
+3. *El modelo parafrasea en vez de copiar* — **abierto**. `lfm2:24b` devuelve 10 afirmaciones
+   correctas en contenido y **ninguna cita literal**; `granite4.1:30b` da 3 de 4 aceptables en sonda
+   directa pero una sola frase inventada dentro del circuito real. El guardián las rechaza con razón:
+   admitir texto reescrito por el modelo haría el conocimiento no verificable contra la nota.
+
+Queda por decidir si se abre el filtro de proveedor —`JSON_TASK_PROVIDERS = ("ollama",)` deja pasar
+**3 modelos de 150**, ignorando 70 en línea y utilizables de LM Studio y NVIDIA— o si la evidencia se
+ancla a la frase real del documento de la que procede cada afirmación. También conviene que un veto
+de `analysis_model_failures` pueda olvidarse cuando la causa del fallo se corrige: `granite4.1:30b`
+habría quedado excluido para siempre por fallos ajenos a él.
+
+**Antecedente, ya resuelto: la credencial del Broker.** El worker exige `health()` **y**
 `auth_check()`; `GET /api/v1/auth/check` responde **403 `ADMIN_AUTH_REQUIRED`** con el token admin,
 con `Authorization: Bearer` y sin cabecera, mientras `/health`, `/api/v1/capabilities` y
 `/api/v1/models` responden 200 (incluso sin credencial). Con ese 403 la aplicación queda «sin

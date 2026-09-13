@@ -60,7 +60,25 @@ LLM no puede hacer. Los spans devueltos fueron (0,79), (80,119), (120,169) — c
 relación con el texto — y la cita llegó con los saltos de línea convertidos en espacios. Corregido
 en 0.3.3: la cita la localiza la aplicación; el rechazo se mantiene si no aparece en el documento.
 
-**Recorrido en vivo no completado: el Broker rechaza la credencial.** `GET /api/v1/auth/check`
+**Recorrido en vivo con el token renovado: B01–B03 correctos, B04 abierto.** Con la credencial
+válida el circuito entero responde —Broker en 1,1 s, 88 modelos, modelos de redacción y análisis
+elegidos desde Ajustes, nota de 6989 caracteres publicada— y la extracción llega a ejecutarse. No
+produce afirmaciones porque los modelos disponibles no copian citas literales:
+
+| Modelo | Resultado sobre la nota real (808 caracteres) |
+|---|---|
+| `lfm2:24b` | 10 afirmaciones correctas en contenido · **0 citas literales** · todas rechazadas |
+| `granite4.1:30b` | sonda directa: 4 afirmaciones, 3 aceptables · circuito real: 1 frase inventada |
+| `nemotron:latest` | 1 afirmación de relleno sobre el propio esquema |
+| `ornith-1.5:35b` | 14 646 caracteres razonando, `done_reason=length` |
+
+Por el camino se corrigió un límite propio: las peticiones semánticas fijaban `timeout_seconds: 600`
+y el Broker devolvía `TASK_TIMEOUT` mientras el modelo seguía generando; ahora 1800 s. Y se comprobó
+que la memoria de fallos funciona en real: registró sola `lfm2:24b · SEMANTIC_CONTRACT_FAILED` tras
+las paráfrasis. Queda decidir si se abre el filtro de proveedor —deja pasar 3 modelos de 150— o si la
+evidencia se ancla a la frase real del documento de la que procede cada afirmación.
+
+**Antecedente ya resuelto: el Broker rechazaba la credencial.** `GET /api/v1/auth/check`
 devuelve `403 ADMIN_AUTH_REQUIRED` con `X-Admin-Token`, con `Authorization: Bearer` y sin cabecera,
 mientras `/health`, `/api/v1/capabilities` y `/api/v1/models` responden 200 sin credencial alguna.
 `BrokerWorker._check_health` exige que pasen `health()` y `auth_check()`, así que la aplicación
