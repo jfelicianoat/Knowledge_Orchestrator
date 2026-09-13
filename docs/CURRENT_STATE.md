@@ -1,5 +1,67 @@
 # Estado vigente de Knowledge Orchestrator
 
+Incremento 27, **13 de septiembre de 2026 — 0.3.3, quién cuenta los caracteres**. La extracción de
+afirmaciones no había producido nunca una sola afirmación. La causa no era el modelo: **ningún LLM
+puede calcular offsets de caracteres**, porque ve tokens, no índices, y el contrato exigía
+`document[span_start:span_end] == quote`. El guardián rechazaba, con razón, todo lo que llegaba.
+
+Comprobado con sondas directas al Broker real sobre el mismo documento:
+
+| Modelo | Tiempo | Resultado |
+|---|---|---|
+| `lfm2:24b` (23.8B) | 20 s | 3 afirmaciones correctas, `quote` == `statement`, **spans inventados** |
+| `nemotron:latest` (70.6B) | 131 s | 3 afirmaciones correctas, **spans inventados** |
+| `ornith-1.5:35b` (35.5B) | 120 s | 14 646 caracteres de razonamiento y `done_reason=length` |
+| `granite4.1:30b` (28.9B) | — | bucle degenerado repitiendo la misma frase |
+
+Los spans inventados eran (0,79), (80,119), (120,169): tramos consecutivos sin relación con el
+texto. Además la cita llega con los renglones unidos por un espacio donde el documento tiene un
+salto de línea, así que tampoco aparece literalmente.
+
+**Localizar la cita pasa a ser trabajo de la aplicación**, que sí sabe contar (`locate_quote` en
+`semantic_maintenance/analisis.py`): coincidencia exacta y, si falla, con espacios normalizados.
+Los offsets del modelo se respetan **solo si resultan ciertos** —hacen falta para distinguir dos
+ocurrencias idénticas de la misma cita, que es lo que comprueba `test_maintenance_reversion`— y
+`span_start`/`span_end` dejan de ser obligatorios en el esquema. La garantía anti-invención no se
+relaja: cita no localizable, rechazo. La evidencia que se guarda es `document[start:end]`, no la
+versión del modelo, porque parches, deriva y procedencia comparan contra el texto del documento.
+
+**Ajustes, revisada como interfaz (13-sep-2026).** La pantalla había crecido con la 0.3.1–0.3.3 y
+se analizó sobre capturas reales: el editor de perfiles —lo único que se cambia con frecuencia—
+empezaba a unos 800 px de desplazamiento, debajo de carpetas, Broker y Obsidian, que se tocan una
+vez. Ahora la política del perfil va primero y la infraestructura debajo. Los dos selectores se
+llaman por lo que hacen —**«Modelo que redacta el apunte»** y **«Modelo que extrae afirmaciones»**,
+antes «Modelo» y «Modelo para análisis», indistinguibles— con una línea que explica por qué el
+segundo debe devolver una estructura exacta. Además: el formulario deja de ir apretado contra el
+borde (la lista de perfiles ya no se reparte la mitad de la pantalla), el párrafo de ayuda dejó de
+salir cortado por la izquierda, las columnas de la lista ya no truncan a media palabra, las rutas
+largas se muestran por su final —que es lo que distingue `…\inbox` de `…\vault`— y los dos botones
+«Guardar conexión» idénticos pasan a ser **«…al Broker»** y **«…con Obsidian»**.
+
+**Control y memoria, a petición del usuario:**
+- **«Modelo para análisis»** propio en Ajustes (`profiles.analysis_model`, migración 022): redactar
+  prosa y devolver JSON conforme a esquema son trabajos distintos, y un modelo bueno en el primero
+  puede ser inservible en el segundo. Vacío = lo elige la aplicación. Manda sobre la elección
+  automática, tanto en extracción y comparación como en las consultas fundamentadas.
+- **`analysis_model_failures`**: el modelo que rompe una tarea con esquema queda apuntado y la
+  elección automática deja de proponerlo. Elegirlo a mano sigue siendo posible.
+
+**490 pruebas en 210,983 s, cero fallos**; Ruff y mypy de 151 archivos pasan. Ejecutable 0.3.3
+regenerado (arranca y se mantiene; sin instalador porque falta Inno Setup 6). **Recorrido de
+usuario repetido íntegro sobre 0.3.3 con la ventana real: 26 correctos, 1 no ejecutado (U22, exige
+el Broker real), cero errores** —igual que el baseline de 0.3.0, así que la interfaz no se degradó
+entre 0.3.1 y 0.3.3—, más **5 pasos nuevos** que ejercitan el selector de análisis y la memoria de
+fallos desde la propia pantalla de Ajustes.
+
+**Pendiente de validación en vivo, por credencial del Broker.** El worker exige `health()` **y**
+`auth_check()`; `GET /api/v1/auth/check` responde **403 `ADMIN_AUTH_REQUIRED`** con el token admin,
+con `Authorization: Bearer` y sin cabecera, mientras `/health`, `/api/v1/capabilities` y
+`/api/v1/models` responden 200 (incluso sin credencial). Con ese 403 la aplicación queda «sin
+Broker» y no hay publicación ni extracción. El día anterior el mismo recorrido pasaba en 2,1 s:
+el token admin rotó al reiniciarse el Broker, algo que el propio cliente ya documenta. Reproducido
+con el árbol limpio en 0.3.2, así que no lo causa ningún cambio de este incremento. Detalle en
+`User_Workflow_QA_2026-09-11.md`.
+
 Incremento 26, **12 de septiembre de 2026 — 0.3.2, modelo para tareas con esquema**. Las tareas
 que exigen JSON conforme a schema (extracción de afirmaciones, comparación de evidencia,
 embeddings y consultas fundamentadas) eligen ahora modelo por sí mismas:

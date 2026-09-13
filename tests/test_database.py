@@ -29,12 +29,15 @@ class DatabaseTests(unittest.TestCase):
                         "knowledge_claims", "evidence_links", "claim_embeddings", "update_candidates",
                         "note_revisions", "knowledge_claims_fts",
                         "ingestion_incidents",
+                        # Memoria de los modelos que rompieron una extracción: sin
+                        # ella, la elección automática volvería a proponerlos.
+                        "analysis_model_failures",
                     }
                     <= tables
                 )
                 self.assertEqual(
                     connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
-                    21,
+                    22,
                 )
                 self.assertEqual(connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
 
@@ -64,7 +67,7 @@ class DatabaseTests(unittest.TestCase):
                 self.assertIsNone(row["topic_id"])
                 self.assertEqual(
                     connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
-                    21,
+                    22,
                 )
 
 

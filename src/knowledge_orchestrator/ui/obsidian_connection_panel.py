@@ -25,7 +25,10 @@ class ObsidianConnectionPanel(ttk.LabelFrame):
             ttk.Label(self, text=label).grid(row=row, column=0, sticky='w', padx=(0, 12), pady=4)
             entry = ttk.Entry(self, textvariable=variable, show='●' if row else '')
             entry.grid(row=row, column=1, sticky='ew', pady=4)
-        self.save_button = ttk.Button(self, text='Guardar conexión', command=lambda: self._run(save=True))
+        # Se llamaba «Guardar conexión», igual que el botón del Broker que hay
+        # unos centímetros más arriba en la misma pantalla.
+        self.save_button = ttk.Button(self, text='Guardar conexión con Obsidian',
+                                      command=lambda: self._run(save=True))
         self.save_button.grid(row=0, column=2, padx=10)
         self.check_button = ttk.Button(self, text='Comprobar conexión', command=lambda: self._run(save=False))
         self.check_button.grid(row=1, column=2, padx=10)

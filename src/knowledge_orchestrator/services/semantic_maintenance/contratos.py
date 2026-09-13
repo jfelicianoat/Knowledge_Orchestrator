@@ -23,9 +23,11 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": [
-                    "statement", "claim_type", "volatility", "span_start", "span_end", "quote", "entities",
-                ],
+                # Sin `span_start`/`span_end`: eran obligatorios y ningún modelo
+                # los acertaba —contar caracteres no es algo que un LLM pueda
+                # hacer—, así que los calcula la aplicación a partir de la cita.
+                # Se siguen aceptando, y se respetan cuando resultan correctos.
+                "required": ["statement", "claim_type", "volatility", "quote", "entities"],
                 "properties": {
                     "statement": {"type": "string"},
                     "claim_type": {"type": "string"},

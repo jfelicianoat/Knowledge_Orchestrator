@@ -85,7 +85,11 @@ class ConfiguracionMixin(TemasMixin):
     def _build_config(self) -> None:
         page = self._new_scrollable_page("config")
         page.columnconfigure(0, weight=1)
-        page.rowconfigure(5, weight=1)
+        # Lo que se usa a diario —la política del perfil— va primero; las
+        # carpetas, el Broker y Obsidian se tocan una vez y quedan debajo. Antes
+        # el editor de perfiles empezaba a 800 px de scroll: había que bajar a
+        # ciegas para llegar a lo único que se cambia con frecuencia.
+        page.rowconfigure(2, weight=1)
         self._page_heading(page, "Ajustes", "Define cómo se procesarán los documentos nuevos.")
         self._path_store = PipelinePathStore()
         self.paths_var = tk.StringVar(value=data_root_label(self.runtime))
@@ -95,7 +99,7 @@ class ConfiguracionMixin(TemasMixin):
             value="Entrada: aquí se recogen archivos · Resultados: aquí se publican los apuntes."
         )
         info = tk.Frame(page, bg=self.colors["raised"], highlightbackground=self.colors["border"], highlightthickness=1)
-        info.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 14))
+        info.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 14))
         tk.Label(
             info, text="Carpetas del proceso", bg=self.colors["raised"], fg=self.colors["text"],
             font=("Segoe UI Semibold", 10),
@@ -105,37 +109,49 @@ class ConfiguracionMixin(TemasMixin):
             ("Entrada de archivos", self.inbox_path_var),
             ("Resultados / apuntes", self.results_path_var),
         )
-        for row, (label, variable) in enumerate(locations, start=1):
+        # Cada ubicación ocupa dos filas: el campo editable y, debajo, la ruta
+        # acortada. Con ambos en la misma celda, la rejilla los superponía.
+        for index, (label, variable) in enumerate(locations):
+            row = 1 + index * 2
             tk.Label(
                 info, text=label, bg=self.colors["raised"], fg=self.colors["muted"], font=("Segoe UI", 9),
-            ).grid(row=row, column=0, sticky="w", padx=(14, 8), pady=4)
+            ).grid(row=row, column=0, sticky="w", padx=(14, 8), pady=(4, 0))
             ttk.Entry(info, textvariable=variable, style="Dark.TEntry").grid(
-                row=row, column=1, sticky="ew", pady=4
+                row=row, column=1, sticky="ew", pady=(4, 0)
             )
+            # El campo tiene que seguir siendo editable (se pega una ruta), pero
+            # una ruta larga lo llena con su prefijo y esconde justo lo que
+            # identifica la carpeta. Debajo va la misma ruta acortada por el
+            # centro —como ya hace Documentos con `_middle_ellipsis`—, que
+            # conserva la unidad y el final: «…\inbox» frente a «…\vault».
+            summary = tk.StringVar(value=self._middle_ellipsis(variable.get(), 72))
+            tk.Label(info, textvariable=summary, bg=self.colors["raised"], fg=self.colors["faint"],
+                     font=("Segoe UI", 8), anchor="w").grid(row=row + 1, column=1, sticky="w", pady=(0, 4))
+            variable.trace_add("write", partial(self._sync_path_summary, variable, summary))
             ttk.Button(
                 info,
                 text="Elegir…",
                 style="Secondary.TButton",
                 command=partial(self._choose_folder, variable),
-            ).grid(row=row, column=2, padx=10, pady=4)
+            ).grid(row=row, column=2, rowspan=2, padx=10, pady=4)
         ttk.Button(
             info, text="Guardar carpetas", style="Accent.TButton", command=self._save_paths
-        ).grid(row=4, column=2, sticky="e", padx=10, pady=(6, 8))
+        ).grid(row=7, column=2, sticky="e", padx=10, pady=(6, 8))
         tk.Label(
             info, textvariable=self.path_status_var, bg=self.colors["raised"], fg=self.colors["muted"],
             font=("Segoe UI", 9), wraplength=1050, justify="left",
-        ).grid(row=4, column=0, columnspan=2, sticky="w", padx=14, pady=(6, 8))
+        ).grid(row=7, column=0, columnspan=2, sticky="w", padx=14, pady=(6, 8))
         self.capabilities_var = tk.StringVar(value="Esperando negociación con el Broker…")
         tk.Label(info, textvariable=self.capabilities_var, bg=self.colors["raised"], fg=self.colors["muted"],
                  font=("Segoe UI", 9), wraplength=1250, justify="left").grid(
-            row=5, column=0, columnspan=3, sticky="ew", padx=14, pady=(0, 12)
+            row=8, column=0, columnspan=3, sticky="ew", padx=14, pady=(0, 12)
         )
         info.columnconfigure(1, weight=1)
 
         connection = tk.Frame(
             page, bg=self.colors["raised"], highlightbackground=self.colors["border"], highlightthickness=1
         )
-        connection.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 14))
+        connection.grid(row=4, column=0, sticky="ew", padx=24, pady=(0, 14))
         connection.columnconfigure(1, weight=1)
         tk.Label(
             connection, text="Conexión a AI Broker", bg=self.colors["raised"], fg=self.colors["text"],
@@ -158,8 +174,11 @@ class ConfiguracionMixin(TemasMixin):
         ttk.Entry(
             connection, textvariable=self.broker_token_var, show="●", style="Dark.TEntry"
         ).grid(row=2, column=1, sticky="ew", pady=5)
+        # Había dos botones «Guardar conexión» idénticos en la misma pantalla,
+        # uno del Broker y otro de Obsidian: cada uno dice ahora qué guarda.
         ttk.Button(
-            connection, text="Guardar conexión", style="Accent.TButton", command=self._save_broker_connection
+            connection, text="Guardar conexión al Broker", style="Accent.TButton",
+            command=self._save_broker_connection,
         ).grid(row=1, column=2, rowspan=2, sticky="ns", padx=10, pady=5)
         ttk.Button(
             connection, text="Eliminar token", style="Secondary.TButton", command=self._clear_broker_token
@@ -170,13 +189,16 @@ class ConfiguracionMixin(TemasMixin):
         ).grid(row=3, column=0, columnspan=4, sticky="ew", padx=14, pady=(5, 12))
 
         self.obsidian_connection_panel = ObsidianConnectionPanel(page, self.runtime.obsidian_connection)
-        self.obsidian_connection_panel.grid(row=4, column=0, sticky='ew', padx=24, pady=(0, 14))
+        self.obsidian_connection_panel.grid(row=5, column=0, sticky='ew', padx=24, pady=(0, 14))
         content = tk.PanedWindow(page, orient="horizontal", bg=self.colors["border"], sashwidth=2, bd=0)
-        content.grid(row=5, column=0, sticky="nsew", padx=24, pady=(0, 24))
+        content.grid(row=2, column=0, sticky="nsew", padx=24, pady=(0, 24))
         list_frame = tk.Frame(content, bg=self.colors["surface"])
         editor = tk.Frame(content, bg=self.colors["surface"])
-        content.add(list_frame, minsize=500, stretch="always")
-        content.add(editor, minsize=380, stretch="always")
+        # El formulario es lo que se rellena; la lista solo sirve para elegir
+        # perfil. Repartir a partes iguales dejaba media pantalla vacía a la
+        # izquierda y el formulario apretado contra el borde derecho.
+        content.add(list_frame, minsize=360, stretch="never")
+        content.add(editor, minsize=560, stretch="always")
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(0, weight=1)
         columns = ("nombre", "modelo", "estrategia", "datos", "activo")
@@ -189,7 +211,9 @@ class ConfiguracionMixin(TemasMixin):
         }
         for column, text in cabeceras_perfiles.items():
             self.profiles_tree.heading(column, text=text)
-            self.profiles_tree.column(column, width=145 if column != "nombre" else 190)
+            # Con la lista más estrecha, «Estrategia» y «Datos» solo mostraban
+            # texto cortado a media palabra: se quedan el perfil y su estado.
+            self.profiles_tree.column(column, width=110 if column != "nombre" else 150, stretch=False)
         self.profiles_tree.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
         self.profiles_tree.bind("<<TreeviewSelect>>", lambda _event: self._select_profile())
 
@@ -197,6 +221,7 @@ class ConfiguracionMixin(TemasMixin):
         self._thinking_models: set[str] = set()
         self.profile_form = {
             "model": tk.StringVar(value=AUTOMATIC_MODEL),
+            "analysis_model": tk.StringVar(value=AUTOMATIC_MODEL),
             "strategy": tk.StringVar(value=STRATEGY_LABELS["single"]),
             "classification": tk.StringVar(value=CLASSIFICATION_LABELS["local_only"]),
             "long_context": tk.StringVar(value=LONG_CONTEXT_LABELS["fail"]),
@@ -206,7 +231,12 @@ class ConfiguracionMixin(TemasMixin):
             "only_chosen_model": tk.BooleanVar(value=False),
         }
         fields = [
-            ("Modelo", "model", (AUTOMATIC_MODEL,)),
+            ("Modelo que redacta el apunte", "model", (AUTOMATIC_MODEL,)),
+            # Redactar el apunte y extraer afirmaciones son trabajos distintos:
+            # uno escribe prosa, el otro devuelve una estructura exacta. Un
+            # modelo puede ser bueno en el primero e inservible en el segundo, y
+            # sin este control no había forma de elegir para el segundo.
+            ("Modelo que extrae afirmaciones", "analysis_model", (AUTOMATIC_MODEL,)),
             ("Método de procesamiento", "strategy", tuple(STRATEGY_LABELS.values())),
             ("Privacidad", "classification", tuple(CLASSIFICATION_LABELS.values())),
             ("Documentos extensos", "long_context", tuple(LONG_CONTEXT_LABELS.values())),
@@ -221,35 +251,37 @@ class ConfiguracionMixin(TemasMixin):
             combo.grid(row=row, column=1, sticky="ew", padx=(12, 0), pady=6)
             self.profile_combos[key] = combo
         tk.Label(editor, text="Longitud máxima de la respuesta", bg=self.colors["surface"], fg=self.colors["muted"],
-                 font=("Segoe UI", 9)).grid(row=5, column=0, sticky="w", pady=6)
+                 font=("Segoe UI", 9)).grid(row=6, column=0, sticky="w", pady=6)
         ttk.Entry(editor, textvariable=self.profile_form["max_output_tokens"], width=27, style="Dark.TEntry").grid(
-            row=5, column=1, sticky="ew", padx=(12, 0), pady=6
+            row=6, column=1, sticky="ew", padx=(12, 0), pady=6
         )
         tk.Label(editor, text="Presupuesto por documento (USD)", bg=self.colors["surface"], fg=self.colors["muted"],
-                 font=("Segoe UI", 9)).grid(row=6, column=0, sticky="w", pady=6)
+                 font=("Segoe UI", 9)).grid(row=7, column=0, sticky="w", pady=6)
         ttk.Entry(editor, textvariable=self.profile_form["max_cost"], width=27, style="Dark.TEntry").grid(
-            row=6, column=1, sticky="ew", padx=(12, 0), pady=6
+            row=7, column=1, sticky="ew", padx=(12, 0), pady=6
         )
         # Sin esto el Broker podía responder con otro modelo distinto del
         # elegido (sustituyó gemma4:12b por nemotron, que también razona), y
         # entonces elegir bien en esta pantalla no servía de nada.
         ttk.Checkbutton(editor, text="Usar solo el modelo elegido (sin sustituciones del Broker)",
                         variable=self.profile_form["only_chosen_model"], style="Dark.TCheckbutton").grid(
-            row=7, column=0, columnspan=2, sticky="w", pady=(10, 0)
+            row=8, column=0, columnspan=2, sticky="w", pady=(10, 0)
         )
         ttk.Checkbutton(editor, text="Exigir revisión humana antes de publicar",
                         variable=self.profile_form["human_review"], style="Dark.TCheckbutton").grid(
-            row=8, column=0, columnspan=2, sticky="w", pady=(4, 6)
+            row=9, column=0, columnspan=2, sticky="w", pady=(4, 6)
         )
         tk.Label(
             editor,
             text=(
+                "El primero escribe el apunte en prosa. El segundo extrae afirmaciones y tiene que devolver "
+                "una estructura exacta, así que conviene uno que no razone; si falla, deja de proponerse solo. "
                 "La privacidad determina dónde puede procesarse el contenido. "
                 "Los cambios solo afectan a documentos nuevos y no alteran la biblioteca existente."
             ),
-            bg=self.colors["surface"], fg=self.colors["muted"], font=("Segoe UI", 9), wraplength=430,
-            justify="left",
-        ).grid(row=9, column=0, columnspan=2, sticky="ew", pady=(8, 14))
+            bg=self.colors["surface"], fg=self.colors["muted"], font=("Segoe UI", 9), wraplength=520,
+            justify="left", anchor="w",
+        ).grid(row=10, column=0, columnspan=2, sticky="w", padx=(0, 12), pady=(8, 14))
         self.save_profile_button = ttk.Button(
             editor, text="Guardar política", style="Accent.TButton", command=self._save_profile
         )
@@ -257,8 +289,8 @@ class ConfiguracionMixin(TemasMixin):
             editor, text="Editar instrucciones de extracción…", style="Secondary.TButton",
             command=self._open_prompt_editor,
         )
-        self.edit_prompt_button.grid(row=10, column=0, sticky="w")
-        self.save_profile_button.grid(row=10, column=1, sticky="e")
+        self.edit_prompt_button.grid(row=11, column=0, sticky="w")
+        self.save_profile_button.grid(row=11, column=1, sticky="e")
         self.save_profile_button.state(["disabled"])
         self.edit_prompt_button.state(["disabled"])
         self._loading_profile = False
@@ -409,10 +441,17 @@ class ConfiguracionMixin(TemasMixin):
         if item.preferred_model and item.preferred_model not in self._model_labels.values():
             self._model_labels[item.preferred_model] = item.preferred_model
             models.append(item.preferred_model)
+        if current.analysis_model and current.analysis_model not in self._model_labels.values():
+            self._model_labels[current.analysis_model] = current.analysis_model
+            models.append(current.analysis_model)
         self.profile_combos["model"].configure(values=models)
+        self.profile_combos["analysis_model"].configure(values=models)
         chosen = next((label for label, name in self._model_labels.items()
                        if name == item.preferred_model and name), AUTOMATIC_MODEL)
         self.profile_form["model"].set(chosen)
+        self.profile_form["analysis_model"].set(next(
+            (label for label, name in self._model_labels.items()
+             if name == current.analysis_model and name), AUTOMATIC_MODEL))
         self.profile_form["strategy"].set(_label_for(STRATEGY_LABELS, item.execution_strategy))
         self.profile_form["classification"].set(_label_for(CLASSIFICATION_LABELS, item.data_classification))
         self.profile_form["long_context"].set(_label_for(LONG_CONTEXT_LABELS, item.long_context))
@@ -431,6 +470,9 @@ class ConfiguracionMixin(TemasMixin):
         self._profile_dirty = False
         self._sync_profile_buttons()
         self.edit_prompt_button.state(["!disabled"])
+
+    def _sync_path_summary(self, source: tk.StringVar, summary: tk.StringVar, *_args: object) -> None:
+        summary.set(self._middle_ellipsis(source.get(), 72))
 
     def _mark_profile_dirty(self, *_args: object) -> None:
         if self._loading_profile or self._selected_profile_id is None:
@@ -536,6 +578,8 @@ class ConfiguracionMixin(TemasMixin):
             updated = replace(
                 current,
                 preferred_model=chosen_model,
+                analysis_model=self._model_labels.get(self.profile_form["analysis_model"].get(),
+                                                      self.profile_form["analysis_model"].get()),
                 execution_strategy=strategy,
                 data_classification=_value_for(
                     CLASSIFICATION_LABELS, self.profile_form["classification"].get()

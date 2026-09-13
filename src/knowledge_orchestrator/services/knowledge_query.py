@@ -13,7 +13,7 @@ from knowledge_orchestrator.integrations.broker_client import BrokerClient, Perm
 from knowledge_orchestrator.repositories.query_repository import QueryRepository
 from knowledge_orchestrator.services.broker_submission import attempt_broker_submission
 from knowledge_orchestrator.services.knowledge_access import KnowledgeAccess
-from knowledge_orchestrator.services.model_selection import json_model_from_catalog
+from knowledge_orchestrator.services.model_selection import json_model_from_catalog, pinned_analysis_model
 from knowledge_orchestrator.services.semantic_maintenance.prompts import TASK_BUDGETS, PromptsMixin
 
 QUERY_SCHEMA = {
@@ -73,7 +73,9 @@ class KnowledgeQueryService:
         )
         request = PromptsMixin.broker_json_request(request_id=query_id, prompt=prompt, schema=QUERY_SCHEMA,
                                                    max_output_tokens=TASK_BUDGETS['query'],
-                                                   preferred_model=json_model_from_catalog(self.access.database))
+                                                   preferred_model=json_model_from_catalog(
+                                                       self.access.database,
+                                                       chosen=pinned_analysis_model(self.access.database)))
         request['content']['metadata']['purpose'] = 'knowledge_query'
         result = self.answer(snapshot, [], insufficient=True) if not claims else None
         row = self.repository.create(query_id=query_id, owner=owner, key_hash=key_hash, payload_hash=payload_hash,

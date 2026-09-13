@@ -31,7 +31,7 @@ from knowledge_orchestrator.integrations.obsidian_bridge import (
 from knowledge_orchestrator.repositories.semantic_repository import SemanticRepository
 from knowledge_orchestrator.services.maintenance_assessment import assess_proposal
 from knowledge_orchestrator.services.maintenance_layout import plan_layout, valid_layout
-from knowledge_orchestrator.services.model_selection import json_model_from_catalog
+from knowledge_orchestrator.services.model_selection import json_model_from_catalog, pinned_analysis_model
 from knowledge_orchestrator.services.provenance import source_provenance
 from knowledge_orchestrator.services.semantic_maintenance.analisis import AnalisisMixin
 from knowledge_orchestrator.services.semantic_maintenance.contratos import (
@@ -84,7 +84,10 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             prompt=self.extraction_prompt(document, source_id=context["capture_id"]),
             schema=EXTRACTION_SCHEMA,
             max_output_tokens=TASK_BUDGETS["extraction"],
-            preferred_model=json_model_from_catalog(self.repository.database),
+            preferred_model=json_model_from_catalog(
+                self.repository.database,
+                chosen=pinned_analysis_model(self.repository.database, profile_id=context["profile_id"]),
+            ),
         )
         self.repository.create_job(
             job_id=job_id,
@@ -117,7 +120,9 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             ),
             schema=COMPARISON_SCHEMA,
             max_output_tokens=TASK_BUDGETS["comparison"],
-            preferred_model=json_model_from_catalog(self.repository.database),
+            preferred_model=json_model_from_catalog(
+                self.repository.database, chosen=pinned_analysis_model(self.repository.database),
+            ),
         )
         self.repository.create_job(
             job_id=job_id,

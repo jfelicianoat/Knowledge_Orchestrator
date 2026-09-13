@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+
 from knowledge_orchestrator.domain.broker_contracts import BrokerContractError
 from knowledge_orchestrator.integrations.broker_client import BrokerClient, PermanentBrokerError, TransientBrokerError
 from knowledge_orchestrator.repositories.semantic_repository import SemanticRepository
+from knowledge_orchestrator.services.model_selection import record_analysis_failure
 
 from .broker_submission import attempt_broker_submission
 from .semantic_maintenance import SemanticContractError, SemanticMaintenanceService
@@ -69,5 +72,23 @@ class SemanticBrokerProcessor:
                     self.repository.complete_job(job.job_id)
             except (SemanticContractError, ValueError) as error:
                 self.repository.fail_job(job.job_id, "SEMANTIC_CONTRACT_FAILED", str(error))
+                self._remember_failure(job, str(error))
             updated += 1
         return updated
+
+    def _remember_failure(self, job, message: str) -> None:
+        """Anota qué modelo rompió la tarea para no volver a elegirlo solo.
+
+        Un modelo puede pasar todos los filtros del catálogo y aun así devolver
+        basura —`granite4.1:30b` entró en bucle repitiendo la misma frase—, y eso
+        solo se descubre ejecutándolo. Queda apuntado; elegirlo a mano en Ajustes
+        sigue siendo posible.
+        """
+
+        try:
+            request = json.loads(job.request_json)
+            model = (request.get("model_requirements") or {}).get("preferred_model")
+        except (json.JSONDecodeError, AttributeError):
+            return
+        if isinstance(model, str) and model:
+            record_analysis_failure(self.repository.database, model, "SEMANTIC_CONTRACT_FAILED", message)

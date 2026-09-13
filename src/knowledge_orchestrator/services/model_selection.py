@@ -123,6 +123,28 @@ def json_model_from_catalog(
     return choose_json_model([dict(row) for row in rows], providers=providers, rejected=rejected)
 
 
+def pinned_analysis_model(database: Database, *, profile_id: int | None = None) -> str | None:
+    """El «modelo para análisis» que la persona fijó en Ajustes, si lo hay.
+
+    Con `profile_id` se lee el de ese perfil —el de la nota que se analiza—; sin
+    él (una consulta al conocimiento no pertenece a ninguna nota) vale el primer
+    perfil activo que haya fijado uno, que es también el orden que muestra
+    Ajustes.
+    """
+
+    with closing(database.connect(readonly=True)) as connection:
+        if profile_id is not None:
+            row = connection.execute(
+                "SELECT analysis_model FROM profiles WHERE profile_id = ?", (profile_id,)
+            ).fetchone()
+        else:
+            row = connection.execute(
+                "SELECT analysis_model FROM profiles WHERE enabled = 1 AND analysis_model <> '' "
+                "ORDER BY profile_id LIMIT 1"
+            ).fetchone()
+    return str(row["analysis_model"]) or None if row else None
+
+
 def record_analysis_failure(database: Database, model: str, code: str, message: str) -> None:
     """Apunta el modelo que rompió una tarea con esquema para no reelegirlo."""
 

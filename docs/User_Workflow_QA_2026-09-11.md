@@ -4,6 +4,78 @@ Solicitud: probar toda la aplicación como usuario. Primera sesión (11-sep-2026
 porque Computer Use no tenía acceso a la ventana de Python. Segunda sesión (11-sep-2026,
 interfaz **0.3.0**): recorrido ejecutado con la ventana real.
 
+## Sesión del 13-sep-2026 (0.3.3): recorrido completo repetido sobre la versión nueva
+
+El recorrido de 27 pasos se volvió a ejecutar íntegro con la ventana real sobre **0.3.3**, porque
+el de la tabla de abajo probó la 0.3.0 y desde entonces la aplicación cambió (fila nueva en
+Ajustes, carga de perfiles, elección de modelo). Resultado: **26 correctos, 1 no ejecutado (U22,
+que exige el Broker real), cero errores** — mismo resultado que el baseline de 0.3.0, así que nada
+de 0.3.1 → 0.3.3 estropeó la interfaz. U24 confirma las 8 acciones principales enteras dentro de
+1080×680 y U20 que al reabrir se recuperan las 4 notas y los 6 documentos sin duplicar.
+
+Y como el recorrido general no tocaba el control entregado en 0.3.3, se añadió uno propio
+(`ko_flow_analysis_model.py`), también por la interfaz: **5 pasos, todos correctos**.
+
+**Ajustes, revisada como interfaz y aprobada por el usuario.** Sobre capturas reales se vio que el
+editor de perfiles —lo único que se cambia a menudo— empezaba a unos 800 px de desplazamiento,
+debajo de carpetas, Broker y Obsidian. Se subió la política del perfil y se bajó la infraestructura;
+los selectores pasaron a llamarse «Modelo que redacta el apunte» y «Modelo que extrae afirmaciones»
+(antes «Modelo» y «Modelo para análisis», indistinguibles) con una línea que explica por qué el
+segundo debe devolver una estructura exacta. El usuario respondió «sí, pero sigue mejorando», y en
+esa segunda tanda se corrigieron las dos cosas que había dejado fuera: las rutas largas muestran
+debajo la misma ruta acortada por el centro —lo que distingue `…\inbox` de `…\vault`— conservando
+el campo editable, y los dos botones «Guardar conexión» idénticos pasaron a «…al Broker» y «…con
+Obsidian». Tres defectos propios salieron por el camino y se arreglaron antes de enseñar nada: el
+formulario apretado con media pantalla vacía, el párrafo de ayuda cortado por la izquierda y las
+columnas de la lista truncadas a media palabra.
+
+Tras cada tanda se repitió el recorrido completo: **26 correctos, 1 no ejecutado, cero errores** en
+las cuatro ejecuciones, la última sobre el código definitivo. Nota de método: el arnés buscaba
+«Guardar conexión» por coincidencia parcial y, con dos botones que contenían esa cadena, podía
+invocar el equivocado y dar un falso verde; el paso U08c se precisó a «Guardar conexión al Broker».
+
+| ID | Recorrido | Resultado observado | Estado |
+|---|---|---|---|
+| A01 | Ajustes ofrece «Modelo para análisis» | 5 opciones, valor inicial «Automático (Broker)»; no se ofrece lo que razona ni lo especializado | Correcto |
+| A02 | Elegir `lfm2:24b` y guardar | Se guarda en el perfil; pie «La política se aplicará a documentos nuevos.» | Correcto |
+| A03 | La elección manda sobre la automática | La petición con esquema llevaría `lfm2:24b` | Correcto |
+| A04 | Sobrevive al refresco automático | El desplegable sigue mostrando lo guardado | Correcto |
+| A05 | Memoria de fallos | Tras un `SEMANTIC_CONTRACT_FAILED`, la elección automática pasa de `lfm2:24b` a `llama-instruct`; lo fijado a mano se respeta igual | Correcto |
+
+## Sesión del 13-sep-2026 (0.3.3): por qué la extracción no producía afirmaciones
+
+Se probaron cuatro modelos del catálogo del usuario contra el Broker real, con el prompt y el
+esquema de extracción de la aplicación, sobre el mismo documento:
+
+| Modelo | Tiempo | Resultado |
+|---|---|---|
+| `lfm2:24b` | 20 s | 3 afirmaciones correctas y literales · **spans inventados** |
+| `nemotron:latest` | 131 s | 3 afirmaciones correctas · **spans inventados** |
+| `ornith-1.5:35b` | 120 s | `INVALID_PROVIDER_RESPONSE`: 14 646 caracteres razonando, `done_reason=length` |
+| `granite4.1:30b` | — | JSON válido con texto degenerado en bucle; el guardián de spans lo rechazó |
+
+Conclusión: el problema no era la calidad del modelo sino el contrato. Se pedía
+`document[span_start:span_end] == quote`, es decir, **contar caracteres**, que es justo lo que un
+LLM no puede hacer. Los spans devueltos fueron (0,79), (80,119), (120,169) — consecutivos y sin
+relación con el texto — y la cita llegó con los saltos de línea convertidos en espacios. Corregido
+en 0.3.3: la cita la localiza la aplicación; el rechazo se mantiene si no aparece en el documento.
+
+**Recorrido en vivo no completado: el Broker rechaza la credencial.** `GET /api/v1/auth/check`
+devuelve `403 ADMIN_AUTH_REQUIRED` con `X-Admin-Token`, con `Authorization: Bearer` y sin cabecera,
+mientras `/health`, `/api/v1/capabilities` y `/api/v1/models` responden 200 sin credencial alguna.
+`BrokerWorker._check_health` exige que pasen `health()` y `auth_check()`, así que la aplicación
+queda «sin Broker»: B01 a B04 fallan por espera agotada (90 s, 120 s, 480 s, 420 s) sin llegar a
+publicar. El día anterior el mismo recorrido pasó en 2,1 s, y se reprodujo con el árbol limpio en
+0.3.2: el token administrativo rotó al reiniciarse el Broker y hay que renovarlo en el PC IA.
+Verificación local completa: **490 pruebas, cero fallos**; Ruff y mypy de 151 archivos.
+
+Dos defectos del propio arnés de prueba, corregidos aquí porque falsearon diagnósticos: las
+corridas compartían el sandbox `ko_broker/` y la fase 1 lo borra con `rmtree`, de modo que una
+segunda corrida mataba a la primera con `unable to open database file` —lo que parecía un fallo de
+la aplicación al detectar el Broker—; y medir si un control «cabe» en Ajustes por coordenadas
+absolutas da un falso desbordamiento de 629 px, porque la página se desplaza (`Canvas` +
+`TScrollbar`, contenido 1333 px, alcanzable 1333 px).
+
 ## Cómo se ejecutó
 
 - Ventana real `OrchestratorDashboard` y runtime real con sus workers (vigilancia de la
