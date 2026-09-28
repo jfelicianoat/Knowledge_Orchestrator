@@ -4,6 +4,7 @@ import asyncio
 import queue
 import threading
 import time
+from collections.abc import Awaitable, Callable
 
 from knowledge_orchestrator.config import BrokerSettings
 from knowledge_orchestrator.domain.broker_contracts import (
@@ -85,7 +86,12 @@ class BrokerWorker:
             return dict(self._capabilities)
 
     def request_cancel(self, task_id: str) -> bool:
+        """Cancela el documento entero al que pertenece la tarea."""
+
         return self.poller.repository.request_cancel(task_id)
+
+    def request_cancel_capture(self, capture_id: str) -> bool:
+        return self.poller.repository.cancel_capture(capture_id)
 
     def reconfigure(self, settings: BrokerSettings) -> None:
         """Solicita al hilo del worker que cambie la conexión en el siguiente ciclo."""
@@ -162,19 +168,13 @@ class BrokerWorker:
                     if updated:
                         self._emit("BROKER_TASKS_UPDATED", f"Tareas actualizadas: {updated}", {"updated": updated})
                     next_poll = now + self.settings.poll_interval_seconds
+                # Cada etapa se aísla de las demás: un documento o un trabajo
+                # que rompe la suya no puede dejar sin publicar, analizar ni
+                # consultar a todos los demás en cada ciclo (auditoría H03/H04).
                 if self.publisher is not None:
-                    published = self.publisher.publish_ready()
-                    if published:
-                        self._emit("NOTES_PUBLISHED", f"Notas publicadas: {published}", {"published": published})
+                    await self._stage("publicación", self._publish_ready)
                 if self._broker_online is True and self.semantic_processor is not None:
-                    semantic_accepted = await self.semantic_processor.dispatch_once()
-                    semantic_updated = await self.semantic_processor.poll_once()
-                    if semantic_accepted or semantic_updated:
-                        self._emit(
-                            "SEMANTIC_JOBS_UPDATED",
-                            f"Jobs semánticos aceptados: {semantic_accepted}; actualizados: {semantic_updated}",
-                            {"accepted": semantic_accepted, "updated": semantic_updated},
-                        )
+                    await self._stage("análisis semántico", self._semantic_cycle)
                 if self._broker_online is True and now >= next_discovery:
                     try:
                         count = await self.discovery.refresh()
@@ -183,8 +183,7 @@ class BrokerWorker:
                         self._emit("BROKER_OFFLINE", str(error))
                     next_discovery = now + self.settings.discovery_interval_seconds
                 if self._broker_online is True and self.query_processor is not None:
-                    await self.query_processor.dispatch_once()
-                    await self.query_processor.poll_once()
+                    await self._stage("consultas", self._query_cycle)
             except BrokerClientError as error:
                 self._emit("BROKER_OFFLINE", str(error))
                 consecutive_errors += 1
@@ -197,6 +196,36 @@ class BrokerWorker:
 
         client = self.dispatcher.client
         await client.close()
+
+    async def _stage(self, name: str, action: Callable[[], Awaitable[None]]) -> None:
+        try:
+            await action()
+        except BrokerClientError:
+            raise
+        except Exception as error:  # frontera de la etapa: se informa y se sigue
+            self._emit("BROKER_CYCLE_ERROR", f"Fallo en {name}: {error}", {"stage": name})
+
+    async def _publish_ready(self) -> None:
+        assert self.publisher is not None
+        published = self.publisher.publish_ready()
+        if published:
+            self._emit("NOTES_PUBLISHED", f"Notas publicadas: {published}", {"published": published})
+
+    async def _semantic_cycle(self) -> None:
+        assert self.semantic_processor is not None
+        semantic_accepted = await self.semantic_processor.dispatch_once()
+        semantic_updated = await self.semantic_processor.poll_once()
+        if semantic_accepted or semantic_updated:
+            self._emit(
+                "SEMANTIC_JOBS_UPDATED",
+                f"Jobs semánticos aceptados: {semantic_accepted}; actualizados: {semantic_updated}",
+                {"accepted": semantic_accepted, "updated": semantic_updated},
+            )
+
+    async def _query_cycle(self) -> None:
+        assert self.query_processor is not None
+        await self.query_processor.dispatch_once()
+        await self.query_processor.poll_once()
 
     async def _apply_pending_settings(self) -> bool:
         with self._settings_lock:
@@ -252,6 +281,10 @@ class BrokerWorker:
         )
 
     async def _cancel_requested_tasks(self) -> None:
+        # Las que se cancelaron con el envío en vuelo y no llegaron a aceptarse
+        # no existen en el Broker: se cierran aquí. Es seguro porque este mismo
+        # bucle es el que envía, y ahora no está enviando nada.
+        self.poller.repository.settle_orphan_cancellations()
         for task in self.poller.repository.list_cancel_requested():
             if not task.broker_task_id:
                 continue

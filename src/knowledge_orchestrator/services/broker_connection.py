@@ -9,6 +9,7 @@ from ctypes import wintypes
 from urllib.parse import urlsplit
 
 from knowledge_orchestrator.config import (
+    DEFAULT_BROKER_URL,
     ENV_BROKER_ADMIN_TOKEN,
     ENV_BROKER_URL,
     BrokerSettings,
@@ -16,7 +17,7 @@ from knowledge_orchestrator.config import (
 )
 from knowledge_orchestrator.services.filesystem import atomic_write_json
 
-DEFAULT_BROKER_URL = "http://192.168.1.52:8765"
+__all__ = ["DEFAULT_BROKER_URL"]
 CONNECTION_FILE = "broker_connection.json"
 TOKEN_FILE = "broker-token.dpapi"
 

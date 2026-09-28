@@ -17,7 +17,7 @@ class RepositorioBase:
         with closing(self.database.connect()) as connection:
             row = connection.execute(
                 'SELECT n.note_id,n.capture_id,n.topic_id,n.profile_id,n.vault_path,n.status,n.content_hash,'
-                'c.metadata_json,c.title '
+                'c.metadata_json,c.title,c.transcript_content '
                 "FROM notes n JOIN captures c ON c.capture_id = n.capture_id WHERE n.note_id = ?",
                 (note_id,),
             ).fetchone()

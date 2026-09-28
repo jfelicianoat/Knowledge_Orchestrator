@@ -38,3 +38,17 @@ class ReprocessIntent:
     source_path: Path
     target_path: Path
     status: str
+
+
+@dataclass(frozen=True, slots=True)
+class DraftForReview:
+    """Resultado terminado que espera la decisión de una persona."""
+
+    workflow_id: str
+    capture_id: str
+    title: str
+    revision: int
+    final_result: str
+    result_hash: str
+    review_status: str
+    finished_at: str

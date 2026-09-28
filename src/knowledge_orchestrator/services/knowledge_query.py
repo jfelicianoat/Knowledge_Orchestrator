@@ -11,6 +11,7 @@ from knowledge_orchestrator.domain.broker_contracts import BrokerContractError
 from knowledge_orchestrator.domain.knowledge import KnowledgeConflict
 from knowledge_orchestrator.integrations.broker_client import BrokerClient, PermanentBrokerError, TransientBrokerError
 from knowledge_orchestrator.repositories.query_repository import QueryRepository
+from knowledge_orchestrator.services.broker_shield import unshield
 from knowledge_orchestrator.services.broker_submission import attempt_broker_submission
 from knowledge_orchestrator.services.knowledge_access import KnowledgeAccess
 from knowledge_orchestrator.services.model_selection import json_model_from_catalog, pinned_analysis_model
@@ -167,7 +168,7 @@ class KnowledgeQueryProcessor:
                     text = result.get('result_markdown') or result.get('assistant_content')
                     if not isinstance(text, str) or not text.strip():
                         raise ValueError('Consulta sin resultado JSON')
-                    self.service.complete(row, text)
+                    self.service.complete(row, unshield(text))
                 elif status in {'error', 'failed', 'cancelled'}:
                     self.repository.transition(row['query_id'], status='ERROR', error_code='BROKER_QUERY_FAILED')
                 else:

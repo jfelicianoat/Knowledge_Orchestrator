@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import closing
+from dataclasses import dataclass
 from typing import Any
 
 from knowledge_orchestrator.repositories.database import Database
@@ -32,6 +33,32 @@ SPECIALISED_MARKERS: tuple[str, ...] = (
 )
 #: Por encima de esto, la latencia local no compensa para una tarea de apoyo.
 MAX_PARAMETERS_B = 40.0
+#: Días que un modelo que rompió una tarea con esquema deja de proponerse solo.
+FAILURE_VETO_DAYS = 14
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisPolicy:
+    """Qué modelo se pide para una tarea con esquema y con qué margen.
+
+    Antes la extracción declaraba siempre `fallback_allowed=True` y
+    `allowed_providers=["ollama"]`, aunque la persona hubiera fijado un modelo de
+    LM Studio o prohibido sustituciones en el perfil (auditoría H10).
+    """
+
+    model: str | None
+    providers: tuple[str, ...]
+    exact: bool
+    origin: str  # manual | auto | broker
+
+    @property
+    def label(self) -> str:
+        if self.origin == "manual":
+            return f"{self.model} (elegido en Ajustes, sin sustituciones)"
+        if self.origin == "auto":
+            suffix = "" if not self.exact else ", sin sustituciones"
+            return f"{self.model} (elegido por la aplicación{suffix})"
+        return "el que elija el Broker"
 
 
 def _catalog_of(row: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -118,8 +145,12 @@ def json_model_from_catalog(
             "SELECT name, provider, capabilities_json FROM model_catalog "
             "WHERE status IN ('available', 'loaded', 'online') ORDER BY name COLLATE NOCASE"
         ).fetchall()
+        # El veto caduca: un fallo de hace semanas pudo deberse a una causa ya
+        # corregida (le pasó a `granite4.1:30b`), y un veto eterno lo excluía
+        # para siempre. Además se puede rehabilitar a mano desde Ajustes.
         rejected = [str(row["model"]) for row in connection.execute(
-            "SELECT model FROM analysis_model_failures")]
+            "SELECT model FROM analysis_model_failures WHERE last_failed_at >= "
+            "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)", (f"-{FAILURE_VETO_DAYS} days",))]
     return choose_json_model([dict(row) for row in rows], providers=providers, rejected=rejected)
 
 
@@ -157,3 +188,49 @@ def record_analysis_failure(database: Database, model: str, code: str, message: 
             "message = excluded.message, last_failed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
             (model, code, message[:500]),
         )
+
+
+def analysis_policy(database: Database, *, profile_id: int | None) -> AnalysisPolicy:
+    """La política efectiva de una tarea con esquema para la nota de ese perfil."""
+
+    pinned = pinned_analysis_model(database, profile_id=profile_id)
+    substitution_allowed = True
+    provider = None
+    with closing(database.connect(readonly=True)) as connection:
+        if profile_id is not None:
+            row = connection.execute(
+                "SELECT fallback_allowed FROM profiles WHERE profile_id = ?", (profile_id,)
+            ).fetchone()
+            substitution_allowed = bool(row["fallback_allowed"]) if row else True
+        if pinned:
+            found = connection.execute(
+                "SELECT provider FROM model_catalog WHERE name = ? ORDER BY provider LIMIT 1", (pinned,)
+            ).fetchone()
+            provider = str(found["provider"]) if found and found["provider"] else None
+    if pinned:
+        # Lo que la persona fija se respeta tal cual: su proveedor real, sin
+        # que el Broker lo cambie por otro. La privacidad la sigue imponiendo
+        # la clasificación local_only de la petición.
+        return AnalysisPolicy(pinned, (provider,) if provider else JSON_TASK_PROVIDERS, True, "manual")
+    chosen = json_model_from_catalog(database)
+    return AnalysisPolicy(chosen, JSON_TASK_PROVIDERS, not substitution_allowed, "auto" if chosen else "broker")
+
+
+def list_analysis_failures(database: Database) -> list[dict[str, Any]]:
+    with closing(database.connect(readonly=True)) as connection:
+        rows = connection.execute(
+            "SELECT model, error_code, message, failures, last_failed_at, "
+            "last_failed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AS vetoed "
+            "FROM analysis_model_failures ORDER BY last_failed_at DESC",
+            (f"-{FAILURE_VETO_DAYS} days",),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def forget_analysis_failure(database: Database, model: str) -> bool:
+    """Rehabilita un modelo vetado: vuelve a poder elegirse solo."""
+
+    with database.transaction(immediate=True) as connection:
+        return connection.execute(
+            "DELETE FROM analysis_model_failures WHERE model = ?", (model,)
+        ).rowcount == 1

@@ -21,7 +21,7 @@ from urllib.parse import quote
 
 from knowledge_orchestrator.ui.dashboard.estilo import FONT, FONT_SEMIBOLD, MONO
 from knowledge_orchestrator.ui.dashboard.revision import RevisionMixin
-from knowledge_orchestrator.ui.snapshots import LibraryItem
+from knowledge_orchestrator.ui.snapshots import LIBRARY_PAGE_SIZE, LibraryItem, LibraryPage, LibraryTopic
 
 ALL_TOPICS = "Todos los temas"
 PREVIEW_LIMIT = 20_000
@@ -45,7 +45,7 @@ class BibliotecaMixin(RevisionMixin):
         search_host.grid(row=1, column=0, sticky="ew", padx=28, pady=(0, 10))
         self._icon(search_host, "search", size=11, color="faint", bg="raised").pack(side="left", padx=(12, 4))
         self.library_search_var = tk.StringVar()
-        self.library_search_var.trace_add("write", lambda *_args: self._schedule_library_refresh())
+        self.library_search_var.trace_add("write", lambda *_args: self._schedule_library_refresh(reset=True))
         self.library_search_entry = ttk.Entry(search_host, textvariable=self.library_search_var,
                                               style="Search.TEntry")
         self.library_search_entry.pack(side="left", fill="x", expand=True)
@@ -56,8 +56,17 @@ class BibliotecaMixin(RevisionMixin):
         self.library_search_entry.bind(
             "<FocusOut>", lambda _event: search_host.configure(highlightbackground=c["border"]))
 
-        self.library_topics_host = tk.Frame(page, bg=c["surface"])
-        self.library_topics_host.grid(row=2, column=0, sticky="w", padx=28, pady=(0, 12))
+        topics_row = tk.Frame(page, bg=c["surface"])
+        topics_row.grid(row=2, column=0, sticky="ew", padx=28, pady=(0, 12))
+        topics_row.columnconfigure(0, weight=1)
+        self.library_topics_host = tk.Frame(topics_row, bg=c["surface"])
+        self.library_topics_host.grid(row=0, column=0, sticky="w")
+        # Notas editadas o movidas en Obsidian: se resuelven aquí (auditoría H14).
+        self.library_reconcile_button = ttk.Button(
+            topics_row, text="Notas cambiadas fuera de la app", command=self._open_note_reconciliation,
+        )
+        self.library_reconcile_button.grid(row=0, column=1, sticky="e")
+        self.library_reconcile_button.grid_remove()
         self._library_topic = ALL_TOPICS
         self._library_topic_buttons: dict[str, tk.Button] = {}
 
@@ -89,9 +98,20 @@ class BibliotecaMixin(RevisionMixin):
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.library_tree.yview)
         scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 12))
         self.library_tree.configure(yscrollcommand=scrollbar.set)
+        pager = tk.Frame(list_frame, bg=c["surface"])
+        pager.grid(row=1, column=0, sticky="ew", pady=10)
+        pager.columnconfigure(0, weight=1)
         self.library_summary_var = tk.StringVar(value="Aún no hay conocimiento publicado.")
-        self._text(list_frame, textvariable=self.library_summary_var, size=9, color="faint").grid(
-            row=1, column=0, sticky="ew", pady=10)
+        self._text(pager, textvariable=self.library_summary_var, size=9, color="faint").grid(
+            row=0, column=0, sticky="ew")
+        self.library_previous_button = ttk.Button(pager, text="‹ Anterior", command=self._library_previous_page)
+        self.library_previous_button.grid(row=0, column=1, padx=(8, 4))
+        self.library_next_button = ttk.Button(pager, text="Siguiente ›", command=self._library_next_page)
+        self.library_next_button.grid(row=0, column=2, padx=(0, 12))
+        for button in (self.library_previous_button, self.library_next_button):
+            button.state(["disabled"])
+        self._library_offset = 0
+        self._library_page: LibraryPage | None = None
 
         self.library_title_var = tk.StringVar(value="Selecciona un documento")
         self.library_meta_var = tk.StringVar(value="Aquí verás su contexto documental.")
@@ -137,11 +157,31 @@ class BibliotecaMixin(RevisionMixin):
     # ------------------------------------------------------------ datos
 
     def _refresh_library(self) -> None:
-        items = self.snapshots.library_items(self.library_search_var.get())
-        self._library_items = {str(item.note_id): item for item in items}
+        # La consulta ya viene filtrada y paginada: tema, texto y página van en
+        # SQL, así que lo visible nunca es un recorte silencioso de la biblioteca.
+        topic = None if self._library_topic == ALL_TOPICS else self._library_topic
+        page = self.snapshots.library_page(
+            self.library_search_var.get(), topic=topic, offset=self._library_offset, limit=LIBRARY_PAGE_SIZE,
+        )
+        self._library_page = page
+        self._library_offset = page.offset
+        self._library_items = {str(item.note_id): item for item in page.items}
         self._refresh_library_list()
+        self._sync_reconcile_button()
 
-    def _schedule_library_refresh(self) -> None:
+    def _library_previous_page(self) -> None:
+        self._library_offset = max(0, self._library_offset - LIBRARY_PAGE_SIZE)
+        self._refresh_library()
+
+    def _library_next_page(self) -> None:
+        page = self._library_page
+        if page is not None and page.has_next:
+            self._library_offset = page.offset + page.limit
+            self._refresh_library()
+
+    def _schedule_library_refresh(self, *, reset: bool = False) -> None:
+        if reset:
+            self._library_offset = 0
         if self._library_search_job is not None:
             self.after_cancel(self._library_search_job)
         self._library_search_job = self.after(250, self._run_scheduled_library_refresh)
@@ -150,8 +190,10 @@ class BibliotecaMixin(RevisionMixin):
         self._library_search_job = None
         self._refresh_library()
 
-    def _sync_topic_chips(self, topics: list[str]) -> None:
-        wanted = [ALL_TOPICS, *topics]
+    def _sync_topic_chips(self, topics: list[LibraryTopic]) -> None:
+        wanted = [ALL_TOPICS, *(topic.name for topic in topics)]
+        counts = {topic.name: topic.count for topic in topics}
+        counts[ALL_TOPICS] = sum(counts.values())
         if list(self._library_topic_buttons) != wanted:
             for button in self._library_topic_buttons.values():
                 button.destroy()
@@ -170,27 +212,38 @@ class BibliotecaMixin(RevisionMixin):
             self._library_topic = ALL_TOPICS
         for topic, button in self._library_topic_buttons.items():
             selected = topic == self._library_topic
-            button.configure(bg=self.colors["accent_dark"] if selected else self.colors["surface"],
+            button.configure(text=f"{topic}  {counts.get(topic, 0)}",
+                             bg=self.colors["accent_dark"] if selected else self.colors["surface"],
                              fg=self.colors["accent"] if selected else self.colors["muted"],
                              highlightbackground=self.colors["accent"] if selected else self.colors["border"])
 
     def _set_library_topic(self, topic: str) -> None:
         self._library_topic = topic
-        self._refresh_library_list()
+        self._library_offset = 0
+        self._refresh_library()
 
     def _refresh_library_list(self) -> None:
         if not hasattr(self, "library_tree"):
             return
-        all_items = list(self._library_items.values())
-        self._sync_topic_chips(sorted({item.topic for item in all_items}, key=str.casefold))
-        items = [item for item in all_items if self._library_topic in {ALL_TOPICS, item.topic}]
+        page = self._library_page
+        topics = page.topics if page is not None else []
+        previous_topic = self._library_topic
+        self._sync_topic_chips(topics)
+        if self._library_topic != previous_topic:
+            # El tema elegido se quedó sin notas publicadas: se vuelve a «todos».
+            self._library_offset = 0
+            self._refresh_library()
+            return
+        items = list(self._library_items.values())
         rows = [(str(item.note_id), (item.topic, item.revision, item.published_label)) for item in items]
         self._replace_tree(self.library_tree, rows, texts={str(item.note_id): item.title for item in items})
-        if items:
-            count = len(items)
-            self.library_summary_var.set(f"{count} nota{'s' if count != 1 else ''} publicada{'s' if count != 1 else ''}"
+        self.library_previous_button.state(["!disabled"] if page is not None and page.has_previous else ["disabled"])
+        self.library_next_button.state(["!disabled"] if page is not None and page.has_next else ["disabled"])
+        if items and page is not None:
+            plural = "s" if page.total != 1 else ""
+            self.library_summary_var.set(f"{page.range_label} nota{plural} publicada{plural}"
                                          " · Doble clic para abrir en Obsidian")
-        elif self.library_search_var.get().strip():
+        elif self.library_search_var.get().strip() or self._library_topic != ALL_TOPICS:
             self.library_summary_var.set("No hay documentos que coincidan con la búsqueda.")
         else:
             self.library_summary_var.set(
@@ -373,3 +426,26 @@ class BibliotecaMixin(RevisionMixin):
         self._selected_work_ids = (item.capture_id,)
         self._show_page("work")
         self._refresh_work_list()
+
+    def _open_note_reconciliation(self) -> None:
+        from knowledge_orchestrator.ui.note_reconciliation_dialog import NoteReconciliationDialog
+
+        def changed(message: str) -> None:
+            self.status_var.set(message)
+            self._sync_reconcile_button()
+            self._schedule_library_refresh(reset=False)
+
+        self._reconciliation_dialog = NoteReconciliationDialog(
+            self, self.runtime.note_reconciliation, on_change=changed,
+        )
+
+    def _sync_reconcile_button(self) -> None:
+        try:
+            pending = len(self.runtime.note_reconciliation.issues())
+        except Exception:  # un fallo de lectura no debe tumbar la biblioteca
+            pending = 0
+        if pending:
+            self.library_reconcile_button.configure(text=f"Notas cambiadas fuera de la app ({pending})")
+            self.library_reconcile_button.grid()
+        else:
+            self.library_reconcile_button.grid_remove()

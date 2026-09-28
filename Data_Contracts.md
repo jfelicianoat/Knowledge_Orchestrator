@@ -1045,7 +1045,7 @@ update_candidate:
 
 La implementación usa IDs SQLite enteros, estados en mayúsculas y dos respuestas JSON estrictas:
 
-- Extracción: objeto con `claims[]`; cada claim requiere `statement`, `claim_type`, `volatility`, `span_start`, `span_end`, `quote` y `entities`. `quote` debe ser exactamente `document[span_start:span_end]` y no puede pertenecer al frontmatter.
+- Extracción (0.4.0, por segmentos): la aplicación numera las frases afirmables de la nota (`N1`, `N2`…) y los tramos de la captura original (`S1`, `S2`…). El modelo devuelve `claims[]` con `note_segment`, `source_segments` (0–3), `claim_type`, `volatility`, `entities` (0–5) y, opcionalmente, `observed_at`, `source_date` y `manual_lock`; como máximo 25 por nota. El enunciado y la cita son siempre el texto real de la frase de la nota. La aplicación busca el respaldo en la captura original (raíces léxicas ponderadas por rareza, cifras obligatorias) y guarda `source_support` = `SOURCE`, `MODEL_LINKED` o `SUMMARY_ONLY`, con los tramos en `claim_source_evidence`. Un `note_segment` inexistente se descarta y se cuenta en la cronología; si todos lo son, la respuesta se rechaza. La petición lleva `segments_sha`: si la numeración cambió antes de leer la respuesta, se rechaza. Se sigue aceptando el formato anterior (cita literal localizada por la aplicación; `span_start`/`span_end` opcionales y solo si son ciertos).
 - Comparación: `relation`, `confidence`, `impact`, `rationale` y `replacement_text`. Las relaciones son `SUPPORTS`, `EXTENDS`, `CONTRADICTS`, `SUPERSEDES`, `UNRELATED` y `UNCERTAIN`.
 - Solo `EXTENDS`, `CONTRADICTS` y `SUPERSEDES` pueden incluir `replacement_text` y generar un patch `replace`.
 
@@ -1057,8 +1057,10 @@ Toda propuesta debe citar fuentes y spans existentes en el repositorio local. El
 
 El contrato está implementado para `single`, `mixture_of_agents` y `auto`. El cliente
 conserva el baseline 2.8 y valida los campos aditivos 2.9 que consume. La política por
-perfil decide qué pasos usan estrategias pesadas. El diagnóstico del worker que todavía
-espera literalmente `2.8` es una deuda conocida y no redefine al validador de dominio.
+perfil decide qué pasos usan estrategias pesadas. El worker compara el contrato anunciado
+contra un mínimo (no por igualdad), así que las versiones aditivas no generan avisos.
+Los embeddings se piden con `inference_kind: "embedding"` (resultado en `result.embedding`),
+nunca como una lista de números generada por chat.
 
 AI Broker usa `idempotency_key`, `request_id`, `content`, `output`, `generation`, `model_requirements`, `execution`, `risk` y `priority`; genera su propio `task_id`; publica fases detalladas; termina en `completed`, `failed` o `cancelled`; y entrega `result_markdown` con metadata técnica. El Orchestrator adapta y valida este esquema y conserva por separado el ID local y el ID Broker.
 

@@ -69,6 +69,13 @@ class KnowledgeAccess:
             evidence['source_capture_id'] for evidence in payload['evidence']
         })]
         payload['verification'] = 'evidence_linked_not_independently_verified'
+        # Respaldo en la captura original, distinto de la cita del resumen
+        # (auditoría H07). `source_support` dice cómo se obtuvo.
+        with closing(self.database.connect(readonly=True)) as connection:
+            payload['source_evidence'] = [dict(item) for item in connection.execute(
+                'SELECT capture_id, span_start, span_end, quote, method, score FROM claim_source_evidence '
+                'WHERE claim_id = ? ORDER BY span_start', (claim_id,),
+            )]
         return payload
 
     def entity_knowledge(self, entity_id: int, *, state: str = 'current', limit: int = 100, offset: int = 0) -> dict:

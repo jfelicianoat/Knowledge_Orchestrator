@@ -63,5 +63,5 @@ class BrokerConnectionStoreTests(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             settings = load_broker_settings(self.paths)
 
-        self.assertEqual(DEFAULT_BROKER_URL, "http://192.168.1.52:8765")
+        self.assertEqual(DEFAULT_BROKER_URL, "http://127.0.0.1:8765")
         self.assertEqual(settings.base_url, DEFAULT_BROKER_URL)

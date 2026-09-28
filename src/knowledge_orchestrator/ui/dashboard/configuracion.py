@@ -16,7 +16,7 @@ from knowledge_orchestrator.services.broker_connection import (
     BrokerConnectionError,
     load_broker_settings,
 )
-from knowledge_orchestrator.services.path_settings import PipelinePathStore
+from knowledge_orchestrator.services.path_settings import PipelinePathStore, load_pipeline_paths, storage_warnings
 from knowledge_orchestrator.ui.dashboard.temas import TemasMixin
 from knowledge_orchestrator.ui.obsidian_connection_panel import ObsidianConnectionPanel
 
@@ -239,7 +239,6 @@ class ConfiguracionMixin(TemasMixin):
             ("Modelo que extrae afirmaciones", "analysis_model", (AUTOMATIC_MODEL,)),
             ("Método de procesamiento", "strategy", tuple(STRATEGY_LABELS.values())),
             ("Privacidad", "classification", tuple(CLASSIFICATION_LABELS.values())),
-            ("Documentos extensos", "long_context", tuple(LONG_CONTEXT_LABELS.values())),
             ("Uso del contexto", "compression", tuple(COMPRESSION_LABELS.values())),
         ]
         self.profile_combos = {}
@@ -250,6 +249,15 @@ class ConfiguracionMixin(TemasMixin):
                                  state="readonly", width=27, style="Dark.TCombobox")
             combo.grid(row=row, column=1, sticky="ew", padx=(12, 0), pady=6)
             self.profile_combos[key] = combo
+        # Antes había aquí un selector con dos opciones que hacían lo mismo
+        # (auditoría H21): la aplicación siempre trocea en local y funde por
+        # niveles. Se muestra lo que ocurre de verdad en vez de una elección falsa.
+        tk.Label(editor, text="Documentos extensos", bg=self.colors["surface"], fg=self.colors["muted"],
+                 font=("Segoe UI", 9)).grid(row=5, column=0, sticky="nw", pady=6)
+        tk.Label(editor, text="Se dividen en partes y los resultados se funden por niveles hasta caber "
+                              "en la ventana del modelo.",
+                 bg=self.colors["surface"], fg=self.colors["text"], font=("Segoe UI", 9), wraplength=300,
+                 justify="left", anchor="w").grid(row=5, column=1, sticky="ew", padx=(12, 0), pady=6)
         tk.Label(editor, text="Longitud máxima de la respuesta", bg=self.colors["surface"], fg=self.colors["muted"],
                  font=("Segoe UI", 9)).grid(row=6, column=0, sticky="w", pady=6)
         ttk.Entry(editor, textvariable=self.profile_form["max_output_tokens"], width=27, style="Dark.TEntry").grid(
@@ -276,8 +284,11 @@ class ConfiguracionMixin(TemasMixin):
             text=(
                 "El primero escribe el apunte en prosa. El segundo extrae afirmaciones y tiene que devolver "
                 "una estructura exacta, así que conviene uno que no razone; si falla, deja de proponerse solo. "
-                "La privacidad determina dónde puede procesarse el contenido. "
-                "Los cambios solo afectan a documentos nuevos y no alteran la biblioteca existente."
+                "La privacidad determina dónde puede procesarse el contenido. El presupuesto es para el "
+                "documento entero: se reparte entre sus partes y la síntesis, y los reintentos gastan de él. "
+                "El consenso se aplica al documento o a su síntesis; las partes de un documento extenso van "
+                "siempre con un solo modelo. Los cambios afectan a documentos nuevos; «Reintentar» reenvía "
+                "con la configuración completa vigente."
             ),
             bg=self.colors["surface"], fg=self.colors["muted"], font=("Segoe UI", 9), wraplength=520,
             justify="left", anchor="w",
@@ -291,6 +302,13 @@ class ConfiguracionMixin(TemasMixin):
         )
         self.edit_prompt_button.grid(row=11, column=0, sticky="w")
         self.save_profile_button.grid(row=11, column=1, sticky="e")
+        # Memoria de fallos visible y reversible (auditoría H10): un veto
+        # eterno excluía modelos por causas que ya se habían corregido.
+        self.vetoed_models_button = ttk.Button(
+            editor, text="Modelos apartados por fallos…", style="Secondary.TButton",
+            command=self._open_vetoed_models,
+        )
+        self.vetoed_models_button.grid(row=12, column=0, sticky="w", pady=(8, 0))
         self.save_profile_button.state(["disabled"])
         self.edit_prompt_button.state(["disabled"])
         self._loading_profile = False
@@ -337,6 +355,9 @@ class ConfiguracionMixin(TemasMixin):
         self.path_status_var.set(
             "Carpetas guardadas. Se usarán al volver a abrir la aplicación; la conexión al Broker no necesita reinicio."
         )
+        warnings = storage_warnings(load_pipeline_paths())
+        if warnings:
+            messagebox.showwarning("Carpetas guardadas, con un aviso", "\n\n".join(warnings), parent=self)
         self.status_var.set("Ubicaciones guardadas para el próximo inicio.")
 
     def _broker_credential_status(self) -> str:
@@ -395,14 +416,6 @@ class ConfiguracionMixin(TemasMixin):
         self.profile_combos["strategy"].configure(values=tuple(STRATEGY_LABELS[value] for value in strategies))
         # Sin capacidades publicadas se ofrece todo y decide el Broker: mejor
         # que esconder una opción que sí existe.
-        admite_troceo = not capabilities or capabilities.get("long_context_map_reduce")
-        self.profile_combos["long_context"].configure(
-            values=(
-                tuple(LONG_CONTEXT_LABELS.values())
-                if admite_troceo
-                else (LONG_CONTEXT_LABELS["fail"],)
-            )
-        )
         if not capabilities:
             self.capabilities_var.set("No hay capacidades publicadas. El Broker validará las peticiones nuevas.")
             return
@@ -572,15 +585,19 @@ class ConfiguracionMixin(TemasMixin):
             strategy = _value_for(STRATEGY_LABELS, self.profile_form["strategy"].get())
             if capabilities and strategy not in available_profile_strategies(capabilities):
                 raise ValueError(f"El Broker actual no ofrece la estrategia {strategy}")
-            long_context = _value_for(LONG_CONTEXT_LABELS, self.profile_form["long_context"].get())
-            if long_context == "map_reduce" and capabilities and not capabilities.get("long_context_map_reduce"):
-                raise ValueError("El Broker actual no permite procesar documentos extensos por bloques")
+            # La división la hace siempre la aplicación: se guarda el modo local.
+            long_context = "fail"
             updated = replace(
                 current,
                 preferred_model=chosen_model,
                 analysis_model=self._model_labels.get(self.profile_form["analysis_model"].get(),
                                                       self.profile_form["analysis_model"].get()),
                 execution_strategy=strategy,
+                # Elegir consenso o automático tiene que notarse también en los
+                # documentos cortos, no solo en la síntesis de los largos
+                # (auditoría H21): cambiar la estrategia ajusta los pasos.
+                multitasking_steps=(("single", "synthesis") if strategy in {"mixture_of_agents", "auto"}
+                                    else current.multitasking_steps),
                 data_classification=_value_for(
                     CLASSIFICATION_LABELS, self.profile_form["classification"].get()
                 ),
@@ -607,3 +624,64 @@ class ConfiguracionMixin(TemasMixin):
         self._profile_dirty = False
         self._sync_profile_buttons()
         self._refresh_profiles()
+
+    def _open_vetoed_models(self) -> None:
+        """Lista los modelos que rompieron una extracción y permite rehabilitarlos."""
+
+        from knowledge_orchestrator.services.model_selection import (
+            FAILURE_VETO_DAYS,
+            forget_analysis_failure,
+            list_analysis_failures,
+        )
+
+        dialog = tk.Toplevel(self)
+        dialog.title("Modelos apartados por fallos")
+        dialog.geometry("760x360")
+        dialog.transient(self)
+        dialog.configure(bg=self.colors["surface"])
+        dialog.columnconfigure(0, weight=1)
+        dialog.rowconfigure(1, weight=1)
+        tk.Label(
+            dialog,
+            text=(f"Un modelo que devuelve una respuesta inservible deja de elegirse solo durante "
+                  f"{FAILURE_VETO_DAYS} días. Puedes rehabilitarlo antes si la causa ya se corrigió. "
+                  "Elegirlo a mano en «Modelo que extrae afirmaciones» siempre es posible."),
+            bg=self.colors["surface"], fg=self.colors["muted"], font=("Segoe UI", 9), wraplength=720,
+            justify="left", anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 8))
+        tree = ttk.Treeview(dialog, columns=("estado", "fallos", "ultimo", "motivo"), show="tree headings",
+                            style="Dark.Treeview", selectmode="browse")
+        for column, text, width in (("#0", "Modelo", 180), ("estado", "Estado", 90), ("fallos", "Fallos", 60),
+                                    ("ultimo", "Último fallo", 150), ("motivo", "Motivo", 260)):
+            tree.heading(column, text=text)
+            tree.column(column, width=width, stretch=column == "motivo")
+        tree.grid(row=1, column=0, sticky="nsew", padx=16)
+        footer = ttk.Frame(dialog)
+        footer.grid(row=2, column=0, sticky="ew", padx=16, pady=12)
+        status = tk.StringVar(value="")
+
+        def load() -> None:
+            tree.delete(*tree.get_children())
+            failures = list_analysis_failures(self.runtime.database)
+            for item in failures:
+                tree.insert("", "end", iid=item["model"], text=item["model"], values=(
+                    "apartado" if item["vetoed"] else "caducado", item["failures"],
+                    str(item["last_failed_at"])[:16].replace("T", " "), str(item["message"])[:200],
+                ))
+            status.set("Ningún modelo apartado." if not failures else f"{len(failures)} modelo(s) con fallos.")
+
+        def rehabilitate() -> None:
+            selection = tree.selection()
+            if not selection:
+                return
+            if forget_analysis_failure(self.runtime.database, selection[0]):
+                self.status_var.set(f"{selection[0]} vuelve a poder elegirse automáticamente.")
+            load()
+
+        ttk.Button(footer, text="Rehabilitar seleccionado", style="Accent.TButton",
+                   command=rehabilitate).pack(side="left")
+        ttk.Label(footer, textvariable=status).pack(side="left", padx=12)
+        ttk.Button(footer, text="Cerrar", command=dialog.destroy).pack(side="right")
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        self._vetoed_dialog = dialog
+        load()

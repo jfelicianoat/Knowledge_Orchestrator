@@ -15,7 +15,10 @@ import sqlite3
 from typing import Any
 
 from knowledge_orchestrator.domain.broker_models import TaskStatus
+from knowledge_orchestrator.repositories.workflow_repository.base import fallback_eligible
 from knowledge_orchestrator.repositories.workflow_repository.control import ControlMixin
+from knowledge_orchestrator.repositories.workflow_repository.envio import release_reservation
+from knowledge_orchestrator.services.broker_shield import unshield
 from knowledge_orchestrator.services.output_quality import study_notes_quality_error, study_notes_quality_message
 
 #: Traducción del vocabulario del Broker al nuestro. Los estados terminales son
@@ -115,8 +118,11 @@ def resultado_de(broker_result: dict[str, Any] | None) -> dict[str, Any]:
     """Normaliza el resultado a algo que siempre tenga `assistant_content`."""
     resultado = broker_result or {}
     if "assistant_content" in resultado:
-        return dict(resultado)
-    return {"assistant_content": resultado["result_markdown"], "broker_result": broker_result}
+        limpio = dict(resultado)
+        if isinstance(limpio["assistant_content"], str):
+            limpio["assistant_content"] = unshield(limpio["assistant_content"])
+        return limpio
+    return {"assistant_content": unshield(str(resultado["result_markdown"])), "broker_result": broker_result}
 
 
 def error_de(payload: dict[str, Any]) -> dict[str, Any]:
@@ -127,6 +133,43 @@ def error_de(payload: dict[str, Any]) -> dict[str, Any]:
         "message": bruto.get("message", bruto.get("code", "Broker task failed")),
         "retryable": bool(bruto.get("retryable", False)),
     }
+
+
+def coste_real(broker_result: dict[str, Any] | None) -> float | None:
+    """Coste que el Broker dice haber gastado (`usage.cost_usd`), si lo dice."""
+
+    usage = (broker_result or {}).get("usage")
+    if not isinstance(usage, dict):
+        return None
+    for key in ("cost_usd", "total_cost_usd", "cost"):
+        value = usage.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return None
+
+
+#: Fallos que llegan después de ejecutar: el modelo generó (y pudo cobrar) antes
+#: de fallar. Sin coste informado se conserva la reserva entera.
+EXECUTED_FAILURE_CODES = frozenset({
+    "BUDGET_EXCEEDED", "TASK_TIMEOUT", "INVALID_PROVIDER_RESPONSE", "DEGENERATE_OUTPUT",
+})
+
+
+def coste_liquidable(target: TaskStatus, broker_result: dict[str, Any] | None, error: dict[str, Any]) -> float | None:
+    """Coste contra el que liquidar la reserva de una tarea terminada.
+
+    Con coste informado, ese. Si no lo hay: una tarea que respondió conserva la
+    reserva (lectura prudente); una que falló sin llegar a ejecutar —modelo no
+    disponible, cancelada en cola— la devuelve entera, porque si no el primer
+    reintento de un documento local, que no cuesta nada, agotaba su bolsa.
+    """
+
+    reported = coste_real(broker_result)
+    if reported is not None:
+        return reported
+    if target is TaskStatus.SUCCESS or str(error.get("code") or "") in EXECUTED_FAILURE_CODES:
+        return None
+    return 0.0
 
 
 def metadata_de(broker_result: dict[str, Any] | None) -> dict[str, Any]:
@@ -172,6 +215,10 @@ class EstadoMixin(ControlMixin):
             ):
                 return True
             self._escribir_tarea(connection, task_id, payload, target, broker_result, error)
+            if target in {TaskStatus.SUCCESS, TaskStatus.ERROR, TaskStatus.CANCELLED}:
+                release_reservation(
+                    connection, task_id, actual_cost=coste_liquidable(target, broker_result, error),
+                )
 
             if target is TaskStatus.PROCESSING:
                 self._marcar_captura_en_proceso(connection, current["capture_id"])
@@ -339,11 +386,8 @@ class EstadoMixin(ControlMixin):
         error: dict[str, Any],
     ) -> None:
         """Falla el workflow, salvo que el consenso pueda caer a `single`."""
-        may_fallback = (
-            target is TaskStatus.ERROR
-            and current["execution_strategy"] == "mixture_of_agents"
-            and bool(current["strategy_fallback_allowed"])
-            and error.get("code") in self.CONSENSUS_FALLBACK_CODES
+        may_fallback = target is TaskStatus.ERROR and fallback_eligible(
+            current["execution_strategy"], bool(current["strategy_fallback_allowed"]), error.get("code"),
         )
         if may_fallback:
             connection.execute(
@@ -368,16 +412,29 @@ class EstadoMixin(ControlMixin):
     def finish_workflow(self, workflow_id: str, final_result: str) -> None:
         with self.database.transaction(immediate=True) as connection:
             workflow = connection.execute(
-                "SELECT capture_id FROM workflows WHERE workflow_id = ?", (workflow_id,)
+                "SELECT capture_id, review_required FROM workflows WHERE workflow_id = ?", (workflow_id,)
             ).fetchone()
             if workflow is None:
                 raise ValueError("Workflow inexistente")
-            connection.execute(
+            # Con revisión exigida el resultado queda como borrador: publicarlo
+            # es decisión de una persona, no del worker (auditoría H01).
+            finished = connection.execute(
                 "UPDATE workflows SET status = 'SUCCESS', final_result = ?, "
+                "review_status = CASE WHEN review_required = 1 THEN 'PENDING' ELSE review_status END, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
                 "WHERE workflow_id = ? AND status IN ('PLANNED', 'RUNNING')",
                 (final_result, workflow_id),
             )
+            if finished.rowcount and workflow["review_required"]:
+                connection.execute(
+                    "INSERT INTO events(capture_id, event_type, message, details_json) "
+                    "VALUES (?, 'DRAFT_AWAITING_REVIEW', ?, ?)",
+                    (
+                        workflow["capture_id"],
+                        "El borrador está listo. El perfil exige revisarlo antes de publicarlo.",
+                        json.dumps({"workflow_id": workflow_id}),
+                    ),
+                )
             connection.execute(
                 "UPDATE captures SET status = 'PROCESSING', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
                 "WHERE capture_id = ? AND status IN ('SUBMITTING', 'QUEUED', 'PROCESSING')",

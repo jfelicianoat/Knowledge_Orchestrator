@@ -10,14 +10,25 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from knowledge_orchestrator.domain.semantic_models import ComparisonDecision, ExtractedClaim
+from knowledge_orchestrator.domain.semantic_models import (
+    ComparisonDecision,
+    ExtractedClaim,
+    Impact,
+    SourceEvidence,
+)
 from knowledge_orchestrator.integrations.obsidian_bridge import NoteEditor, ObsidianBridgeConflict
 from knowledge_orchestrator.services.maintenance_layout import history_boundary
 from knowledge_orchestrator.services.semantic_maintenance.contratos import SemanticContractError
+from knowledge_orchestrator.services.semantic_maintenance.segmentos import (
+    find_support,
+    note_segments,
+    source_segments,
+)
 
 
 def locate_quote(document: str, quote: str, *, body_start: int) -> tuple[int, int] | None:
@@ -69,6 +80,72 @@ def locate_quote(document: str, quote: str, *, body_start: int) -> tuple[int, in
     return start, end
 
 
+@dataclass(frozen=True, slots=True)
+class ExtractionReport:
+    claims: list[ExtractedClaim]
+    ignored_source_links: int = 0
+    unknown_note_segments: int = 0
+
+    def support_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for claim in self.claims:
+            counts[claim.source_support] = counts.get(claim.source_support, 0) + 1
+        return counts
+
+
+_SEGMENT_ALLOWED = {
+    "note_segment", "source_segments", "claim_type", "volatility", "entities",
+    "observed_at", "source_date", "manual_lock",
+}
+_LEGACY_ALLOWED = {
+    "statement", "claim_type", "volatility", "span_start", "span_end", "quote", "entities",
+    "observed_at", "source_date", "manual_lock",
+}
+
+
+def _validated_fields(raw: Mapping[str, Any], index: int) -> dict[str, Any]:
+    """Comprueba claves y TIPOS antes de usar ningún valor (auditoría H04).
+
+    `volatility: []` llegaba a `volatility in {...}` y reventaba con un
+    `TypeError` (una lista no es hashable) que nadie capturaba: el trabajo se
+    quedaba en PROCESSING y se releía, y fallaba, en cada ciclo.
+    """
+
+    segment_format = "note_segment" in raw
+    allowed = _SEGMENT_ALLOWED if segment_format else _LEGACY_ALLOWED
+    required = ({"note_segment", "source_segments", "claim_type", "volatility", "entities"} if segment_format
+                else {"statement", "claim_type", "volatility", "quote", "entities"})
+    if not required.issubset(raw) or set(raw) - allowed:
+        raise SemanticContractError(f"Claim {index} no cumple el contrato")
+    if segment_format:
+        links = raw["source_segments"]
+        if not isinstance(raw["note_segment"], str) or not isinstance(links, list) \
+                or any(not isinstance(item, str) for item in links):
+            raise SemanticContractError(f"Claim {index} tiene identificadores de segmento inválidos")
+    else:
+        if not isinstance(raw["quote"], str) or not isinstance(raw["statement"], str) \
+                or not raw["statement"].strip():
+            raise SemanticContractError(f"Claim {index} tiene texto o entidades inválidos")
+    claim_type, entities, volatility = raw["claim_type"], raw["entities"], raw["volatility"]
+    if not isinstance(claim_type, str) or not claim_type.strip() or not isinstance(entities, list) \
+            or any(not isinstance(item, str) for item in entities):
+        raise SemanticContractError(f"Claim {index} tiene texto o entidades inválidos")
+    if not isinstance(volatility, str) or volatility not in {"LOW", "MEDIUM", "HIGH"}:
+        raise SemanticContractError(f"Claim {index} tiene volatilidad inválida")
+    manual_lock = raw.get("manual_lock", False)
+    if not isinstance(manual_lock, bool):
+        raise SemanticContractError(f"Claim {index} tiene manual_lock inválido")
+    for field in ("observed_at", "source_date"):
+        value = raw.get(field)
+        if value is not None and not (isinstance(value, str) and AnalisisMixin._valid_date(value)):
+            raise SemanticContractError(f"Claim {index} tiene {field} inválido")
+    return {
+        "claim_type": claim_type.strip(), "volatility": volatility, "entities": tuple(entities),
+        "observed_at": raw.get("observed_at"), "source_date": raw.get("source_date"),
+        "manual_lock": manual_lock,
+    }
+
+
 def _offered_span(document: str, raw: Mapping[str, Any], *, body_start: int, index: int) -> tuple[int, int] | None:
     """Los offsets del modelo, solo si resultan ser ciertos.
 
@@ -93,95 +170,121 @@ class AnalisisMixin:
     note_editor: NoteEditor
 
     @staticmethod
-    def _parse_extraction(payload: Mapping[str, Any], document: str) -> list[ExtractedClaim]:
-        if set(payload) != {"claims"} or not isinstance(payload.get("claims"), list):
+    def _parse_extraction(payload: Mapping[str, Any], document: str, source: str = "") -> list[ExtractedClaim]:
+        return AnalisisMixin._parse_extraction_report(payload, document, source).claims
+
+    @staticmethod
+    def _parse_extraction_report(
+        payload: Mapping[str, Any], document: str, source: str = "",
+    ) -> ExtractionReport:
+        """Valida la respuesta entera antes de crear nada y gradúa el respaldo de cada claim.
+
+        Estructura y tipos se comprueban primero y de forma completa: un valor
+        inesperado (una lista donde va un texto) es un fallo de contrato del
+        trabajo, no un `TypeError` que deja el análisis en PROCESSING y bloquea
+        la cola (auditoría H04). Una frase de la nota que no existe invalida la
+        respuesta entera, igual que antes una cita inventada.
+        """
+
+        if not isinstance(payload, Mapping) or set(payload) != {"claims"} \
+                or not isinstance(payload.get("claims"), list):
             raise SemanticContractError("La extracción debe contener únicamente claims[]")
         body_start = AnalisisMixin._body_start(document)
         historical_start = history_boundary(document)
+        notes = {segment.segment_id: segment for segment in note_segments(
+            document, body_start=body_start, body_end=historical_start,
+        )}
+        sources = source_segments(source) if source else []
         result: list[ExtractedClaim] = []
-        allowed = {
-            "statement", "claim_type", "volatility", "span_start", "span_end", "quote", "entities",
-            "observed_at", "source_date", "manual_lock",
-        }
-        required = {"statement", "claim_type", "volatility", "quote", "entities"}
+        ignored_links = 0
+        unknown_segments = 0
         for index, raw in enumerate(payload["claims"]):
-            if not isinstance(raw, Mapping) or not required.issubset(raw) or set(raw) - allowed:
+            if not isinstance(raw, Mapping):
                 raise SemanticContractError(f"Claim {index} no cumple el contrato")
-            if not isinstance(raw["quote"], str):
-                raise SemanticContractError(f"Claim {index} tiene texto o entidades inválidos")
-            # Los offsets del modelo se aceptan solo si resultan ser ciertos; en
-            # cuanto no cuadran, manda la cita y los calcula la aplicación.
-            span = _offered_span(document, raw, body_start=body_start, index=index)
-            if span is None:
-                span = locate_quote(document, raw["quote"], body_start=body_start)
-            # Sin cita localizable no hay evidencia: así el modelo no cuela
-            # conocimiento externo ni citas que el documento no contiene.
-            if span is None:
-                raise SemanticContractError(f"Claim {index} no está respaldado por su span local")
-            start, end = span
+            fields = _validated_fields(raw, index)
+            if "note_segment" in raw:
+                segment = notes.get(raw["note_segment"])
+                if segment is None:
+                    # Un identificador inexistente no aporta texto que colar: se
+                    # descarta y se cuenta (queda en la cronología). Antes uno
+                    # solo —N90 en una nota de 89 frases, contra el Broker real—
+                    # tiraba las otras 24 afirmaciones válidas.
+                    unknown_segments += 1
+                    continue
+                start, end = segment.start, segment.end
+                known = {item.segment_id for item in sources}
+                hinted = tuple(item for item in raw["source_segments"] if item in known)
+                ignored_links += len(raw["source_segments"]) - len(hinted)
+            else:
+                span = _offered_span(document, raw, body_start=body_start, index=index)
+                if span is None:
+                    span = locate_quote(document, raw["quote"], body_start=body_start)
+                # Sin cita localizable no hay evidencia: así el modelo no cuela
+                # conocimiento externo ni citas que el documento no contiene.
+                if span is None:
+                    raise SemanticContractError(f"Claim {index} no está respaldado por su span local")
+                start, end = span
+                if " ".join(raw["statement"].split()) != " ".join(raw["quote"].split()):
+                    raise SemanticContractError(
+                        f'Claim {index}: statement debe conservar la cita, sin añadir inferencias'
+                    )
+                hinted = ()
             if historical_start is not None:
                 if start >= historical_start:
                     continue  # El contenido histórico no se reintroduce como conocimiento vigente.
                 if end > historical_start:
                     raise SemanticContractError('El span mezcla conocimiento vigente e histórico')
-            statement = raw["statement"]
-            entities = raw["entities"]
-            claim_type = raw["claim_type"]
-            quote = raw["quote"]
-            if not isinstance(statement, str) or not statement.strip() or not isinstance(claim_type, str) \
-                    or not claim_type.strip() or not isinstance(quote, str) or not isinstance(entities, list) or any(
-                not isinstance(item, str) for item in entities
-            ):
-                raise SemanticContractError(f"Claim {index} tiene texto o entidades inválidos")
-            if " ".join(statement.split()) != " ".join(quote.split()):
-                raise SemanticContractError(f'Claim {index}: statement debe conservar la cita, sin añadir inferencias')
-            volatility = raw["volatility"]
-            if volatility not in {"LOW", "MEDIUM", "HIGH"}:
-                raise SemanticContractError(f"Claim {index} tiene volatilidad inválida")
-            manual_lock = raw.get("manual_lock", False)
-            if not isinstance(manual_lock, bool):
-                raise SemanticContractError(f"Claim {index} tiene manual_lock inválido")
-            for field in ("observed_at", "source_date"):
-                value = raw.get(field)
-                valid = isinstance(value, str) and AnalisisMixin._valid_date(value)
-                if value is not None and not valid:
-                    raise SemanticContractError(f"Claim {index} tiene {field} inválido")
             # La evidencia guardada es el texto del documento, no la versión del
-            # modelo —que une los renglones con un espacio—: lo que se compara
-            # después (parches, deriva, procedencia) exige que
-            # `document[span_start:span_end]` sea exactamente la cita. El
-            # statement del modelo ya se validó arriba contra su propia cita, así
-            # que esto normaliza espacios sin dejar pasar nada inventado.
+            # modelo: parches, deriva y procedencia exigen que
+            # `document[span_start:span_end]` sea exactamente la cita.
             evidence = document[start:end]
+            support, matches = (
+                find_support(evidence, source, sources, hinted=hinted) if sources else ("SUMMARY_ONLY", [])
+            )
             result.append(ExtractedClaim(
-                statement=evidence, claim_type=claim_type.strip(), volatility=volatility,
-                span_start=start, span_end=end, quote=evidence, entities=tuple(entities),
-                observed_at=raw.get("observed_at"), source_date=raw.get("source_date"),
-                manual_lock=manual_lock,
+                statement=evidence, claim_type=fields["claim_type"], volatility=fields["volatility"],
+                span_start=start, span_end=end, quote=evidence, entities=fields["entities"],
+                observed_at=fields["observed_at"], source_date=fields["source_date"],
+                manual_lock=fields["manual_lock"], source_support=support,
+                source_evidence=tuple(
+                    SourceEvidence(match.start, match.end, match.quote, match.method, match.score)
+                    for match in matches
+                ),
             ))
-        return result
+        if unknown_segments and unknown_segments == len(payload["claims"]):
+            raise SemanticContractError("Ninguna afirmación señala una frase existente de la nota")
+        return ExtractionReport(claims=result, ignored_source_links=ignored_links,
+                                unknown_note_segments=unknown_segments)
 
     @staticmethod
     def _parse_comparison(payload: Mapping[str, Any]) -> ComparisonDecision:
         required = {"relation", "confidence", "impact", "rationale", "replacement_text"}
-        if set(payload) != required:
+        if not isinstance(payload, Mapping) or set(payload) != required:
             raise SemanticContractError("La comparación no cumple el contrato")
         relation = payload["relation"]
         confidence = payload["confidence"]
         impact = payload["impact"]
         rationale = payload["rationale"]
-        if relation not in {"SUPPORTS", "EXTENDS", "CONTRADICTS", "SUPERSEDES", "UNRELATED", "UNCERTAIN"}:
+        if not isinstance(relation, str) or relation not in {
+            "SUPPORTS", "EXTENDS", "CONTRADICTS", "SUPERSEDES", "UNRELATED", "UNCERTAIN",
+        }:
             raise SemanticContractError("Relación inválida")
         if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
             raise SemanticContractError("Confianza inválida")
-        if impact not in {"LOW", "MEDIUM", "HIGH"} or not isinstance(rationale, str) or not rationale.strip():
+        if not isinstance(impact, str) or impact not in {"LOW", "MEDIUM", "HIGH"} \
+                or not isinstance(rationale, str) or not rationale.strip():
             raise SemanticContractError("Impacto o rationale inválido")
         replacement = payload["replacement_text"]
         if replacement is not None and not isinstance(replacement, str):
             raise SemanticContractError("replacement_text inválido")
-        if relation in {"SUPPORTS", "UNRELATED", "UNCERTAIN"} and replacement is not None:
-            raise SemanticContractError(f"{relation} no puede modificar contenido")
-        return ComparisonDecision(relation, float(confidence), impact, rationale.strip(), replacement)
+        if relation in {"SUPPORTS", "UNRELATED", "UNCERTAIN"}:
+            # Estas relaciones no modifican nada: si el modelo rellena el texto
+            # (o escribe "null" entre comillas, visto en real), se ignora en vez
+            # de perder la clasificación. No se genera ningún parche.
+            replacement = None
+        return ComparisonDecision(
+            cast(Any, relation), float(confidence), cast(Impact, impact), rationale.strip(), replacement,
+        )
 
     @staticmethod
     def _validate_patch(patch_json: str, content: str) -> dict[str, Any]:

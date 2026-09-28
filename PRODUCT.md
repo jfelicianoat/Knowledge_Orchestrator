@@ -23,17 +23,20 @@ Une en una sola herramienta de escritorio el ciclo completo del documento, la bi
 - Aplicación Windows instalable y de uso individual.
 - Entrada manual mediante importación y entrada automática mediante carpeta vigilada.
 - Trabajo habitual con documentos Markdown y un Broker AI disponible en red local.
+- La base operativa (SQLite) debe vivir en un disco local; la bóveda puede estar en una carpeta sincronizada.
 - Actualización automática de la interfaz a partir del estado durable en SQLite.
 
 ## Capabilities and Constraints
 
 - La interfaz es nativa y está construida con Tkinter/ttk.
-- El formato de entrada admitido actualmente es Markdown con el contrato de captura de Knowledge Orchestrator.
+- La entrada natural es Markdown con el contrato de captura de Knowledge Orchestrator; «Importar documentos» también convierte, previa confirmación, Markdown y texto normales en una captura válida conservando el original.
 - El Broker procesa las tareas fuera del hilo de interfaz.
 - La interfaz no inventa porcentajes cuando el Broker no informa progreso cuantificable.
 - La navegación lateral agrupa trabajo (`Inicio`, `Documentos`, `Revisión`), conocimiento (`Biblioteca`, `Afirmaciones`, `Fuentes`) y sistema (`Actividad`, `Automatización y API`, `Organización`, `Ajustes`), con contadores de lo pendiente.
-- La futura API deberá exponer el conocimiento mediante una capa de consulta estable, sin acoplar consumidores externos a widgets, rutas internas o tablas SQLite.
-- La API documental es una evolución prevista, no una capacidad disponible en esta versión.
+- La API documental local existe y expone el conocimiento mediante una capa de consulta estable, sin acoplar consumidores externos a widgets, rutas internas o tablas SQLite. Los consumidores se dan de alta y se revocan desde «Automatización y API».
+- La recuperación es léxica; los vectores son opcionales, por modelo declarado, y no se generan automáticamente.
+- Con «Exigir revisión humana antes de publicar», el resultado queda como borrador y solo se publica tras aprobarlo en la pantalla Documentos.
+- Cada afirmación indica si la captura original la respalda (`SOURCE`), si solo la enlazó el modelo (`MODEL_LINKED`) o si solo consta en el resumen (`SUMMARY_ONLY`). Solo las respaldadas proponen cambios en otras notas.
 
 ## Brand Commitments
 

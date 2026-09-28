@@ -22,7 +22,27 @@ class OperationsSnapshots:
         if snapshot['offset'] and snapshot['offset'] >= snapshot['total']:
             offset = max(0, ((snapshot['total'] - 1) // snapshot['limit']) * snapshot['limit'])
             snapshot = self.knowledge(**{**filters, 'offset': offset})
+        snapshot['coverage'] = self.knowledge_coverage()
         return snapshot
+
+    def knowledge_coverage(self) -> dict:
+        """Cuántas notas hay publicadas, analizadas, pendientes o con análisis fallido.
+
+        «No hay afirmaciones» puede querer decir «cambia el filtro» o «el
+        análisis falló»; la acción útil es distinta en cada caso.
+        """
+        with closing(self.database.connect(readonly=True)) as connection:
+            row = connection.execute(
+                "WITH latest AS (SELECT note_id, status FROM semantic_jobs j WHERE kind = 'EXTRACT' AND "
+                "created_at = (SELECT MAX(created_at) FROM semantic_jobs x WHERE x.kind = 'EXTRACT' "
+                "AND x.note_id = j.note_id)) "
+                "SELECT (SELECT COUNT(*) FROM notes WHERE status = 'PUBLISHED') AS published, "
+                "(SELECT COUNT(DISTINCT note_id) FROM knowledge_claims) AS indexed, "
+                "(SELECT COUNT(*) FROM latest WHERE status IN ('READY','SUBMITTING','QUEUED','PROCESSING')) "
+                "AS pending, "
+                "(SELECT COUNT(*) FROM latest WHERE status = 'ERROR') AS failed"
+            ).fetchone()
+        return dict(row)
 
     def knowledge(self, *, state: str = 'current', query: str = '', limit: int = 100,
                   offset: int = 0) -> dict:
@@ -46,7 +66,7 @@ class OperationsSnapshots:
             connection.execute('BEGIN')
             total = connection.execute('SELECT count(*) FROM knowledge_claims k WHERE ' + where, args).fetchone()[0]
             rows = connection.execute(
-                'SELECT k.claim_id,k.note_id,k.statement,k.knowledge_state,k.manual_lock,k.revision,'
+                'SELECT k.claim_id,k.note_id,k.statement,k.knowledge_state,k.manual_lock,k.revision,k.source_support,'
                 'k.derived_from_claim_id,k.superseded_by,c.title,n.vault_path,('
                 + current_sql + ') AS available_current '
                 'FROM knowledge_claims k JOIN notes n ON n.note_id=k.note_id '
@@ -99,7 +119,8 @@ class OperationsSnapshots:
         elif kind == 'analysis':
             source = 'semantic_jobs s LEFT JOIN notes n ON n.note_id=s.note_id LEFT JOIN captures c USING(capture_id)'
             fields = ("s.job_id AS id,COALESCE(c.title,'Análisis') AS title,s.status,s.updated_at AS updated,"
-                      's.kind,s.candidate_id,s.broker_task_id,s.error_code,n.capture_id,s.attempt')
+                      's.kind,s.candidate_id,s.broker_task_id,s.error_code,n.capture_id,s.attempt,'
+                      's.note_id,s.error_message')
             clauses = {'pending': "s.status IN ('READY','SUBMITTING','QUEUED','PROCESSING')",
                        'errors': "s.status='ERROR'", 'all': '1=1'}
             order = 's.updated_at DESC,s.job_id'

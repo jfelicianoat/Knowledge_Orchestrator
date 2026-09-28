@@ -41,6 +41,10 @@ def work_progress(item: WorkItem) -> tuple[int, str]:
 
     if item.incident_id is not None:
         return 1, "failed"
+    if item.status == "AWAITING_REVIEW":
+        return len(STEPS) - 1, "waiting"
+    if item.status == "DRAFT_REJECTED":
+        return len(STEPS) - 1, "cancelled"
     if item.category == "completed":
         if item.status in {"CANCELLED", "REJECTED"}:
             return 3, "cancelled"
@@ -75,7 +79,18 @@ class DetalleMixin(InicioMixin):
             bool(item.task_id) and item.status in {"READY", "ERROR"}
         ) or (
             item.category == "attention" and item.incident_id is not None
+        ) or (
+            # Falló antes de tener tareas (p. ej. perfil desactivado): se replanifica.
+            item.category == "attention" and not item.task_id and item.status == "FAILED"
         )
+
+    @staticmethod
+    def _can_cancel_item(item: WorkItem) -> bool:
+        """Se puede cancelar el documento mientras siga vivo, esté donde esté."""
+
+        return item.category == "active" and item.incident_id is None and item.status in {
+            "PENDING", "READY", "SUBMITTING", "QUEUED", "PROCESSING",
+        }
 
     # ------------------------------------------------------------- pintado
 
@@ -189,7 +204,19 @@ class DetalleMixin(InicioMixin):
         )
         self._set_work_steps(work_progress(item))
 
-        if item.category == "attention":
+        if item.status == "AWAITING_REVIEW":
+            self.issue_title_var.set("Borrador listo para revisar.")
+            self.issue_message_var.set(
+                "El perfil exige revisión humana antes de publicar. Ábrelo, léelo y decide: si lo apruebas "
+                "se publica tal cual en la bóveda; si lo descartas, no se publica y todo se conserva."
+            )
+        elif item.status == "DRAFT_REJECTED":
+            self.issue_title_var.set("Borrador descartado.")
+            self.issue_message_var.set(
+                "No se publicó. La fuente y el resultado se conservan; puedes volver a procesar el documento "
+                "(por ejemplo, tras cambiar el modelo o las instrucciones del perfil)."
+            )
+        elif item.category == "attention":
             self.issue_title_var.set(
                 "No se pudo leer el archivo." if item.incident_id is not None
                 else "No se pudo completar el procesamiento."
@@ -235,10 +262,22 @@ class DetalleMixin(InicioMixin):
             f"· intentos={item.attempt} · código={item.error_code or '—'}\nRuta: {item.path or item.filename}"
         )
         self.open_location_button.state(["!disabled"] if item.path else ["disabled"])
+        if item.status == "AWAITING_REVIEW":
+            self.retry_button.configure(text="Revisar borrador…")
+            self.retry_button.state(["!disabled"])
+            self.ignore_button.configure(text="Descartar borrador")
+            self.ignore_button.state(["!disabled"])
+            return
+        if item.status == "DRAFT_REJECTED":
+            self.retry_button.configure(text="Volver a procesar")
+            self.retry_button.state(["!disabled"])
+            self.ignore_button.configure(text="Ignorar este archivo")
+            self.ignore_button.state(["disabled"])
+            return
         can_retry = self._can_send_item(item)
         self.retry_button.configure(text="Enviar ahora" if item.status == "READY" else "Reintentar")
         self.retry_button.state(["!disabled"] if can_retry else ["disabled"])
-        if item.category == "active" and item.task_id and item.status in {"QUEUED", "PROCESSING"}:
+        if self._can_cancel_item(item):
             self.ignore_button.configure(text="Cancelar procesamiento")
             self.ignore_button.state(["!disabled"])
         elif item.category == "attention" and item.status in {"ERROR", "INGESTION_ERROR"}:

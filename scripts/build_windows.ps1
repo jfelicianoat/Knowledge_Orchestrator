@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$OutputDir = "dist",
     [switch]$Clean,
     [switch]$SkipInstaller
@@ -8,13 +8,24 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectRoot
 
+# En Windows PowerShell 5.1, con "Stop", cualquier línea que un programa
+# escribe en stderr (PyInstaller registra ahí sus INFO) aborta el script. Los
+# comandos nativos se juzgan por su código de salida, no por stderr.
+function Invoke-Native {
+    param([scriptblock]$Command, [string]$What)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { & $Command 2>&1 | ForEach-Object { "$_" } } finally { $ErrorActionPreference = $previous }
+    if ($LASTEXITCODE -ne 0) { throw "$What falló (código $LASTEXITCODE)" }
+}
+
 if ($Clean) {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build, $OutputDir
 }
 
-python -m pip install --upgrade pip
-python -m pip install -e .
-python -m pip install pyinstaller
+Invoke-Native { python -m pip install --upgrade pip } "Actualizar pip"
+Invoke-Native { python -m pip install -e . } "Instalar el proyecto"
+Invoke-Native { python -m pip install pyinstaller } "Instalar PyInstaller"
 
 # PyInstaller excluye Tkinter silenciosamente cuando Tcl/Tk está incompleto.
 # Este preflight evita entregar un ejecutable que se cierra al arrancar.
@@ -26,7 +37,7 @@ if ($LASTEXITCODE -ne 0) {
 # PyInstaller resuelve --add-data desde --specpath (build/pyinstaller), no desde
 # el proyecto: con una ruta relativa no encuentra las migraciones y aborta.
 $Migrations = Join-Path $ProjectRoot "src\knowledge_orchestrator\migrations"
-python -m PyInstaller `
+Invoke-Native { python -m PyInstaller `
     --name Knowledge-Orchestrator `
     --noconfirm `
     --clean `
@@ -37,7 +48,7 @@ python -m PyInstaller `
     --distpath $OutputDir `
     --workpath build/pyinstaller `
     --specpath build/pyinstaller `
-    src/knowledge_orchestrator/app.py
+    src/knowledge_orchestrator/app.py } "PyInstaller"
 
 Write-Host "Build creada en $OutputDir\Knowledge-Orchestrator"
 Write-Host "Los datos de usuario permanecen fuera del ejecutable, en el perfil local de Windows."

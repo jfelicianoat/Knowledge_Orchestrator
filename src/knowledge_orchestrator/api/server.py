@@ -6,8 +6,11 @@ from socketserver import ThreadingMixIn
 from typing import TYPE_CHECKING
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
 
+import httpx
+
 from knowledge_orchestrator.api.application import KnowledgeApi
 from knowledge_orchestrator.api.auth import ApiAuth
+from knowledge_orchestrator.repositories.api_consumer_repository import ApiConsumerRepository
 
 if TYPE_CHECKING:
     from knowledge_orchestrator.runtime import OrchestratorRuntime
@@ -40,6 +43,8 @@ class ApiServerController:
         self._auth: ApiAuth | None = None
         self._state = 'STOPPED'
         self._error: str | None = None
+        # Consumidores dados de alta desde la aplicación; se leen en cada petición.
+        self.consumers = ApiConsumerRepository(runtime.database)
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -49,13 +54,45 @@ class ApiServerController:
             address = f'http://127.0.0.1:{self._server.server_port}/api/v1' if self._server else None
         if auth is None:
             try:
-                auth = ApiAuth.from_environment()
+                auth = ApiAuth.from_environment(self.consumers)
             except ValueError:
                 pass
+        clients = auth.all_clients() if auth else []
         return {'state': state, 'running': state == 'RUNNING' and alive, 'address': address,
-                'error_code': error, 'configured': auth is not None, 'scope': 'this_runtime',
-                'clients': [{'name': client.name, 'scopes': sorted(client.scopes)} for client in auth.clients]
-                if auth else []}
+                'error_code': error, 'configured': bool(clients), 'scope': 'this_runtime',
+                'clients': [{'name': client.name, 'scopes': sorted(client.scopes), 'origin': client.origin}
+                            for client in clients]}
+
+    def environment_client_names(self) -> set[str]:
+        """Nombres ya usados por `KO_API_CLIENTS`; un consumidor nuevo no puede repetirlos."""
+
+        try:
+            return {client.name for client in ApiAuth.from_environment().clients}
+        except ValueError:
+            return set()
+
+    def probe(self, token: str | None = None) -> dict:
+        """Petición real a `/status` del listener de esta sesión, con la credencial dada o sin ella.
+
+        Sin credencial, un 401 es la respuesta correcta: prueba que la API escucha
+        y que exige autenticación. La credencial no se guarda ni se registra.
+        """
+
+        with self._lock:
+            address = f'http://127.0.0.1:{self._server.server_port}/api/v1' if self._server else None
+        if address is None:
+            return {'reachable': False, 'status': None, 'client': None}
+        headers = {'Authorization': 'Bearer ' + token} if token else {}
+        try:
+            with httpx.Client(timeout=5, trust_env=False) as client:
+                response = client.get(address + '/status', headers=headers)
+        except httpx.HTTPError:
+            return {'reachable': False, 'status': None, 'client': None}
+        name = None
+        if response.status_code == 200 and token:
+            authenticated = (self._auth or ApiAuth([], store=self.consumers)).authenticate('Bearer ' + token)
+            name = authenticated.name if authenticated else None
+        return {'reachable': True, 'status': response.status_code, 'client': name}
 
     def start(self, *, port: int = 8766) -> dict:
         # Port 0 is useful for isolated programmatic tests; UI/CLI require a concrete port.
@@ -69,7 +106,7 @@ class ApiServerController:
                     raise ValueError('Detén la API antes de cambiar su puerto')
                 return self.snapshot()
             try:
-                auth = ApiAuth.from_environment()
+                auth = ApiAuth.from_environment(self.consumers)
             except ValueError:
                 self._state, self._error = 'ERROR', 'API_CREDENTIALS_NOT_CONFIGURED'
                 raise ValueError('No hay consumidores API válidos configurados para esta sesión') from None

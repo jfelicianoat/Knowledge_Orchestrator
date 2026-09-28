@@ -11,6 +11,7 @@ from collections.abc import Callable
 from datetime import datetime
 from tkinter import ttk
 
+from knowledge_orchestrator.services.path_settings import storage_warnings
 from knowledge_orchestrator.ui.dashboard.base import DashboardBase
 from knowledge_orchestrator.ui.dashboard.estilo import FONT, FONT_SEMIBOLD, TONES
 
@@ -71,8 +72,12 @@ class InicioMixin(DashboardBase):
 
         self.system_message_var = tk.StringVar(value="Comprobando el servicio de procesamiento…")
         warning_bg, warning_fg = TONES["warning"]
-        self.system_banner = self._card(page, bg=warning_bg, border="#5c4516")
-        self.system_banner.grid(row=2, column=0, sticky="ew", padx=28, pady=(14, 0))
+        # Los avisos comparten fila: pueden coincidir (Broker caído y datos en la nube).
+        notices = tk.Frame(page, bg=c["surface"])
+        notices.grid(row=2, column=0, sticky="ew")
+        notices.columnconfigure(0, weight=1)
+        self.system_banner = self._card(notices, bg=warning_bg, border="#5c4516")
+        self.system_banner.grid(row=0, column=0, sticky="ew", padx=28, pady=(14, 0))
         self.system_banner.columnconfigure(1, weight=1)
         self._icon(self.system_banner, "warning", size=16, color=warning_fg, bg=warning_bg).grid(
             row=0, column=0, rowspan=2, sticky="n", padx=(16, 12), pady=14)
@@ -81,6 +86,23 @@ class InicioMixin(DashboardBase):
         self._text(self.system_banner, textvariable=self.system_message_var, size=9, color="text", bg=warning_bg,
                    wraplength=980).grid(row=1, column=1, sticky="ew", pady=(0, 12), padx=(0, 16))
         self.system_banner.grid_remove()
+
+        # Dónde vive la base operativa: en la instalación real estaba en Google
+        # Drive y registraba «disk I/O error». Se avisa sin bloquear nada.
+        storage = storage_warnings(self.runtime.paths)
+        self.storage_banner = self._card(notices, bg=warning_bg, border="#5c4516")
+        self.storage_banner.grid(row=1, column=0, sticky="ew", padx=28, pady=(14, 0))
+        self.storage_banner.columnconfigure(1, weight=1)
+        self._icon(self.storage_banner, "warning", size=16, color=warning_fg, bg=warning_bg).grid(
+            row=0, column=0, rowspan=2, sticky="n", padx=(16, 12), pady=14)
+        self._text(self.storage_banner, "La carpeta de datos no es un buen sitio para la base de datos", bold=True,
+                   color=warning_fg, bg=warning_bg).grid(row=0, column=1, sticky="ew", pady=(12, 2))
+        self._text(self.storage_banner, " ".join(storage), size=9, color="text", bg=warning_bg,
+                   wraplength=820).grid(row=1, column=1, sticky="ew", pady=(0, 12), padx=(0, 16))
+        ttk.Button(self.storage_banner, text="Revisar carpetas", command=lambda: self._show_page("settings")).grid(
+            row=0, column=2, rowspan=2, padx=(0, 16))
+        if not storage:
+            self.storage_banner.grid_remove()
 
         pipeline = self._card(page)
         pipeline.grid(row=3, column=0, sticky="ew", padx=28, pady=(14, 0))

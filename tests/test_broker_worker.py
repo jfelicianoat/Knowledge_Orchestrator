@@ -67,6 +67,9 @@ class _EmptyRepository:
     def list_cancel_requested(self) -> list:
         return []
 
+    def settle_orphan_cancellations(self) -> int:
+        return 0
+
 
 class _EmptyPoller:
     def __init__(self) -> None:

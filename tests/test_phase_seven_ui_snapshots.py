@@ -34,14 +34,17 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def ingest_and_plan(self, capture_id: str) -> str:
+    def ingest_and_plan(
+        self, capture_id: str, transcript: str = "Contenido aportado manualmente por el usuario.",
+    ) -> str:
         source = self.runtime.paths.inbox / f"{capture_id}.md"
-        source.write_bytes(generic_markdown(capture_id=capture_id, title=f"Documento {capture_id}"))
+        source.write_bytes(generic_markdown(capture_id=capture_id, title=f"Documento {capture_id}",
+                                            transcript=transcript))
         self.assertTrue(self.runtime.ingestion.ingest(source).accepted)
         return self.runtime.workflow_planner.plan_capture(capture_id)
 
     def publish(self, capture_id: str, body: str):
-        workflow_id = self.ingest_and_plan(capture_id)
+        workflow_id = self.ingest_and_plan(capture_id, transcript=body)
         task = self.runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
         self.runtime.workflow_repository.apply_status(task.task_id, {
             "task_id": task.task_id,

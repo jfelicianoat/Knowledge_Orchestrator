@@ -29,11 +29,50 @@ class PlanificacionMixin(RepositorioBase):
     def list_unplanned_capture_ids(self) -> list[str]:
         with closing(self.database.connect()) as connection:
             rows = connection.execute(
-                "SELECT c.capture_id FROM captures c LEFT JOIN workflows w ON w.capture_id = c.capture_id "
-                "WHERE c.status = 'PENDING' AND c.domain_enriched_at IS NOT NULL AND w.workflow_id IS NULL "
+                # Sin workflow vivo ni resultado vigente. Un workflow fallido o
+                # cancelado, o un borrador descartado, no impiden volver a
+                # planificar cuando la persona lo pide (la captura vuelve a PENDING).
+                "SELECT c.capture_id FROM captures c "
+                "WHERE c.status = 'PENDING' AND c.domain_enriched_at IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM workflows w WHERE w.capture_id = c.capture_id "
+                "AND (w.status IN ('PLANNED', 'RUNNING') "
+                "OR (w.status = 'SUCCESS' AND COALESCE(w.review_status, '') <> 'REJECTED'))) "
                 "ORDER BY c.created_at, c.capture_id"
             ).fetchall()
             return [row["capture_id"] for row in rows]
+
+    def fail_unplannable_capture(self, capture_id: str, code: str, message: str) -> None:
+        with self.database.transaction(immediate=True) as connection:
+            changed = connection.execute(
+                "UPDATE captures SET status = 'FAILED', last_error_code = ?, last_error_message = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE capture_id = ? AND status = 'PENDING'",
+                (code, message, capture_id),
+            )
+            if changed.rowcount:
+                connection.execute(
+                    "INSERT INTO events(capture_id, event_type, message, details_json) VALUES (?, ?, ?, '{}')",
+                    (capture_id, code, message),
+                )
+
+    def reopen_failed_capture(self, capture_id: str) -> bool:
+        """Devuelve a la cola local una captura que falló antes de tener workflow."""
+
+        with self.database.transaction(immediate=True) as connection:
+            changed = connection.execute(
+                "UPDATE captures SET status = 'PENDING', last_error_code = NULL, last_error_message = NULL, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE capture_id = ? AND status = 'FAILED' "
+                "AND domain_enriched_at IS NOT NULL AND processing_path IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM workflows w WHERE w.capture_id = captures.capture_id "
+                "AND w.status IN ('PLANNED', 'RUNNING', 'SUCCESS'))",
+                (capture_id,),
+            )
+            if changed.rowcount:
+                connection.execute(
+                    "INSERT INTO events(capture_id, event_type, message, details_json) "
+                    "VALUES (?, 'MANUAL_RETRY_REQUESTED', 'Se vuelve a planificar el documento', '{}')",
+                    (capture_id,),
+                )
+            return changed.rowcount == 1
 
     def next_revision(self, capture_id: str) -> int:
         with closing(self.database.connect()) as connection:
@@ -152,6 +191,8 @@ class PlanificacionMixin(RepositorioBase):
         total_steps: int,
         plan: dict[str, Any],
         tasks: Iterable[PlannedTask],
+        review_required: bool = False,
+        budget_usd: float | None = None,
     ) -> WorkflowRecord:
         task_list = list(tasks)
         with self.database.transaction(immediate=True) as connection:
@@ -169,7 +210,8 @@ class PlanificacionMixin(RepositorioBase):
                 raise RuntimeError("La captura no está preparada para crear un workflow")
             connection.execute(
                 "INSERT INTO workflows (workflow_id, capture_id, revision, profile_id, profile_revision, "
-                "status, strategy, total_steps, plan_json) VALUES (?, ?, ?, ?, ?, 'PLANNED', ?, ?, ?)",
+                "status, strategy, total_steps, plan_json, review_required, budget_usd) "
+                "VALUES (?, ?, ?, ?, ?, 'PLANNED', ?, ?, ?, ?, ?)",
                 (
                     workflow_id,
                     capture_id,
@@ -179,12 +221,29 @@ class PlanificacionMixin(RepositorioBase):
                     strategy,
                     total_steps,
                     json.dumps(plan, ensure_ascii=False, sort_keys=True),
+                    int(review_required),
+                    budget_usd,
                 ),
             )
             for task in task_list:
                 self._insert_task(connection, task, TaskStatus.READY)
             row = connection.execute("SELECT * FROM workflows WHERE workflow_id = ?", (workflow_id,)).fetchone()
             return _workflow(row)
+
+    def record_workflow_event(
+        self, workflow_id: str, event_type: str, message: str, details: dict[str, Any] | None = None,
+    ) -> None:
+        with self.database.transaction(immediate=True) as connection:
+            row = connection.execute(
+                "SELECT capture_id FROM workflows WHERE workflow_id = ?", (workflow_id,)
+            ).fetchone()
+            if row is None:
+                return
+            connection.execute(
+                "INSERT INTO events(capture_id, event_type, message, details_json) VALUES (?, ?, ?, ?)",
+                (row["capture_id"], event_type, message,
+                 json.dumps({"workflow_id": workflow_id, **(details or {})}, ensure_ascii=False)),
+            )
 
     def insert_synthesis_task(self, task: PlannedTask, dependency_ids: list[str]) -> None:
         with self.database.transaction(immediate=True) as connection:

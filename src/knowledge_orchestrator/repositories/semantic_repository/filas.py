@@ -43,6 +43,7 @@ def _claim(row: sqlite3.Row) -> KnowledgeClaim:
         superseded_by=row['superseded_by'],
         revision=row['revision'],
         derived_from_claim_id=row['derived_from_claim_id'],
+        source_support=row['source_support'] if 'source_support' in row.keys() else 'UNVERIFIED',
     )
 
 

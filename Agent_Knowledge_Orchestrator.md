@@ -536,7 +536,7 @@ El Orchestrator es el único responsable de decidir, proponer y aplicar actualiz
 7. Mostrar la propuesta al usuario. Ninguna actualización semántica sobrescribe automáticamente una nota.
 8. Tras aprobación, guardar la revisión anterior, aplicar el cambio atómicamente, actualizar fuentes y `last_verified_at`, y registrar auditoría completa.
 
-La revisión por fechas solo crea candidatos. Sin una fuente nueva introducida explícitamente no puede producir una actualización factual. Quedan fuera del proyecto RSS, documentación vigilada, conectores automáticos a APIs y búsqueda autónoma en Internet.
+La revisión por fechas solo crea candidatos. Sin una fuente nueva introducida explícitamente no puede producir una actualización factual. La búsqueda autónoma en Internet queda fuera del proyecto. Las fuentes Web/RSS vigiladas sí existen (pantalla «Fuentes», desde la fase 11): detectan novedades y las incorporan solo cuando la persona lo decide.
 
 ### Criterios de aceptación
 

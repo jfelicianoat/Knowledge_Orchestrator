@@ -30,8 +30,8 @@ from knowledge_orchestrator.integrations.obsidian_bridge import (
 )
 from knowledge_orchestrator.repositories.semantic_repository import SemanticRepository
 from knowledge_orchestrator.services.maintenance_assessment import assess_proposal
-from knowledge_orchestrator.services.maintenance_layout import plan_layout, valid_layout
-from knowledge_orchestrator.services.model_selection import json_model_from_catalog, pinned_analysis_model
+from knowledge_orchestrator.services.maintenance_layout import history_boundary, plan_layout, valid_layout
+from knowledge_orchestrator.services.model_selection import AnalysisPolicy, analysis_policy
 from knowledge_orchestrator.services.provenance import source_provenance
 from knowledge_orchestrator.services.semantic_maintenance.analisis import AnalisisMixin
 from knowledge_orchestrator.services.semantic_maintenance.contratos import (
@@ -40,6 +40,11 @@ from knowledge_orchestrator.services.semantic_maintenance.contratos import (
     SemanticContractError,
 )
 from knowledge_orchestrator.services.semantic_maintenance.prompts import TASK_BUDGETS, PromptsMixin
+from knowledge_orchestrator.services.semantic_maintenance.segmentos import (
+    note_segments,
+    segmentation_fingerprint,
+    source_segments,
+)
 
 __all__ = [
     "COMPARISON_SCHEMA",
@@ -69,25 +74,77 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         self.note_editor = note_editor if note_editor is not None else UnconfiguredNoteEditor()
 
     def ingest_embedding_result(self, claim_id: int, model: str, payload: Mapping[str, Any]) -> None:
-        if set(payload) != {"vector"} or not isinstance(payload["vector"], list):
+        # Nativo del Broker: `result.embedding`. Se sigue aceptando `{"vector": …}`
+        # de la API de ingesta, que declara su propio modelo.
+        keys = set(payload)
+        vector = payload.get("embedding") if keys & {"embedding"} else payload.get("vector")
+        if not keys or not keys <= {"vector", "embedding", "model_used", "usage"} or not isinstance(vector, list):
             raise SemanticContractError("Resultado de embedding inválido")
-        self.repository.record_embedding(claim_id, model, payload["vector"])
+        self.repository.record_embedding(claim_id, model, vector)
 
     def schedule_extraction(self, note_id: int) -> str:
+        """Asegura que la nota tiene un análisis; si ya lo tiene, no toca nada.
+
+        Se consulta primero si hace falta y solo después se lee la nota: el
+        arranque llama a esto para todas las publicadas, y leer antes hacía que
+        una sola nota movida abortara la recuperación entera (auditoría H03).
+        Para repetir un análisis está `reanalyze_note`.
+        """
+
+        existing = self.repository.extraction_jobs(note_id)
+        if existing:
+            return existing[-1].job_id
+        return self._create_extraction_job(note_id, attempt=1)
+
+    def reanalyze_note(self, note_id: int) -> str:
+        """Nuevo intento de análisis con la configuración vigente (auditoría H05).
+
+        El intento anterior se conserva y sigue consultable. Si hay uno en
+        curso, se devuelve ese en vez de duplicarlo. Solo se permite cuando el
+        último falló o terminó sin ninguna afirmación: rehacer un análisis que
+        sí produjo afirmaciones las duplicaría.
+        """
+
+        attempts = self.repository.extraction_jobs(note_id)
+        if not attempts:
+            return self._create_extraction_job(note_id, attempt=1)
+        latest = attempts[-1]
+        if latest.status in {"READY", "SUBMITTING", "QUEUED", "PROCESSING"}:
+            return latest.job_id
+        if latest.status == "SUCCESS" and self.repository.list_claims(note_id, status="ACTIVE"):
+            raise SemanticContractError("La nota ya tiene afirmaciones; no se vuelve a analizar")
+        return self._create_extraction_job(note_id, attempt=len(attempts) + 1)
+
+    def _segments_sha(self, document: str, transcript: str) -> str:
+        notes = note_segments(document, body_start=self._body_start(document), body_end=history_boundary(document))
+        return segmentation_fingerprint(notes, source_segments(transcript))
+
+    def extraction_policy(self, note_id: int) -> AnalysisPolicy:
+        context = self.repository.note_context(note_id)
+        return analysis_policy(self.repository.database, profile_id=context["profile_id"])
+
+    def _create_extraction_job(self, note_id: int, *, attempt: int) -> str:
         context = self.repository.note_context(note_id)
         if context["status"] != "PUBLISHED":
             raise SemanticContractError("Solo se puede analizar una nota publicada")
         document = self._read_checked_note(Path(context["vault_path"]))
-        job_id = f"semantic_extract_note_{note_id}"
+        if self._hash_text(document) != context["content_hash"]:
+            raise SemanticContractError("La nota cambió externamente; requiere reconciliación")
+        job_id = f"semantic_extract_note_{note_id}" + (f"_a{attempt}" if attempt > 1 else "")
+        policy = analysis_policy(self.repository.database, profile_id=context["profile_id"])
         request = self.broker_json_request(
             request_id=job_id,
-            prompt=self.extraction_prompt(document, source_id=context["capture_id"]),
+            prompt=self.extraction_prompt(
+                document, source_id=context["capture_id"], transcript=str(context["transcript_content"] or ""),
+            ),
             schema=EXTRACTION_SCHEMA,
             max_output_tokens=TASK_BUDGETS["extraction"],
-            preferred_model=json_model_from_catalog(
-                self.repository.database,
-                chosen=pinned_analysis_model(self.repository.database, profile_id=context["profile_id"]),
-            ),
+            preferred_model=policy.model,
+            allow_substitution=not policy.exact,
+            allowed_providers=policy.providers,
+        )
+        request["content"]["metadata"]["segments_sha"] = self._segments_sha(
+            document, str(context["transcript_content"] or ""),
         )
         self.repository.create_job(
             job_id=job_id,
@@ -99,7 +156,23 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         )
         return job_id
 
-    def schedule_comparison(self, candidate_id: int) -> str:
+    def retry_comparison(self, candidate_id: int) -> str:
+        """Nuevo intento de comparación para una propuesta cuya comparación falló.
+
+        Sin esto, una comparación rota dejaba la propuesta para siempre en
+        «pendiente de comparación»: la identidad del trabajo era fija y el alta
+        no hacía nada (visto contra el Broker real con 8 propuestas).
+        """
+
+        candidate = self.repository.get_candidate(candidate_id)
+        if candidate is None or candidate.status != "PENDING_COMPARISON":
+            raise SemanticContractError("La propuesta ya no espera comparación")
+        attempts = self.repository.comparison_jobs(candidate_id)
+        if attempts and attempts[-1].status in {"READY", "SUBMITTING", "QUEUED", "PROCESSING"}:
+            return attempts[-1].job_id
+        return self.schedule_comparison(candidate_id, attempt=len(attempts) + 1)
+
+    def schedule_comparison(self, candidate_id: int, *, attempt: int = 1) -> str:
         candidate = self.repository.get_candidate(candidate_id)
         if candidate is None:
             raise SemanticContractError("Candidato inexistente")
@@ -107,7 +180,12 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         new_claim = self.repository.get_claim(candidate.new_claim_id)
         if target is None or new_claim is None:
             raise SemanticContractError("Faltan claims para comparar")
-        job_id = f"semantic_compare_candidate_{candidate_id}"
+        job_id = f"semantic_compare_candidate_{candidate_id}" + (f"_a{attempt}" if attempt > 1 else "")
+        # La comparación usa la política del perfil de la nota nueva, no «el
+        # primer perfil que fijó un modelo» (auditoría H10).
+        policy = analysis_policy(
+            self.repository.database, profile_id=self.repository.note_context(new_claim.note_id)["profile_id"],
+        )
         request = self.broker_json_request(
             request_id=job_id,
             prompt=self.comparison_prompt(
@@ -120,9 +198,9 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             ),
             schema=COMPARISON_SCHEMA,
             max_output_tokens=TASK_BUDGETS["comparison"],
-            preferred_model=json_model_from_catalog(
-                self.repository.database, chosen=pinned_analysis_model(self.repository.database),
-            ),
+            preferred_model=policy.model,
+            allow_substitution=not policy.exact,
+            allowed_providers=policy.providers,
         )
         self.repository.create_job(
             job_id=job_id,
@@ -146,7 +224,11 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         if job.kind == "EXTRACT":
             if job.note_id is None:
                 raise SemanticContractError("Job de extracción sin nota")
-            for candidate_id in self.ingest_extraction(job.note_id, payload):
+            try:
+                expected = json.loads(job.request_json)["content"]["metadata"].get("segments_sha")
+            except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+                expected = None
+            for candidate_id in self.ingest_extraction(job.note_id, payload, expected_segments=expected):
                 self.schedule_comparison(candidate_id)
         elif job.kind == "COMPARE":
             if job.candidate_id is None:
@@ -161,7 +243,9 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         else:
             raise SemanticContractError(f"Tipo de job no soportado: {job.kind}")
 
-    def ingest_extraction(self, note_id: int, payload: Mapping[str, Any]) -> list[int]:
+    def ingest_extraction(
+        self, note_id: int, payload: Mapping[str, Any], *, expected_segments: str | None = None,
+    ) -> list[int]:
         context = self.repository.note_context(note_id)
         if context["status"] != "PUBLISHED":
             raise SemanticContractError("Solo se indexan notas publicadas")
@@ -169,11 +253,20 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         document = self._read_checked_note(path)
         if self._hash_text(document) != context['content_hash']:
             raise SemanticContractError('La nota cambió externamente; requiere reconciliación')
-        claims = self._parse_extraction(payload, document)
+        transcript = str(context["transcript_content"] or "")
+        if expected_segments and self._segments_sha(document, transcript) != expected_segments:
+            raise SemanticContractError(
+                "La numeración de frases cambió desde que se envió el análisis; reintenta el análisis"
+            )
+        report = self._parse_extraction_report(payload, document, transcript)
         created_candidates: list[int] = []
-        for extracted in claims:
+        for extracted in report.claims:
             new_claim = self.repository.add_claim(note_id, extracted, source_path=path)
             created_candidates.extend(self.generate_candidates(new_claim.claim_id))
+        self.repository.record_extraction_summary(
+            note_id, report.support_counts(), report.ignored_source_links,
+            unknown_segments=report.unknown_note_segments,
+        )
         return sorted(set(created_candidates))
 
     def generate_candidates(self, new_claim_id: int) -> list[int]:
@@ -182,6 +275,12 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             raise SemanticContractError("Claim nuevo inexistente")
         if self.repository.note_context(new_claim.note_id)["status"] != "PUBLISHED":
             raise SemanticContractError("La evidencia nueva ya no está publicada")
+        # Solo lo que la fuente original respalda puede proponer cambios en
+        # otras notas. Una frase que únicamente consta en el resumen generado
+        # (o que el modelo enlazó sin que se pudiera verificar) se conserva y se
+        # consulta, pero no reescribe conocimiento ajeno (auditoría H07).
+        if new_claim.source_support not in {"SOURCE"}:
+            return []
         related = self.repository.find_related(new_claim)
         related_by_id = {claim.claim_id: (claim, reason) for claim, reason in related}
         for claim_id in self.repository.nearest_embeddings(new_claim.claim_id):

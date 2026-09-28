@@ -25,6 +25,18 @@ from knowledge_orchestrator.ui.startup import RuntimeStartup
 #: pueda ver debería estar aquí.
 EVENT_LABELS = {
     "CAPTURE_COMPLETED": "Documento publicado",
+    # Eventos de las correcciones de la auditoría del 27-sep-2026.
+    "KNOWLEDGE_EXTRACTED": "Conocimiento indexado", "DRAFT_AWAITING_REVIEW": "Borrador listo para revisar",
+    "DRAFT_APPROVED": "Borrador aprobado", "DRAFT_REJECTED": "Borrador descartado",
+    "DRAFT_REPROCESS_REQUESTED": "Se vuelve a procesar", "CAPTURE_CANCELLED": "Procesamiento cancelado",
+    "PLANNING_FAILED": "No se pudo planificar", "PUBLICATION_DEFERRED": "Publicación aplazada",
+    "PUBLICATION_RECOVERY_FAILED": "Publicación pendiente de recuperar",
+    "ARCHIVE_RECOVERY_FAILED": "Archivado pendiente de recuperar",
+    "NOTE_ANALYSIS_BLOCKED": "Análisis bloqueado", "WORKFLOW_RECOVERY_FAILED": "Recuperación pendiente",
+    "NOTE_EDIT_ADOPTED": "Edición de Obsidian adoptada", "NOTE_RELOCATED": "Nota localizada",
+    "NOTE_RETIRED": "Nota retirada del índice", "SYNTHESIS_REDUCTION_PLANNED": "Síntesis por niveles",
+    "QUARANTINE_INTENT_ABANDONED": "Cuarentena sin fichero", "BROKER_BUDGET_RETRY": "Reintento con más margen",
+    "DOCUMENT_BUDGET_EXHAUSTED": "Presupuesto agotado",
     "BROKER_TASK_FAILED": "El Broker no pudo procesarlo", "BROKER_TASK_CANCELLED": "Procesamiento cancelado",
     "BROKER_CANCEL_PENDING": "Cancelación pendiente", "BROKER_UNAVAILABLE": "Broker no disponible",
     "BROKER_CYCLE_ERROR": "Incidencia del Broker", "BROKER_WORKER_CRASH": "Fallo del proceso del Broker",
@@ -378,6 +390,8 @@ class DashboardBase(EstiloMixin):
 
         if item.incident_id is not None:
             return "warning"
+        if item.status == "AWAITING_REVIEW":
+            return "warning"  # espera una decisión; no es un fallo
         if item.category == "attention":
             return "error"
         if item.category == "completed":

@@ -100,6 +100,8 @@ class OperacionesMixin(ConocimientoMixin):
         self.flow_revision.pack(side='left')
         self.flow_audit = ttk.Button(actions, text='Ver trazabilidad', command=self._audit_flow_proposal)
         self.flow_audit.pack(side='left', padx=8)
+        self.flow_reanalyze = ttk.Button(actions, text='Reintentar análisis', command=self._reanalyze_flow_note)
+        self.flow_reanalyze.pack(side='left')
         ttk.Button(actions, text='Volver al detalle', command=self._return_flow_detail).pack(side='left', padx=8)
         self._refresh_flow()
         self._build_pipeline()
@@ -152,7 +154,8 @@ class OperacionesMixin(ConocimientoMixin):
 
     def _select_flow(self) -> None:
         row = self._flow_item()
-        for button in (self.flow_open, self.flow_ingest, self.flow_revision, self.flow_audit):
+        for button in (self.flow_open, self.flow_ingest, self.flow_revision, self.flow_audit,
+                       self.flow_reanalyze):
             button.state(['disabled'])
         if row is None:
             self._flow_revision_id = None
@@ -186,6 +189,10 @@ class OperacionesMixin(ConocimientoMixin):
                 text += ('\n\n' + label
                          + f"\nTarea: {row['id']}\nIntentos: {row['attempt']}"
                          + f"\nTarea del Broker: {row['broker_task_id'] or 'Aún no enviada'}")
+                if row.get('error_message'):
+                    text += '\n\nQué pasó\n' + str(row['error_message'])[:2000]
+                if row['status'] == 'ERROR':
+                    text += self._retry_hint(row)
             elif self._flow_kind in {'proposals', 'history'}:
                 self.flow_audit.state(['!disabled'])
                 review = self.runtime.semantic_maintenance.proposal_detail(row['id'])
@@ -207,8 +214,52 @@ class OperacionesMixin(ConocimientoMixin):
             self._flow_text(text)
         except (ValueError, LookupError, sqlite3.Error):
             self._flow_text('El registro cambió o no está disponible. Actualiza para volver a consultarlo.')
-            for button in (self.flow_open, self.flow_ingest, self.flow_revision, self.flow_audit):
+            for button in (self.flow_open, self.flow_ingest, self.flow_revision, self.flow_audit,
+                           self.flow_reanalyze):
                 button.state(['disabled'])
+
+    def _retry_hint(self, row: dict) -> str:
+        """Explica y habilita el reintento solo en el último intento, que es el que cuenta.
+
+        Un intento antiguo cuya nota ya se analizó bien no se reintenta: daría
+        un error o duplicaría afirmaciones (auditoría H05, visto en el recorrido real).
+        """
+        service, repository = self.runtime.semantic_maintenance, self.runtime.semantic_repository
+        if row['kind'] == 'EXTRACT' and row.get('note_id'):
+            attempts = repository.extraction_jobs(int(row['note_id']))
+            if not attempts or attempts[-1].job_id != row['id']:
+                return '\n\nHay un intento posterior de este análisis; consulta ese.'
+            policy = service.extraction_policy(int(row['note_id']))
+            self.flow_reanalyze.state(['!disabled'])
+            return ('\n\nPuedes reintentarlo con la configuración actual. Modelo: ' + policy.label
+                    + '. Para usar otro, cámbialo en Ajustes («Modelo que extrae afirmaciones»).')
+        if row['kind'] == 'COMPARE' and row.get('candidate_id'):
+            candidate = repository.get_candidate(int(row['candidate_id']))
+            attempts = repository.comparison_jobs(int(row['candidate_id']))
+            if candidate is None or candidate.status != 'PENDING_COMPARISON' or \
+                    not attempts or attempts[-1].job_id != row['id']:
+                return ''
+            self.flow_reanalyze.state(['!disabled'])
+            return '\n\nLa propuesta sigue esperando esta comparación: puedes reintentarla.'
+        return ''
+
+    def _reanalyze_flow_note(self) -> None:
+        row = self._flow_item()
+        if row is None or self._flow_kind != 'analysis':
+            return
+        service = self.runtime.semantic_maintenance
+        try:
+            if row['kind'] == 'COMPARE' and row.get('candidate_id'):
+                job_id = service.retry_comparison(int(row['candidate_id']))
+            elif row.get('note_id'):
+                job_id = service.reanalyze_note(int(row['note_id']))
+            else:
+                return
+        except (ValueError, OSError) as error:
+            messagebox.showerror('No se pudo reintentar', str(error), parent=self)
+            return
+        self.status_var.set(f'En cola de nuevo ({job_id}). El intento anterior se conserva.')
+        self._refresh_flow()
 
     def _audit_flow_proposal(self):
         row = self._flow_item()

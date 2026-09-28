@@ -38,6 +38,11 @@ class ConsultaMixin(PlanificacionMixin):
             rows = connection.execute(
                 "SELECT t.* FROM tasks t WHERE t.status = 'READY' AND t.broker_contract_version = '2.0' "
                 "AND (t.next_retry_at IS NULL OR t.next_retry_at <= ?) "
+                # Un documento terminado, fallido o cancelado no envía más
+                # fragmentos (auditoría H02): antes una cancelación dejaba 10
+                # tareas de 11 listas para salir.
+                "AND EXISTS (SELECT 1 FROM workflows w WHERE w.workflow_id = t.workflow_id "
+                "AND w.status IN ('PLANNED', 'RUNNING')) "
                 "AND NOT EXISTS (SELECT 1 FROM task_dependencies d JOIN tasks parent "
                 "ON parent.task_id = d.depends_on_task_id WHERE d.task_id = t.task_id "
                 "AND parent.status <> 'SUCCESS') ORDER BY t.created_at, t.sequence_index LIMIT ?",

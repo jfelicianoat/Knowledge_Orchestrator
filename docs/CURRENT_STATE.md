@@ -1,5 +1,42 @@
 # Estado vigente de Knowledge Orchestrator
 
+Incremento 28, **27–28 de septiembre de 2026 — 0.4.0, la auditoría del 27-sep y el primer conocimiento
+real**. Se revisó `docs/Auditoria 20260927/INFORME_AUDITORIA_KNOWLEDGE_ORCHESTRATOR.md`: sus nueve P1 son
+ciertos y se reprodujeron (el documento de «verificación» fechado el 4-oct no es fiable: cita un
+`probe-results.json` inexistente). Las regresiones de cada hallazgo están en `tests/test_audit_2026_09_27.py`.
+
+| Hallazgo | Qué cambia |
+|---|---|
+| H01 revisión humana | La política se congela al planificar; el resultado queda como borrador «Pendiente de revisión», se lee en un diálogo y se aprueba ligado al hash del texto o se descarta (fuente y resultado se conservan; «Volver a procesar»). |
+| H02 cancelar | Cancela el documento entero: nada READY sale, lo remoto pasa a CANCEL_REQUESTED, workflow y captura quedan CANCELLED (no ERROR) y lo que llegue tarde no lo reabre. |
+| H03/H04 aislamiento | Arranque, publicación, análisis y consultas se aíslan por elemento y por etapa; tipos inesperados en el JSON son fallo de contrato del trabajo, no un `TypeError` que bloquea la cola. |
+| H05 reintento de análisis | Intentos con identidad propia (`_a2`, `_a3`…), botón «Reintentar análisis» en Actividad con el modelo que se usará. |
+| H06 contexto | Salida acotada igual al planificar y al sintetizar; síntesis jerárquica por niveles; ventana = mínimo entre la configurada y la del modelo. |
+| H07 evidencia | Extracción por segmentos (el modelo elige N#/S#, no copia texto) y respaldo comprobado contra la captura original: `SOURCE`, `MODEL_LINKED`, `SUMMARY_ONLY`. Solo `SOURCE` propone cambios. |
+| H08 presupuesto | Bolsa por documento con reserva al enviar y liquidación con el coste real; lo no ejecutado se devuelve. |
+| H09 primera ejecución | Valores por defecto locales, Broker por defecto 127.0.0.1, arranque recuperable si la carpeta guardada falla. |
+| H10–H12 | Política de análisis explícita (modelo fijado = exacto, con su proveedor), vetos que caducan y se rehabilitan en Ajustes, fallback de `auto`, reintento que rehace la política entera. |
+| H13–H21 | Validación de carpetas, ediciones de Obsidian resolubles desde la Biblioteca, gestión de temas, importación de Markdown normal, Biblioteca paginada, reconciliación incremental, consumidores de API desde la UI, embeddings nativos, opciones sin efecto retiradas. |
+| H23 | `--full-backup` y `--restore <zip> --root <vacía>` con manifiesto y hashes. |
+
+**Encontrado al usarla con la configuración real del usuario** (base copiada, nunca modificada):
+- La bóveda en Google Drive no admite enlaces duros: las publicaciones se quedaban en PUBLISHING (tres
+  notas reales). Ahora se instala con el renombrado no destructivo de Windows.
+- SQLite en la carpeta sincronizada registraba «disk I/O error»: aviso en Inicio y al guardar carpetas.
+- La bandeja en C: y los datos en Y: rompían las cuarentenas (`os.replace` entre unidades): movimiento
+  verificado entre volúmenes; las intenciones huérfanas se apartan una vez en vez de fallar en cada arranque.
+- El Broker toma por petición de imagen cualquier prompt que contenga «generar imágenes», aunque esté en
+  los datos (4 documentos reales perdidos): `services/broker_shield.py` lo neutraliza con U+2060 y lo
+  retira de las respuestas. Es un falso positivo del Broker que conviene corregir allí.
+
+**Validación contra el Broker real (27–28 sep):** cuatro vídeos del usuario publicados (≈3 min cada uno con
+`gemma4:12b`); extracción con `lfm2:24b` que por primera vez deja conocimiento: ETFs 17 afirmaciones (8
+respaldadas por la fuente), Claude 10 (3 respaldadas, 15 identificadores inventados descartados), vídeo en
+inglés 73 (casi todas `MODEL_LINKED`/`SUMMARY_ONLY`, como corresponde a una fuente en otro idioma). Sin
+acotar la salida el modelo enumeraba todas las frases y agotaba los 6000 tokens: ahora 25 por nota.
+
+**540 pruebas, cero fallos; Ruff y mypy (158 archivos) limpios.**
+
 Incremento 27, **13 de septiembre de 2026 — 0.3.3, quién cuenta los caracteres**. La extracción de
 afirmaciones no había producido nunca una sola afirmación. La causa no era el modelo: **ningún LLM
 puede calcular offsets de caracteres**, porque ve tokens, no índices, y el contrato exigía

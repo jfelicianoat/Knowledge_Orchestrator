@@ -15,6 +15,8 @@ ACTIVITY_NOISE = (
     "BROKER_ONLINE", "KNOWLEDGE_RECONCILED", "API_REQUEST", "BROKER_QUEUE_UPDATED", "BROKER_TASKS_UPDATED",
     "SEMANTIC_JOBS_UPDATED", "BROKER_MODELS_UPDATED", "BROKER_CAPABILITIES_UPDATED", "BROKER_CONNECTION_UPDATED",
     "SEMANTIC_JOB_STATE_CHANGED", "QUERY_STATE_CHANGED",
+    # Cada paso interno de una propuesta; lo que pide decisión ya se cuenta en Revisión.
+    "MAINTENANCE_CANDIDATE_STATE_CHANGED",
 )
 
 
@@ -114,6 +116,67 @@ class LibraryItem:
     vault_path: str
     published_at: str
     published_label: str
+
+
+#: Notas por página en Biblioteca. Con miles de notas, una lista entera no se
+#: recorre; una página con su total («1–100 de 2.530») sí.
+LIBRARY_PAGE_SIZE = 100
+UNORGANIZED_TOPIC = "Sin organizar"
+_LIBRARY_FROM = (
+    "FROM notes n JOIN captures c ON c.capture_id = n.capture_id "
+    "LEFT JOIN topics t ON t.topic_id = n.topic_id"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryTopic:
+    name: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryPage:
+    items: list[LibraryItem]
+    total: int
+    offset: int
+    limit: int
+    topics: list[LibraryTopic]
+
+    @property
+    def range_label(self) -> str:
+        """«1–100 de 2.530»: deja claro que lo visible es una parte."""
+
+        if not self.total:
+            return "0 de 0"
+        return f"{_thousands(self.offset + 1)}–{_thousands(self.offset + len(self.items))} de {_thousands(self.total)}"
+
+    @property
+    def has_previous(self) -> bool:
+        return self.offset > 0
+
+    @property
+    def has_next(self) -> bool:
+        return self.offset + len(self.items) < self.total
+
+
+def _library_filter(query: str, topic: str | None) -> tuple[str, tuple[Any, ...]]:
+    """Condición común de lista y recuento: mismas notas en los dos sitios."""
+
+    normalized = query.strip()
+    like_query = f"%{normalized}%"
+    where = (
+        "n.status = 'PUBLISHED' "
+        "AND (? = '' OR c.title LIKE ? OR COALESCE(t.name, '') LIKE ? OR n.vault_path LIKE ?)"
+    )
+    parameters: tuple[Any, ...] = (normalized, like_query, like_query, like_query)
+    if topic is not None:
+        where += " AND COALESCE(t.name, ?) = ?"
+        parameters += (UNORGANIZED_TOPIC, topic)
+    return where, parameters
+
+
+def _thousands(value: int) -> str:
+    return f"{value:,}".replace(",", ".")
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,7 +285,9 @@ class UiSnapshotService:
                 "c.updated_at, t.task_id, t.status AS task_status, t.progress_json, t.model_used, "
                 "t.error_code AS task_error_code, t.error_message AS task_error_message, "
                 "t.error_retryable, t.attempt, t.created_at AS task_created_at, "
-                "t.queued_at, t.started_at "
+                "t.queued_at, t.started_at, "
+                "(SELECT w.review_status FROM workflows w WHERE w.capture_id = c.capture_id "
+                "ORDER BY w.revision DESC LIMIT 1) AS review_status "
                 "FROM captures c LEFT JOIN tasks t ON t.task_id = ("
                 "SELECT latest.task_id FROM tasks latest WHERE latest.capture_id = c.capture_id "
                 "ORDER BY latest.updated_at DESC, latest.created_at DESC, latest.task_id DESC LIMIT 1"
@@ -309,28 +374,26 @@ class UiSnapshotService:
             for row in rows
         ]
 
-    def library_items(self, query: str = "", *, limit: int = 500) -> list[LibraryItem]:
+    def library_items(
+        self, query: str = "", *, limit: int = 500, offset: int = 0, topic: str | None = None,
+    ) -> list[LibraryItem]:
         """Devuelve el conocimiento materializado, no los trabajos que lo generaron."""
 
-        normalized = query.strip()
-        like_query = f"%{normalized}%"
+        where, parameters = _library_filter(query, topic)
         with closing(self.database.connect(readonly=True)) as connection:
             rows = connection.execute(
                 "SELECT n.note_id, n.capture_id, n.revision, n.status, n.vault_path, "
                 "n.published_at, n.updated_at, c.title, t.name AS topic_name "
-                "FROM notes n JOIN captures c ON c.capture_id = n.capture_id "
-                "LEFT JOIN topics t ON t.topic_id = n.topic_id "
-                "WHERE n.status = 'PUBLISHED' "
-                "AND (? = '' OR c.title LIKE ? OR COALESCE(t.name, '') LIKE ? OR n.vault_path LIKE ?) "
-                "ORDER BY COALESCE(n.published_at, n.updated_at) DESC, n.note_id DESC LIMIT ?",
-                (normalized, like_query, like_query, like_query, max(1, limit)),
+                f"{_LIBRARY_FROM} WHERE {where} "
+                "ORDER BY COALESCE(n.published_at, n.updated_at) DESC, n.note_id DESC LIMIT ? OFFSET ?",
+                (*parameters, max(1, limit), max(0, offset)),
             ).fetchall()
         return [
             LibraryItem(
                 note_id=int(row["note_id"]),
                 capture_id=str(row["capture_id"]),
                 title=str(row["title"]),
-                topic=str(row["topic_name"] or "Sin organizar"),
+                topic=str(row["topic_name"] or UNORGANIZED_TOPIC),
                 revision=int(row["revision"]),
                 status=str(row["status"]),
                 vault_path=str(row["vault_path"] or ""),
@@ -339,6 +402,43 @@ class UiSnapshotService:
             )
             for row in rows
         ]
+
+    def library_page(
+        self, query: str = "", *, topic: str | None = None, offset: int = 0, limit: int = LIBRARY_PAGE_SIZE,
+    ) -> LibraryPage:
+        """Una página de la biblioteca con el total real y el catálogo completo de temas.
+
+        Antes la consulta cortaba en 500 notas sin decirlo y los temas del filtro
+        salían de ese recorte: un tema cuyas notas quedaran fuera no se podía ni
+        elegir. El filtro y el recuento van ahora en la consulta, y los temas se
+        leen aparte, sin depender de qué página se esté viendo.
+        """
+
+        where, parameters = _library_filter(query, topic)
+        with closing(self.database.connect(readonly=True)) as connection:
+            total = int(connection.execute(
+                f"SELECT COUNT(*) {_LIBRARY_FROM} WHERE {where}", parameters
+            ).fetchone()[0])
+        size = max(1, limit)
+        # Si la página pedida ya no existe (se borraron notas o cambió la
+        # búsqueda) se muestra la última que sí existe, no una lista vacía.
+        start = min(max(0, offset), max(0, (total - 1) // size * size))
+        return LibraryPage(
+            items=self.library_items(query, limit=size, offset=start, topic=topic),
+            total=total, offset=start, limit=size, topics=self.library_topics(),
+        )
+
+    def library_topics(self) -> list[LibraryTopic]:
+        """Temas con notas publicadas y cuántas tiene cada uno, de toda la biblioteca."""
+
+        with closing(self.database.connect(readonly=True)) as connection:
+            rows = connection.execute(
+                "SELECT COALESCE(t.name, ?) AS topic_name, COUNT(*) AS total "
+                f"{_LIBRARY_FROM} WHERE n.status = 'PUBLISHED' GROUP BY topic_name",
+                (UNORGANIZED_TOPIC,),
+            ).fetchall()
+        topics = [LibraryTopic(name=str(row["topic_name"]), count=int(row["total"])) for row in rows]
+        return sorted(topics, key=lambda item: item.name.casefold())
 
     def topics(self) -> list[TopicItem]:
         with closing(self.database.connect(readonly=True)) as connection:
@@ -455,6 +555,15 @@ class UiSnapshotService:
         error_code = row["task_error_code"] or row["last_error_code"]
         error_message = str(row["task_error_message"] or row["last_error_message"] or "")
         category = _work_category(capture_status, task_status, error_code)
+        review_status = str(row["review_status"] or "")
+        if capture_status == "CANCELLED":
+            # Una tarea que falló antes de cancelar no convierte la cancelación en error.
+            status, category, error_code, error_message = "CANCELLED", "completed", None, ""
+        elif review_status == "PENDING" and capture_status == "PROCESSING":
+            # El borrador espera a una persona: necesita atención, no es un error.
+            status, category = "AWAITING_REVIEW", "attention"
+        elif review_status == "REJECTED" and capture_status == "REJECTED":
+            status, category = "DRAFT_REJECTED", "completed"
         phase = str(progress.get("phase") or progress.get("status") or status).lower()
         phase = _phase_label(phase)
         path_candidates = (
@@ -491,7 +600,7 @@ class UiSnapshotService:
             attempt=int(row["attempt"] or 0),
             error_code=str(error_code) if error_code else None,
             error_message=error_message,
-            retryable=bool(row["error_retryable"]) or task_status == "ERROR",
+            retryable=(bool(row["error_retryable"]) or task_status == "ERROR") and category == "attention",
             progress_text=(
                 "El Broker reanudará la tarea automáticamente cuando haya memoria disponible."
                 if phase == "Esperando memoria"
@@ -584,6 +693,8 @@ def _status_label(status: str, phase: str) -> str:
         "ERROR": "Error",
         "REJECTED": "Rechazado",
         "CANCELLED": "Cancelado",
+        "AWAITING_REVIEW": "Pendiente de revisión",
+        "DRAFT_REJECTED": "Borrador descartado",
     }
     return labels.get(status, status.replace("_", " ").capitalize())
 

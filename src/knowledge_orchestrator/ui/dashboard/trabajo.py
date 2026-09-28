@@ -132,10 +132,13 @@ class TrabajoMixin(AccionesMixin):
         detail_header.columnconfigure(0, weight=1)
         self.detail_title_var = tk.StringVar(value="Selecciona un documento")
         self.detail_badge_var = tk.StringVar(value="")
-        tk.Label(detail_header, textvariable=self.detail_title_var, bg=c["surface"], fg=c["text"],
-                 font=(FONT_SEMIBOLD, 17), anchor="w", wraplength=520, justify="left").grid(
-            row=0, column=0, sticky="ew"
-        )
+        title = tk.Label(detail_header, textvariable=self.detail_title_var, bg=c["surface"], fg=c["text"],
+                         font=(FONT_SEMIBOLD, 17), anchor="w", wraplength=520, justify="left")
+        title.grid(row=0, column=0, sticky="ew")
+        # El título se ajusta al ancho real: con un ancho fijo, la insignia de
+        # estado lo tapaba por la derecha en ventanas estrechas.
+        detail_header.bind("<Configure>", lambda event: title.configure(
+            wraplength=max(200, event.width - self.detail_badge.winfo_reqwidth() - 24)))
         self.detail_badge = tk.Label(
             detail_header, textvariable=self.detail_badge_var, bg=c["surface"], fg=c["muted"],
             font=(FONT_SEMIBOLD, 9), padx=10, pady=4,
@@ -165,8 +168,13 @@ class TrabajoMixin(AccionesMixin):
         self.issue_title_label = self._text(self.issue_frame, textvariable=self.issue_title_var, size=11,
                                             bold=True, bg="raised")
         self.issue_title_label.grid(row=0, column=2, sticky="ew", padx=(0, 16), pady=(13, 3))
-        self._text(self.issue_frame, textvariable=self.issue_message_var, size=9, color="muted", bg="raised",
-                   wraplength=560).grid(row=1, column=2, sticky="ew", padx=(0, 16))
+        issue_message = self._text(self.issue_frame, textvariable=self.issue_message_var, size=9, color="muted",
+                                   bg="raised", wraplength=560)
+        issue_message.grid(row=1, column=2, sticky="ew", padx=(0, 16))
+        # Ajuste al ancho real del recuadro: con 560 fijos el texto se cortaba
+        # por la derecha en cuanto el panel era más estrecho.
+        self.issue_frame.bind("<Configure>", lambda event: issue_message.configure(
+            wraplength=max(240, event.width - 90)), add="+")
         # Dos filas: en ventanas estrechas las tres seguidas se salían por la derecha.
         action_buttons = tk.Frame(self.issue_frame, bg=c["raised"])
         action_buttons.grid(row=2, column=2, sticky="ew", padx=(0, 16), pady=(12, 14))

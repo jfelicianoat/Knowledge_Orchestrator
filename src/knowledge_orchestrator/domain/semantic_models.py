@@ -10,6 +10,17 @@ Impact = Literal["LOW", "MEDIUM", "HIGH"]
 
 
 @dataclass(frozen=True, slots=True)
+class SourceEvidence:
+    """Tramo de la captura original que respalda (o se dice que respalda) un claim."""
+
+    span_start: int
+    span_end: int
+    quote: str
+    method: str
+    score: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
 class ExtractedClaim:
     statement: str
     claim_type: str
@@ -21,6 +32,9 @@ class ExtractedClaim:
     observed_at: str | None = None
     source_date: str | None = None
     manual_lock: bool = False
+    #: SOURCE | MODEL_LINKED | SUMMARY_ONLY | UNVERIFIED (ver migración 023).
+    source_support: str = "UNVERIFIED"
+    source_evidence: tuple[SourceEvidence, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +60,7 @@ class KnowledgeClaim:
     superseded_by: int | None = None
     revision: int = 1
     derived_from_claim_id: int | None = None
+    source_support: str = "UNVERIFIED"
 
 
 @dataclass(frozen=True, slots=True)

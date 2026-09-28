@@ -141,7 +141,9 @@ class RetryPolicyTests(unittest.TestCase):
 
             resent = json.loads(repository.get_task(task.task_id).request_json)
             self.assertEqual(resent["model_requirements"]["preferred_model"], "gemma4:12b")
-            self.assertEqual(resent["generation"]["max_output_tokens"], 9000)
+            # 9000 pedidos, pero la salida nunca pasa de media ventana (16k):
+            # el reintento respeta el mismo tope que la planificación.
+            self.assertEqual(resent["generation"]["max_output_tokens"], 7500)
 
 
 class ModelSubstitutionTests(unittest.TestCase):

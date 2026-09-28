@@ -6,6 +6,7 @@ from typing import Any
 
 from knowledge_orchestrator.domain.broker_contracts import auxiliary_invocations_for
 from knowledge_orchestrator.domain.models import ProfileDefinition
+from knowledge_orchestrator.services.broker_shield import shield_prompt
 
 
 class PromptRenderError(ValueError):
@@ -108,7 +109,8 @@ def build_chat_request(
     use_auto = profile.execution_strategy == "auto" and eligible_step
     strategy = "auto" if use_auto else "mixture_of_agents" if use_consensus else "single"
     proposer_count = profile.consensus_max_proposers if use_consensus or use_auto else 1
-    prompt = (
+    # Un documento que habla de «generar imágenes» no es una petición de imagen.
+    prompt = shield_prompt(
         "<system_instructions>\n"
         + system_content
         + "\n</system_instructions>\n\n<user_request>\n"

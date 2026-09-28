@@ -6,6 +6,7 @@ deja pasar.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from contextlib import closing
 from pathlib import Path
@@ -32,13 +33,15 @@ class AfirmacionesMixin(RepositorioBase):
                 raise ValueError('La extracción debe esperar a que termine la reversión pendiente')
             connection.execute(
                 "INSERT INTO knowledge_claims(note_id, source_capture_id, topic_id, statement, normalized_statement, "
-                "claim_type, volatility, observed_at, source_date, span_start, span_end, entities_json, manual_lock) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "claim_type, volatility, observed_at, source_date, span_start, span_end, entities_json, manual_lock, "
+                "source_support) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(note_id, span_start, span_end, normalized_statement) DO NOTHING",
                 (
                     note_id, context["capture_id"], context["topic_id"], claim.statement.strip(), normalized,
                     claim.claim_type.strip(), claim.volatility, claim.observed_at, claim.source_date,
                     claim.span_start, claim.span_end, json.dumps(entities, ensure_ascii=False), int(claim.manual_lock),
+                    claim.source_support,
                 ),
             )
             row = connection.execute(
@@ -56,6 +59,19 @@ class AfirmacionesMixin(RepositorioBase):
                     row['derived_from_claim_id'],
                 ),
             )
+            if claim.source_evidence:
+                source_hash = hashlib.sha256(
+                    str(context["transcript_content"] or "").encode("utf-8")
+                ).hexdigest()
+                connection.executemany(
+                    "INSERT INTO claim_source_evidence(claim_id, capture_id, source_sha256, span_start, span_end, "
+                    "quote, method, score) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                    [
+                        (row["claim_id"], context["capture_id"], source_hash, item.span_start, item.span_end,
+                         item.quote, item.method, item.score)
+                        for item in claim.source_evidence
+                    ],
+                )
             register_claim(connection, row['claim_id'])
             return _claim(connection.execute(
                 'SELECT * FROM knowledge_claims WHERE claim_id = ?', (row['claim_id'],),
@@ -122,12 +138,24 @@ class AfirmacionesMixin(RepositorioBase):
                 "AND (? IS NULL OR k.topic_id = ?) ORDER BY k.claim_id DESC LIMIT ?",
                 (new_claim.note_id, new_claim.topic_id, new_claim.topic_id, limit * 10),
             ).fetchall()
+        # Import diferido: el paquete de servicios importa este repositorio.
+        from knowledge_orchestrator.services.semantic_maintenance.segmentos import content_words
+
         matches: list[tuple[KnowledgeClaim, str]] = []
+        new_stems = content_words(new_claim.statement)
         for row in rows:
             existing = _claim(row)
             if existing.source_capture_id == new_claim.source_capture_id:
                 continue  # Una proyección de la misma evidencia no es una fuente independiente.
             overlap = entity_keys.intersection(normalize_text(item) for item in existing.entities)
+            # Una palabra suelta en común no hace comparables dos afirmaciones:
+            # contra el Broker real, «Usa Proyectos para separar contextos» se
+            # comparaba con una regla de trading (compartían la entidad genérica
+            # «Ejecución») y el modelo lo daba por «SUPPORTS» al 95 %. Se exige
+            # entidad común y una raíz común en el enunciado, o dos raíces comunes.
+            shared = len(new_stems & content_words(existing.statement))
+            if shared < (1 if overlap else 2):
+                continue
             if overlap:
                 reason = "entities:" + ",".join(sorted(overlap))
             elif existing.claim_id in fts_ids:
@@ -138,3 +166,41 @@ class AfirmacionesMixin(RepositorioBase):
             if len(matches) >= limit:
                 break
         return matches
+
+    def source_evidence(self, claim_id: int) -> list[dict]:
+        """Tramos de la fuente original ligados a una afirmación (auditoría H07)."""
+
+        with closing(self.database.connect()) as connection:
+            rows = connection.execute(
+                "SELECT span_start, span_end, quote, method, score FROM claim_source_evidence "
+                "WHERE claim_id = ? ORDER BY span_start",
+                (claim_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def record_extraction_summary(
+        self, note_id: int, counts: dict[str, int], ignored_links: int, *, unknown_segments: int = 0,
+    ) -> None:
+        """Deja en la cronología cuántas afirmaciones respalda la fuente y cuántas no."""
+
+        context = self.note_context(note_id)
+        total = sum(counts.values())
+        source = counts.get("SOURCE", 0)
+        linked = counts.get("MODEL_LINKED", 0)
+        summary_only = counts.get("SUMMARY_ONLY", 0)
+        message = (
+            f"{total} afirmación(es) indexada(s): {source} respaldada(s) por la fuente original, "
+            f"{linked} enlazada(s) por el modelo sin verificar y {summary_only} solo en el resumen."
+        )
+        if ignored_links:
+            message += f" Se ignoraron {ignored_links} referencia(s) a tramos inexistentes."
+        if unknown_segments:
+            message += f" Se descartaron {unknown_segments} afirmación(es) que señalaban frases inexistentes."
+        with self.database.transaction(immediate=True) as connection:
+            connection.execute(
+                "INSERT INTO events(capture_id, event_type, message, details_json) "
+                "VALUES (?, 'KNOWLEDGE_EXTRACTED', ?, ?)",
+                (context["capture_id"], message,
+                 json.dumps({"note_id": note_id, "counts": counts, "ignored_links": ignored_links,
+                             "unknown_segments": unknown_segments})),
+            )

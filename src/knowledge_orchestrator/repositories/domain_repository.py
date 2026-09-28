@@ -71,8 +71,14 @@ class DomainRepository:
 
     def get_profile(self, profile_id: int) -> ProfileDefinition | None:
         with closing(self.database.connect()) as connection:
-            row = connection.execute("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,)).fetchone()
-            return _profile(row) if row else None
+            return self.profile_from_connection(connection, profile_id)
+
+    @staticmethod
+    def profile_from_connection(connection: sqlite3.Connection, profile_id: int) -> ProfileDefinition | None:
+        """Lee el perfil dentro de una transacción ya abierta por quien llama."""
+
+        row = connection.execute("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,)).fetchone()
+        return _profile(row) if row else None
 
     def list_profiles(self, *, enabled_only: bool = False) -> list[ProfileDefinition]:
         query = "SELECT * FROM profiles"

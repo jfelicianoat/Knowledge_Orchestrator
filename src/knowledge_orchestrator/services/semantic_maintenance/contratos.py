@@ -13,7 +13,48 @@ class SemanticContractError(ValueError):
     pass
 
 
+#: Afirmaciones que se piden por nota: las más informativas.
+MAX_CLAIMS_PER_NOTE = 25
+
+
+#: Contrato de extracción por segmentos (0.4.0). El modelo no escribe ni copia
+#: texto: señala qué frase de la nota (N#) es una afirmación y qué tramos de la
+#: fuente original (S#) la respaldan. El texto lo pone la aplicación.
 EXTRACTION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["claims"],
+    "properties": {
+        "claims": {
+            "type": "array",
+            # Acotado a propósito: contra el Broker real, sin límite, el modelo
+            # enumeraba las 121 frases de una nota, agotaba los 6000 tokens y
+            # devolvía un JSON cortado. Mejor 25 buenas que ninguna.
+            "maxItems": MAX_CLAIMS_PER_NOTE,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["note_segment", "source_segments", "claim_type", "volatility", "entities"],
+                "properties": {
+                    "note_segment": {"type": "string"},
+                    "source_segments": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
+                    "claim_type": {"type": "string"},
+                    "volatility": {"enum": ["LOW", "MEDIUM", "HIGH"]},
+                    "entities": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
+                    "observed_at": {"type": ["string", "null"]},
+                    "source_date": {"type": ["string", "null"]},
+                    "manual_lock": {"type": "boolean"},
+                },
+            },
+        }
+    },
+}
+
+
+#: Contrato anterior, por cita literal. Se sigue aceptando al leer (respuestas
+#: ya recibidas, integraciones y pruebas), con la misma exigencia de siempre:
+#: una cita que no esté en la nota invalida la respuesta entera.
+LEGACY_EXTRACTION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": ["claims"],

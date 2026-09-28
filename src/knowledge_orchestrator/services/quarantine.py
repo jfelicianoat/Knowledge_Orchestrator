@@ -10,9 +10,13 @@ from typing import Any
 from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.repositories.capture_repository import CaptureRepository
 
-from .filesystem import atomic_write_json, unique_destination
+from .filesystem import atomic_write_json, move_file, unique_destination
 
 Checkpoint = Callable[[str], None]
+
+
+class OrphanQuarantineIntent(FileNotFoundError):
+    """La intención apunta a un fichero que ya no existe en origen ni en destino."""
 
 
 class QuarantineService:
@@ -58,6 +62,18 @@ class QuarantineService:
                 payload = json.loads(intent.read_text(encoding="utf-8"))
                 self._complete_intent(intent, payload)
                 recovered += 1
+            except OrphanQuarantineIntent as error:
+                # El fichero ya no está en ningún sitio (lo borró la persona o
+                # nunca llegó a moverse). Reintentarlo en cada arranque solo
+                # repetía el mismo fallo: la base real acumulaba 35. Se aparta la
+                # intención —se conserva como evidencia— y se avisa una vez.
+                abandoned = intent.with_name(intent.name.replace(".pending.json", ".abandoned.json"))
+                os.replace(intent, abandoned)
+                self.repository.record_event(
+                    "QUARANTINE_INTENT_ABANDONED",
+                    f"{error}; la intención se conserva como {abandoned.name}",
+                    details={"intent_path": str(abandoned)},
+                )
             except Exception as error:
                 self.repository.record_event(
                     "QUARANTINE_RECOVERY_FAILED",
@@ -76,8 +92,9 @@ class QuarantineService:
         destination.parent.mkdir(parents=True, exist_ok=True)
         if not destination.exists():
             if not source.exists():
-                raise FileNotFoundError("No existe ni el origen ni el destino de la cuarentena")
-            os.replace(source, destination)
+                raise OrphanQuarantineIntent("No existe ni el origen ni el destino de la cuarentena")
+            # La carpeta vigilada y failed/ pueden estar en unidades distintas.
+            move_file(source, destination)
         self.checkpoint("AFTER_QUARANTINE_MOVE")
         if not sidecar.exists():
             atomic_write_json(sidecar, error_payload)

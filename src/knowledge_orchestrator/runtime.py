@@ -36,6 +36,7 @@ from knowledge_orchestrator.services.knowledge_access import KnowledgeAccess
 from knowledge_orchestrator.services.knowledge_query import KnowledgeQueryProcessor, KnowledgeQueryService
 from knowledge_orchestrator.services.maintenance_reversion import MaintenanceReversionService
 from knowledge_orchestrator.services.model_discovery import ModelDiscoveryService
+from knowledge_orchestrator.services.note_reconciliation import NoteReconciliationService
 from knowledge_orchestrator.services.obsidian_connection import ObsidianConnection
 from knowledge_orchestrator.services.operations import configure_logging
 from knowledge_orchestrator.services.profile_service import ProfileService
@@ -103,9 +104,13 @@ class OrchestratorRuntime:
     maintenance_reversion: MaintenanceReversionService
     obsidian_connection: ObsidianConnection
     api_server: ApiServerController = field(init=False)
+    note_reconciliation: NoteReconciliationService = field(init=False)
 
     def __post_init__(self) -> None:
         self.api_server = ApiServerController(self)
+        self.note_reconciliation = NoteReconciliationService(
+            self.database, self.paths.obsidian_vault, self.semantic_maintenance,
+        )
 
     def recover_once(self, *, ingest_inbox: bool = True) -> RecoveryReport:
         """Deja el sistema en un estado reanudable antes de meter trabajo nuevo."""
@@ -124,11 +129,22 @@ class OrchestratorRuntime:
         self.review_batches.repository.recover()
         self.automation_execution.repository.recover()
         self.knowledge.reconcile()
+        # Cada nota y cada documento se recuperan por separado (auditoría H03):
+        # una nota movida o ilegible se anota y exige atención, pero el
+        # escritorio y los workers arrancan igual para todo lo demás.
         for note in self.publication_repository.list_notes_by_status("PUBLISHED"):
-            self.semantic_maintenance.schedule_extraction(note.note_id)
+            try:
+                self.semantic_maintenance.schedule_extraction(note.note_id)
+            except (ValueError, OSError) as error:
+                self.publication_repository.record_note_incident(note, "NOTE_ANALYSIS_BLOCKED", error)
         self.workflow_planner.plan_unplanned()
         for workflow_id in self.workflow_repository.list_resumable_workflow_ids():
-            self.workflow_planner.advance_workflow(workflow_id)
+            try:
+                self.workflow_planner.advance_workflow(workflow_id)
+            except (ValueError, RuntimeError, OSError) as error:
+                self.workflow_repository.record_workflow_event(
+                    workflow_id, "WORKFLOW_RECOVERY_FAILED", f"{type(error).__name__}: {error}",
+                )
         return report
 
     def start(self) -> RecoveryReport:

@@ -50,6 +50,7 @@ def generic_markdown(
     capture_id: str = "document_20260623_python",
     title: str = "Curso práctico de Python",
     source_type: str = "document",
+    transcript: str = "Contenido aportado manualmente por el usuario.",
 ) -> bytes:
     return f'''---
 contract_version: "1.0"
@@ -66,7 +67,7 @@ tags: [programación, python]
 
 ## Transcripción
 
-Contenido aportado manualmente por el usuario.
+{transcript}
 '''.encode()
 
 

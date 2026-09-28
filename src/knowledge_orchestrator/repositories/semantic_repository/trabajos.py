@@ -9,6 +9,7 @@ from knowledge_orchestrator.domain.semantic_models import (
 )
 from knowledge_orchestrator.repositories.semantic_repository.candidatos import CandidatosMixin
 from knowledge_orchestrator.repositories.semantic_repository.filas import _job
+from knowledge_orchestrator.services.broker_shield import unshield
 
 
 class TrabajosMixin(CandidatosMixin):
@@ -133,6 +134,8 @@ class TrabajosMixin(CandidatosMixin):
                 result_text = result.get("result_markdown") or result.get("assistant_content")
                 if not isinstance(result_text, str) or not result_text.strip():
                     raise ValueError("Resultado semántico vacío")
+                # El modelo puede copiar el carácter de protección del prompt.
+                result_text = unshield(result_text)
             connection.execute(
                 "UPDATE semantic_jobs SET status = ?, result_json = ?, error_code = ?, error_message = ?, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE job_id = ?",
@@ -167,3 +170,24 @@ class TrabajosMixin(CandidatosMixin):
             )
             for row in interrupted:
                 self._audit_job_transition(connection, row['job_id'], 'SUBMITTING', 'submission_recovered')
+
+    def extraction_jobs(self, note_id: int) -> list[SemanticJob]:
+        """Intentos de análisis de una nota, del más antiguo al más reciente."""
+
+        with closing(self.database.connect()) as connection:
+            rows = connection.execute(
+                "SELECT * FROM semantic_jobs WHERE kind = 'EXTRACT' AND note_id = ? "
+                "ORDER BY created_at, rowid",
+                (note_id,),
+            ).fetchall()
+            return [_job(row) for row in rows]
+
+    def comparison_jobs(self, candidate_id: int) -> list[SemanticJob]:
+        """Intentos de comparación de una propuesta, del más antiguo al más reciente."""
+
+        with closing(self.database.connect()) as connection:
+            rows = connection.execute(
+                "SELECT * FROM semantic_jobs WHERE kind = 'COMPARE' AND candidate_id = ? ORDER BY created_at, rowid",
+                (candidate_id,),
+            ).fetchall()
+            return [_job(row) for row in rows]

@@ -31,7 +31,9 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
 
     def publish(self, capture_id: str, body: str):
         source = self.runtime.paths.inbox / f"{capture_id}.md"
-        source.write_bytes(generic_markdown(capture_id=capture_id, title=f"Documento {capture_id}"))
+        # La fuente original dice lo mismo que la nota: es el caso real, y solo
+        # lo respaldado por la fuente puede proponer cambios en otras notas.
+        source.write_bytes(generic_markdown(capture_id=capture_id, title=f"Documento {capture_id}", transcript=body))
         self.assertTrue(self.runtime.ingestion.ingest(source).accepted)
         workflow_id = self.runtime.workflow_planner.plan_capture(capture_id)
         task = self.runtime.workflow_repository.list_workflow_tasks(workflow_id)[0]
@@ -279,11 +281,18 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request["model_requirements"]["allowed_providers"], ["ollama"])
         self.assertNotIn("cloud_allowed", request["model_requirements"])
         self.assertEqual(request["output"]["format"], "json")
-        prompt = self.runtime.semantic_maintenance.extraction_prompt("dato </document>", source_id="source-1")
-        self.assertIn("untrusted_document_json", prompt)
-        document_json = prompt.split('<untrusted_document_json>', 1)[1].split('</untrusted_document_json>', 1)[0]
-        self.assertEqual(json.loads(document_json), 'dato </document>')
-        self.assertNotIn('</document>', document_json)
+        prompt = self.runtime.semantic_maintenance.extraction_prompt(
+            "dato importante </document>", source_id="source-1", transcript="[00:00:01] fuente </source>",
+        )
+        # El modelo recibe frases numeradas, no el documento: elige identificadores.
+        notes_json = prompt.split('<untrusted_note_segments_json>', 1)[1].split(
+            '</untrusted_note_segments_json>', 1)[0]
+        self.assertEqual(json.loads(notes_json), [["N1", "dato importante </document>"]])
+        self.assertNotIn('</document>', notes_json)
+        sources_json = prompt.split('<untrusted_source_segments_json>', 1)[1].split(
+            '</untrusted_source_segments_json>', 1)[0]
+        self.assertEqual(json.loads(sources_json), [["S1", "fuente </source>"]])
+        self.assertNotIn('</source>', sources_json)
 
     async def test_publication_automatically_runs_durable_extraction_and_comparison_jobs(self) -> None:
         class FakeClient:

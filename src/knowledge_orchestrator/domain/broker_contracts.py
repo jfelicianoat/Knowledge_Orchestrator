@@ -113,6 +113,10 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
     if group is not None and group == depends_on_group:
         _fail(boundary, "depends_on_group", "una tarea no puede depender de su propio grupo")
 
+    inference_kind = payload.get("inference_kind", "chat")
+    if inference_kind not in {"chat", "embedding"}:
+        _fail(boundary, "inference_kind", "debe ser chat o embedding")
+
     content = _mapping(payload.get("content"), boundary, "content")
     prompt = _string(content.get("prompt"), boundary, "content.prompt")
     if UNRESOLVED_PLACEHOLDER.search(prompt):
@@ -125,8 +129,11 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
     if output.get("format") not in {"markdown", "text", "json"}:
         _fail(boundary, "output.format", "formato no permitido")
     _string(output.get("language"), boundary, "output.language")
-    if output.get("format") == "json" and not isinstance(output.get("json_schema"), Mapping):
+    if output.get("format") == "json" and not isinstance(output.get("json_schema"), Mapping) \
+            and inference_kind != "embedding":
         _fail(boundary, "output.json_schema", "es obligatorio para JSON")
+    if inference_kind == "embedding" and output.get("format") != "json":
+        _fail(boundary, "output.format", "un embedding exige formato json")
 
     generation = _mapping(payload.get("generation"), boundary, "generation")
     temperature = generation.get("temperature")

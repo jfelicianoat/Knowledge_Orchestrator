@@ -58,7 +58,7 @@ ampliada siguen en desarrollo; los checkpoints distinguen pruebas locales y prue
 
 ```
 ┌──────────────────┬─────────────────────────────┬───────────────────────────┐
-│ KO  v0.3.0       │ Documentos                  │ Documento seleccionado    │
+│ KO  v0.4.0       │ Documentos                  │ Documento seleccionado    │
 │ [+ Importar]     │ [En proceso 2][Atención 2]… │ ✓──✓──○──○──○  (5 pasos)  │
 │ TRABAJO          │ 🔍 Buscar…                  │ ┃ Qué pasa y cómo seguir  │
 │  Inicio          │ ● Título      Estado  hace… │ ┃ [Reintentar] [Abrir]    │
@@ -199,7 +199,7 @@ Véase [`docs/Phase_3_Broker.md`](docs/Phase_3_Broker.md). Además de los dobles
 
 ### Fase 4 — Publicación y revisión
 
-La fase 4 publica el resultado final en Obsidian mediante intención SQLite, temporal sincronizado, `os.replace` y verificación SHA-256. La captura solo pasa a `COMPLETED` después de guardar la nota y archivar la fuente. El arranque recupera publicaciones incompletas.
+La fase 4 publica el resultado final en Obsidian mediante intención SQLite, temporal sincronizado, instalación que nunca sustituye un destino existente (enlace duro o, en volúmenes sin enlaces duros como Google Drive, renombrado no destructivo de Windows) y verificación SHA-256. Con «Exigir revisión humana antes de publicar» el resultado queda como borrador hasta aprobarlo en Documentos. La captura solo pasa a `COMPLETED` después de guardar la nota y archivar la fuente. El arranque recupera publicaciones incompletas.
 
 El rechazo retira nota y fuente a `rejected` sin destruirlas. El reprocesado copia la evidencia conservada a `processing` y crea una revisión nueva con identificadores idempotentes distintos. Véase [`docs/Phase_4_Publication.md`](docs/Phase_4_Publication.md).
 
@@ -211,7 +211,7 @@ La integración incluye validación de metadata de consenso, progreso durable y 
 
 ### Fase 6 — Mantenimiento semántico
 
-Cada nota publicada crea un job durable de extracción de claims. El Orchestrator construye prompts `local_only` con JSON Schema, valida que las citas coincidan exactamente con spans locales y recupera candidatos por tema, entidades, FTS5 y embeddings opcionales.
+Cada nota publicada crea un job durable de extracción de claims. El modelo elige frases numeradas de la nota y tramos numerados de la captura original (no copia texto); la aplicación comprueba el respaldo en la fuente y marca cada afirmación como `SOURCE`, `MODEL_LINKED` o `SUMMARY_ONLY`. Solo las respaldadas por la fuente originan candidatos, que se recuperan por tema, entidades, FTS5 y embeddings opcionales.
 
 Las comparaciones generan relación, confianza, impacto, patch y diff. Ningún cambio se aplica automáticamente: `manual_lock` bloquea la propuesta y los demás candidatos quedan `PENDING_REVIEW` hasta aprobación humana. La aprobación conserva la revisión anterior y usa escritura sincronizada más reemplazo atómico recuperable.
 
@@ -228,7 +228,7 @@ python -m knowledge_orchestrator.app --ui
 
 Incluye Resumen, Documentos, Biblioteca, Revisión, Organización y Ajustes. Documentos es una vista maestro-detalle con filtros, búsqueda, cronología y acciones contextuales. Biblioteca consulta las notas publicadas y permite localizar cada resultado en Obsidian. La interfaz permite importar Markdown, marcar varios documentos y enviarlos en lote, reintentar tareas fallidas con una clave idempotente nueva, cancelar trabajos activos y cerrar incidencias sin borrar su historial. Refresca cada 2 segundos desde snapshots SQLite de solo lectura, conserva toda la selección válida y nunca cambia automáticamente el objetivo de una acción. La conexión y el token del Broker se aplican al guardarlos, sin reiniciar la aplicación.
 
-La pestaña Revisión presenta candidatos semánticos `PENDING_REVIEW` en lenguaje humano, confirma cada decisión y usa los servicios atómicos existentes. La API documental para otras aplicaciones es una evolución prevista y todavía no forma parte de esta versión. Véase [`docs/Phase_7_UI.md`](docs/Phase_7_UI.md).
+La pestaña Revisión presenta candidatos semánticos `PENDING_REVIEW` en lenguaje humano, confirma cada decisión y usa los servicios atómicos existentes. La API documental local está disponible; sus consumidores se crean y revocan desde «Automatización y API». Véase [`docs/Phase_7_UI.md`](docs/Phase_7_UI.md).
 
 ### Fase 8 — Operación y empaquetado
 
@@ -237,8 +237,12 @@ Operación básica:
 ```powershell
 $env:PYTHONPATH='src'
 python -m knowledge_orchestrator.app --backup
+python -m knowledge_orchestrator.app --full-backup
+python -m knowledge_orchestrator.app --restore C:\ruta\copia.zip --root C:\carpeta\vacia
 python -m knowledge_orchestrator.app --diagnostics C:\tmp\ko-diagnostics.zip
 ```
+
+`--full-backup` guarda en un ZIP la base, las fuentes archivadas y un manifiesto con hashes (las notas de la bóveda se referencian, no se copian); `--restore` lo restaura en una carpeta vacía verificando cada hash. Las credenciales no viajan: hay que volver a configurar el Broker y Obsidian.
 
 El backup usa la API consistente de SQLite y se guarda en `backups/`. El diagnóstico genera un ZIP con contadores, entorno, configuración y líneas completas de logs saneadas. No adjunta SQLite ni archivos de notas. Oculta campos de credenciales reconocidos y el token Broker configurado, también dentro de JSON textual. Los mensajes libres antiguos pueden contener otros datos privados: el saneamiento no garantiza anonimización de cualquier texto. Los archivos originales no se reescriben al exportar.
 

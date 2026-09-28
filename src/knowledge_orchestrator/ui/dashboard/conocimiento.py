@@ -22,6 +22,25 @@ STATE_LABELS = {'CURRENT': 'Vigente', 'HISTORICAL': 'Histórico', 'SUPERSEDED': 
 FILTERS = {'Vigente': 'current', 'Histórico': 'historical', 'En revisión': 'review', 'Todos': 'all'}
 
 
+#: Etiqueta breve para la lista; el detalle explica cada caso.
+SHORT_SUPPORT = {'SOURCE': ' · Respaldada', 'MODEL_LINKED': ' · Sin verificar', 'SUMMARY_ONLY': ' · Solo resumen'}
+
+
+def plain_statement(text: str) -> str:
+    """La afirmación sin marcado Markdown, solo para mostrarla (lo guardado no cambia)."""
+
+    return " ".join(text.replace("*", "").replace("__", "").replace("`", "").strip(" _").split())
+
+#: Cómo se sabe que la fuente original dice lo que afirma la nota (auditoría H07).
+SUPPORT_LABELS = {
+    'SOURCE': 'Respaldada: la aplicación encontró este contenido en la captura original.',
+    'MODEL_LINKED': 'Sin verificar: el modelo la enlazó a estos fragmentos, pero no se encontró el mismo '
+                    'contenido (p. ej. fuente en otro idioma). Compruébalo antes de fiarte.',
+    'SUMMARY_ONLY': 'Solo en el resumen: ningún fragmento de la fuente original la respalda. Puede ser una '
+                    'inferencia o un error del resumen.',
+    'UNVERIFIED': 'Sin comprobar: afirmación anterior a la comprobación contra la fuente original.',
+}
+
 class ConocimientoMixin(FuentesMixin):
     def _build_knowledge(self) -> None:
         self.operations = OperationsSnapshots(self.runtime.database)
@@ -63,10 +82,10 @@ class ConocimientoMixin(FuentesMixin):
         self.knowledge_tree = ttk.Treeview(left, columns=('state', 'note'), show='tree headings',
                                           selectmode='browse', style='Dark.Treeview')
         self.knowledge_tree.heading('#0', text='Afirmación')
-        self.knowledge_tree.heading('state', text='Vigencia')
+        self.knowledge_tree.heading('state', text='Vigencia · respaldo')
         self.knowledge_tree.heading('note', text='Nota')
         self.knowledge_tree.column('#0', width=310, minwidth=150)
-        self.knowledge_tree.column('state', width=130, minwidth=100)
+        self.knowledge_tree.column('state', width=190, minwidth=150)
         self.knowledge_tree.column('note', width=140, minwidth=100)
         self.knowledge_tree.grid(row=0, column=0, sticky='nsew')
         scroll = ttk.Scrollbar(left, orient='vertical', command=self.knowledge_tree.yview)
@@ -144,18 +163,36 @@ class ConocimientoMixin(FuentesMixin):
         snapshot = result
         self._knowledge_offset = snapshot['offset']
         self._knowledge_items = {str(item['claim_id']): item for item in snapshot['items']}
+        # La vigencia y el respaldo en la fuente se leen juntos: «Vigente · Solo resumen»
+        # no merece la misma confianza que «Vigente · Respaldada» (auditoría H07).
         self._replace_tree(self.knowledge_tree, [
-            (key, (STATE_LABELS.get(item['knowledge_state'], item['knowledge_state']), item['title']))
+            (key, (STATE_LABELS.get(item['knowledge_state'], item['knowledge_state'])
+                   + SHORT_SUPPORT.get(item.get('source_support') or '', ''), item['title']))
             for key, item in self._knowledge_items.items()
-        ], texts={key: item['statement'] for key, item in self._knowledge_items.items()})
+        ], texts={key: plain_statement(item['statement']) for key, item in self._knowledge_items.items()})
         total = snapshot['total']
-        self.knowledge_summary.set('No hay afirmaciones para estos filtros. Prueba otro estado o texto.'
+        self.knowledge_summary.set(self._empty_knowledge_message(snapshot.get('coverage') or {})
                                    if not total else
                                    f"{self._knowledge_offset + 1}–{self._knowledge_offset + len(snapshot['items'])} "
                                    f'de {total} afirmaciones · La vigencia no equivale a verificación factual.')
         self.knowledge_previous.state(['!disabled'] if self._knowledge_offset else ['disabled'])
         self.knowledge_next.state(['!disabled'] if self._knowledge_offset + 100 < total else ['disabled'])
         self._select_knowledge()
+
+    def _empty_knowledge_message(self, coverage: dict) -> str:
+        published, indexed = int(coverage.get('published') or 0), int(coverage.get('indexed') or 0)
+        pending, failed = int(coverage.get('pending') or 0), int(coverage.get('failed') or 0)
+        if self._knowledge_applied_query or indexed:
+            return 'No hay afirmaciones para estos filtros. Prueba otro estado o texto.'
+        if not published:
+            return 'Aún no hay notas publicadas: el conocimiento aparece cuando se publica y analiza un documento.'
+        parts = [f'{published} nota(s) publicada(s), ninguna con afirmaciones todavía']
+        if pending:
+            parts.append(f'{pending} en análisis')
+        if failed:
+            parts.append(f'{failed} con análisis fallido: ábrelas en Operaciones → Análisis y pulsa '
+                         '«Reintentar análisis»')
+        return ' · '.join(parts) + '.'
 
     def _select_knowledge(self) -> None:
         selected = self.knowledge_tree.selection()
@@ -169,6 +206,9 @@ class ConocimientoMixin(FuentesMixin):
             history = self.runtime.knowledge.repository.history(item['claim_id'])
             chain = self.runtime.knowledge.repository.succession(item['claim_id'])
             evidence = '\n\n'.join(entry['quote'] for entry in claim['evidence'])
+            support = SUPPORT_LABELS.get(claim.get('source_support') or 'UNVERIFIED', SUPPORT_LABELS['UNVERIFIED'])
+            original = '\n\n'.join('«' + ' '.join(entry['quote'].split())[:600] + '»'
+                                    for entry in claim.get('source_evidence') or []) or 'Ningún fragmento.'
             sources = '\n'.join(source['title'] + ' · ' + source.get('source_url', 'Documento local')
                                 for source in claim['sources'])
             evolution = '\n'.join(f"{entry['created_at']} · {STATE_LABELS[str(entry['to_state'])]} · "
@@ -180,10 +220,12 @@ class ConocimientoMixin(FuentesMixin):
                 + ('\nNo disponible como vigente según coherencia/procedencia.'
                    if claim['knowledge_state'] == 'CURRENT' and not item['available_current'] else '')
                 + '\n\nEntidades\n' + ', '.join(claim['entities'])
-                + '\n\nEvidencia documental\n' + evidence + '\n\nFuentes\n' + sources
+                + '\n\nRespaldo en la fuente original\n' + support + '\n\n' + original
+                + '\n\nCita en la nota (resumen generado)\n' + evidence + '\n\nFuentes\n' + sources
                 + '\n\nNota\n' + item['title'] + '\n' + item['vault_path']
                 + '\n\nEvolución\n' + evolution + '\n\nSucesión\n' + succession
-                + '\n\nLa evidencia enlazada puede proceder de un resumen IA. No está verificada independientemente.',
+                + '\n\nLa cita de la nota procede de un resumen IA. El respaldo se busca en la captura original, '
+                'pero no es una verificación factual independiente.',
                 preserve_scroll=self._knowledge_detail_id == item['claim_id'])
             self._knowledge_detail_id = item['claim_id']
         except (ValueError, LookupError, sqlite3.Error) as error:

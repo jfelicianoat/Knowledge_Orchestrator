@@ -17,7 +17,7 @@ from knowledge_orchestrator.repositories.capture_repository import CaptureReposi
 from knowledge_orchestrator.repositories.domain_repository import DomainRepository
 from knowledge_orchestrator.repositories.publication_repository import PublicationRepository
 
-from .filesystem import write_synced
+from .filesystem import install_new_file, move_file, write_synced
 from .workflow_planner import WorkflowPlanner
 
 
@@ -96,6 +96,12 @@ class PublicationService:
                 self.repository.fail_publication(workflow, str(error))
             except PublicationConflict:
                 continue
+            except (PublicationError, OSError) as error:
+                # Un documento que no se puede publicar (bóveda sin conexión,
+                # permisos, falta su tema) no detiene a los demás. La intención
+                # queda guardada y se reintenta en el siguiente ciclo.
+                self.repository.record_publication_incident(workflow, error)
+                continue
             else:
                 published += 1
         return published
@@ -158,22 +164,34 @@ class PublicationService:
     def recover(self) -> None:
         """Continua publicaciones, rechazos y reprocesos que quedaron a medias."""
 
+        # Cada nota se recupera por separado: una que falle (bóveda
+        # desconectada, fichero movido) se anota y no impide arrancar.
         for note in self.repository.list_notes_by_status("PUBLISHING", "CONFLICT"):
-            workflow = self.repository.get_workflow_for_note(note.note_id)
             try:
-                self.publish(workflow)
+                self.publish(self.repository.get_workflow_for_note(note.note_id))
             except PublicationConflict:
                 continue
+            except (PublicationError, OSError, ValueError) as error:
+                self.repository.record_note_incident(note, "PUBLICATION_RECOVERY_FAILED", error)
         for note in self.repository.list_notes_by_status("PUBLISHED"):
             capture = self.captures.get(note.capture_id)
             if capture and capture.status.value != "COMPLETED":
-                self._archive_source(note)
-                self.repository.complete_capture(note.note_id)
-                self.on_published(self.repository.get_note(note.note_id) or note)
+                try:
+                    self._archive_source(note)
+                    self.repository.complete_capture(note.note_id)
+                    self.on_published(self.repository.get_note(note.note_id) or note)
+                except (PublicationError, OSError, ValueError) as error:
+                    self.repository.record_note_incident(note, "ARCHIVE_RECOVERY_FAILED", error)
         for note in self.repository.list_notes_by_status("REJECTING"):
-            self._finish_rejection(note)
+            try:
+                self._finish_rejection(note)
+            except (PublicationError, OSError) as error:
+                self.repository.record_note_incident(note, "REJECTION_RECOVERY_FAILED", error)
         for intent in self.repository.list_reprocess_intents("PREPARED", "COPIED"):
-            self._resume_reprocess(intent)
+            try:
+                self._resume_reprocess(intent)
+            except (PublicationError, OSError, ValueError, RuntimeError) as error:
+                self.repository.record_capture_incident(intent.capture_id, "REPROCESS_RECOVERY_FAILED", error)
 
     def reject(self, note_id: int) -> NoteRecord:
         note = self.repository.get_note(note_id)
@@ -235,11 +253,12 @@ class PublicationService:
         note.temp_path.unlink(missing_ok=True)
         write_synced(note.temp_path, encoded)
         note.vault_path.parent.mkdir(parents=True, exist_ok=True)
-        # Instalación atómica de archivo nuevo: link nunca sustituye un destino que
-        # apareció después de la comprobación. Si el volumen no lo admite, fallar
-        # conserva la intención; no degradar a una copia parcial ni a replace.
+        # Instalación atómica de archivo nuevo: nunca sustituye un destino que
+        # apareció después de la comprobación. Sin enlaces duros (Google Drive)
+        # se usa el renombrado no destructivo de Windows; nunca una copia parcial
+        # ni un replace.
         try:
-            os.link(note.temp_path, note.vault_path)
+            install_new_file(note.temp_path, note.vault_path)
         except FileExistsError:
             if not note.vault_path.is_file() or self._hash(note.vault_path) != note.content_hash:
                 raise PublicationConflict("Otra escritura ocupó el destino de publicación") from None
@@ -257,7 +276,7 @@ class PublicationService:
             raise PublicationError("No existe la fuente en processing ni en completed")
         note.source_archive_path.parent.mkdir(parents=True, exist_ok=True)
         # Archivamos la fuente solo despues de publicar la nota; asi siempre queda evidencia local.
-        os.replace(capture.processing_path, note.source_archive_path)
+        move_file(capture.processing_path, note.source_archive_path)
 
     @staticmethod
     def _move_idempotent(source: Path, target: Path) -> None:
@@ -265,8 +284,9 @@ class PublicationService:
             return
         if not source.exists():
             raise PublicationError(f"No existe el fichero que debe moverse: {source}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(source, target)
+        # La nota vive en la bóveda y el rechazo en la raíz de datos: pueden
+        # estar en unidades distintas, donde un simple replace falla.
+        move_file(source, target)
 
     @staticmethod
     def _copy_atomic(source: Path, target: Path) -> None:
