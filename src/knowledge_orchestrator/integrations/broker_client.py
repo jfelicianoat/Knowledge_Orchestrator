@@ -14,6 +14,7 @@ from knowledge_orchestrator.domain.broker_contracts import (
     validate_models_response,
     validate_task_status_response,
 )
+from knowledge_orchestrator.domain.system1 import validate_judgment, validate_judgment_request
 from knowledge_orchestrator.redaction import sanitize
 
 
@@ -181,6 +182,19 @@ class BrokerClient:
         normalized = normalize_capabilities_response(self._json(response))
         self._capabilities = dict(normalized)
         return normalized
+
+    async def judge(self, payload: dict[str, Any], *, timeout_seconds: float = 75.0) -> dict[str, Any]:
+        """Juicio síncrono: sin sondeo, creación de tarea ni reintentos de inferencia."""
+        validate_judgment_request(payload)
+        if self._capabilities.get('system1_judgments') is not True:
+            raise PermanentBrokerError('System 1 no anunciado', code='SYSTEM1_UNAVAILABLE')
+        response = await self._request('POST', '/api/v1/system1/judge', json=payload, timeout=timeout_seconds)
+        if response.status_code != 200:
+            self._raise_for_status(response)
+        try:
+            return validate_judgment(self._json(response), payload)
+        except ValueError:
+            raise PermanentBrokerError('Juicio System 1 inválido', code='INVALID_OUTPUT') from None
 
     async def health(self) -> dict[str, Any]:
         response = await self._request("GET", "/health")

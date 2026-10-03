@@ -146,7 +146,15 @@ class BrokerWorker:
                 if now >= next_health:
                     await self._check_health()
                     next_health = now + self.settings.health_interval_seconds
-                planned = self.planner.plan_unplanned()
+                if self._broker_online is True and now >= next_capabilities:
+                    await self._refresh_capabilities()
+                    next_capabilities = now + self.settings.discovery_interval_seconds
+                if getattr(self.planner, 'system1', None) is not None:
+                    planned = await self._interruptible(self.planner.plan_unplanned_async())
+                else:
+                    planned = self.planner.plan_unplanned()
+                if self._stop.is_set():
+                    break
                 accepted = 0
                 if self._broker_online is True:
                     # El contrato se negocia antes de enviar. Así nunca sale un
@@ -224,8 +232,24 @@ class BrokerWorker:
 
     async def _query_cycle(self) -> None:
         assert self.query_processor is not None
-        await self.query_processor.dispatch_once()
+        await self._interruptible(self.query_processor.dispatch_once())
         await self.query_processor.poll_once()
+
+    async def _interruptible(self, action):
+        """Los nuevos juicios pueden esperar 75 s; detener la app cancela esa espera."""
+        task = asyncio.create_task(action)
+        try:
+            while not task.done():
+                if self._stop.is_set():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                    return []
+                await asyncio.wait({task}, timeout=0.1)
+            return await task
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
 
     async def _apply_pending_settings(self) -> bool:
         with self._settings_lock:

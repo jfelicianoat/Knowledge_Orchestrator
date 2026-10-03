@@ -433,6 +433,8 @@ def normalize_capabilities_response(payload: Mapping[str, Any]) -> dict[str, Any
     string_list_map("ingestion_formats")
 
     for field in (
+        "system1_judgments",
+        "system1_semantic_routing",
         "derived_data_boundary",
         "sandbox_run_code",
         "file_ingestion",

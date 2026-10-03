@@ -46,6 +46,8 @@ from knowledge_orchestrator.services.review_batches import ReviewBatchService
 from knowledge_orchestrator.services.semantic_broker import SemanticBrokerProcessor
 from knowledge_orchestrator.services.semantic_maintenance import SemanticMaintenanceService
 from knowledge_orchestrator.services.source_monitoring import SourceMonitoringService
+from knowledge_orchestrator.services.system1 import System1Service
+from knowledge_orchestrator.services.system1_settings import System1Settings, load_system1_settings
 from knowledge_orchestrator.services.topic_service import TopicService
 from knowledge_orchestrator.services.workflow_planner import WorkflowPlanner
 from knowledge_orchestrator.ui.event_bridge import UiEventBridge
@@ -137,7 +139,8 @@ class OrchestratorRuntime:
                 self.semantic_maintenance.schedule_extraction(note.note_id)
             except (ValueError, OSError) as error:
                 self.publication_repository.record_note_incident(note, "NOTE_ANALYSIS_BLOCKED", error)
-        self.workflow_planner.plan_unplanned()
+        if self.workflow_planner.system1 is None or not self.workflow_planner.system1.settings.transcript_enabled:
+            self.workflow_planner.plan_unplanned()
         for workflow_id in self.workflow_repository.list_resumable_workflow_ids():
             try:
                 self.workflow_planner.advance_workflow(workflow_id)
@@ -186,6 +189,7 @@ def build_runtime(
     broker_settings: BrokerSettings | None = None,
     enable_logging: bool = False,
     note_editor: NoteEditor | None = None,
+    system1_settings: System1Settings | None = None,
 ) -> OrchestratorRuntime:
     """Construye el grafo de dependencias sin arrancar hilos todavia."""
 
@@ -203,7 +207,9 @@ def build_runtime(
     semantic_repository = SemanticRepository(database)
     knowledge = KnowledgeService(KnowledgeRepository(database))
     knowledge_access = KnowledgeAccess(knowledge, pipeline_paths.obsidian_vault)
-    knowledge_queries = KnowledgeQueryService(knowledge_access, QueryRepository(database))
+    broker_client = BrokerClient(settings)
+    system1 = System1Service(broker_client, system1_settings or load_system1_settings(pipeline_paths.state))
+    knowledge_queries = KnowledgeQueryService(knowledge_access, QueryRepository(database), system1)
     api_ingestion = ApiIngestionService(database, pipeline_paths)
     sources = SourceMonitoringService(SourceRepository(database), api_ingestion)
     profiles = ProfileService(domain_repository)
@@ -228,12 +234,12 @@ def build_runtime(
         worker,
         scan_interval_seconds=scan_interval_seconds,
     )
-    broker_client = BrokerClient(settings)
     workflow_planner = WorkflowPlanner(
         repository,
         domain_repository,
         workflow_repository,
         max_context_tokens=settings.max_context_tokens,
+        system1=system1,
     )
     dispatcher = BrokerDispatcher(
         workflow_repository,

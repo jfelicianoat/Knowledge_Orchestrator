@@ -10,7 +10,7 @@ PAGINATION = {
     'limit': {'type': 'integer', 'minimum': 1, 'maximum': 1000, 'default': 100},
     'offset': {'type': 'integer', 'minimum': 0, 'maximum': 1000000, 'default': 0},
 }
-QUERY = {
+QUERY: dict = {
     'type': 'object', 'additionalProperties': False, 'required': ['question'],
     'properties': {'question': {'type': 'string', 'minLength': 1, 'maxLength': 4000}, 'state': STATE},
 }
@@ -20,11 +20,15 @@ DOCUMENT = {
                    'content': {'type': 'string', 'minLength': 1, 'maxLength': 500000},
                    'source_url': {'type': 'string', 'minLength': 1, 'maxLength': 2000}},
 }
-SEMANTIC = {
+SEMANTIC: dict = {
     'type': 'object', 'additionalProperties': False, 'required': ['vector', 'model'],
     'properties': {'vector': {'type': 'array', 'minItems': 1, 'maxItems': 8192, 'items': {'type': 'number'}},
                    'model': {'type': 'string', 'minLength': 1, 'maxLength': 200},
                    'state': STATE, 'limit': {**PAGINATION['limit'], 'default': 20}},
+}
+QUERY['properties']['retrieval'] = {
+    'type': 'object', 'additionalProperties': False, 'required': ['vector', 'model'],
+    'properties': {key: SEMANTIC['properties'][key] for key in ('vector', 'model')},
 }
 SOURCE: dict = {
     'type': 'object', 'additionalProperties': False, 'required': ['name', 'kind', 'location'],

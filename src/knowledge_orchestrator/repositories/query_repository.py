@@ -97,6 +97,20 @@ class QueryRepository:
                 self._event(connection, query_id, 'QUERY_STATE_CHANGED',
                             {'state': status, 'error_code': error_code, 'broker_task_id': broker_task_id})
 
+    def prepare_system1(self, query_id: str, *, request: dict, snapshot: dict) -> dict:
+        with self.database.transaction(immediate=True) as connection:
+            row = connection.execute('SELECT * FROM knowledge_queries WHERE query_id = ?', (query_id,)).fetchone()
+            if row is None:
+                raise LookupError('Consulta inexistente')
+            if row['status'] == 'SUBMITTING' and 'system1' not in json.loads(row['snapshot_json']):
+                connection.execute(
+                    'UPDATE knowledge_queries SET request_json = ?, snapshot_json = ? WHERE query_id = ?',
+                                   (json.dumps(request, ensure_ascii=False), json.dumps(snapshot, ensure_ascii=False),
+                                    query_id))
+                self._event(connection, query_id, 'SYSTEM1_RAG_PREPARED', snapshot['system1'])
+            return dict(connection.execute(
+                'SELECT * FROM knowledge_queries WHERE query_id = ?', (query_id,)).fetchone())
+
     def recover(self) -> None:
         with self.database.transaction(immediate=True) as connection:
             connection.execute("UPDATE knowledge_queries SET status = 'READY' WHERE status = 'SUBMITTING'")

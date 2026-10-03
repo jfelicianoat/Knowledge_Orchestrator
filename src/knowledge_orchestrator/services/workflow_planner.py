@@ -20,6 +20,7 @@ from .prompting import (
     estimate_tokens,
     prompt_context,
 )
+from .system1 import Selection, System1Service
 
 #: Paso final de la síntesis y prefijo de las reducciones intermedias.
 FINAL_SYNTHESIS_STEP = "synthesis"
@@ -66,6 +67,7 @@ class WorkflowPlanner:
         safety_tokens: int = 1_000,
         renderer: PromptRenderer | None = None,
         chunker: TextChunker | None = None,
+        system1: System1Service | None = None,
     ) -> None:
         self.captures = captures
         self.domains = domains
@@ -74,6 +76,7 @@ class WorkflowPlanner:
         self.safety_tokens = safety_tokens
         self.renderer = renderer or PromptRenderer()
         self.chunker = chunker or TextChunker()
+        self.system1 = system1
 
     def plan_unplanned(self) -> list[str]:
         planned: list[str] = []
@@ -86,7 +89,28 @@ class WorkflowPlanner:
                 self.workflows.fail_unplannable_capture(capture_id, "PLANNING_FAILED", str(error))
         return planned
 
-    def plan_capture(self, capture_id: str, *, revision: int | None = None) -> str:
+    async def plan_unplanned_async(self) -> list[str]:
+        if self.system1 is None or not self.system1.settings.transcript_enabled:
+            return self.plan_unplanned()
+        planned = []
+        for capture_id in self.workflows.list_unplanned_capture_ids():
+            try:
+                capture = self.captures.get(capture_id)
+                if capture is None:
+                    continue
+                metadata = json.loads(capture.metadata_json)
+                # Solo las capturas de YouTube; documentos importados siguen su flujo documental.
+                if metadata.get('source_type') != 'youtube':
+                    planned.append(self.plan_capture(capture_id))
+                    continue
+                prepared = await self.system1.filter_transcript(
+                    capture.transcript_content, source_id=capture_id, purpose='research')
+                planned.append(self.plan_capture(capture_id, prepared=prepared))
+            except (ValueError, RuntimeError) as error:
+                self.workflows.fail_unplannable_capture(capture_id, 'PLANNING_FAILED', str(error))
+        return planned
+
+    def plan_capture(self, capture_id: str, *, revision: int | None = None, prepared: Selection | None = None) -> str:
         """Crea un workflow single o chunked segun el presupuesto real de contexto."""
 
         capture = self.captures.get(capture_id)
@@ -98,7 +122,8 @@ class WorkflowPlanner:
         window = self.context_window_for(base_profile)
         profile = self.effective_profile(base_profile, window=window)
         metadata = json.loads(capture.metadata_json)
-        context = prompt_context(metadata, capture.transcript_content)
+        transcript = prepared.text if prepared is not None and prepared.text is not None else capture.transcript_content
+        context = prompt_context(metadata, transcript)
         system = self.renderer.render(profile.system_prompt, context)
         user = self.renderer.render(profile.user_prompt, context)
         input_budget = window - profile.max_output_tokens - self.safety_tokens
@@ -129,7 +154,7 @@ class WorkflowPlanner:
                 sequence_index=0,
                 system=system,
                 user=user,
-                input_text=capture.transcript_content,
+                input_text=transcript,
             )
             tasks.append(task)
             total_steps = 1
@@ -143,7 +168,7 @@ class WorkflowPlanner:
                 + self.renderer.render(profile.chunk_prompt, empty_context)
             )
             chunk_budget = max(250, input_budget - overhead)
-            chunks = self.chunker.split(capture.transcript_content, max_tokens=chunk_budget)
+            chunks = self.chunker.split(transcript, max_tokens=chunk_budget)
             chunk_count = len(chunks)
             profile = replace(profile, max_cost_usd=split_budget(document_budget, chunk_count + 1) or 0.0)
             for index, chunk in enumerate(chunks, start=1):
@@ -186,6 +211,7 @@ class WorkflowPlanner:
                 "long_context_execution": "local_chunks" if strategy == "chunked" else "not_needed",
                 "human_review_required": base_profile.human_review_required,
                 "budget_usd": document_budget,
+                **({"system1": prepared.audit} if prepared is not None else {}),
             },
             tasks=tasks,
             # La política de revisión se congela aquí: cambiar el perfil después

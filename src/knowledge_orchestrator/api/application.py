@@ -231,8 +231,9 @@ class KnowledgeApi:
         if route == '/search/semantic':
             return 200, {'items': self.access.semantic_search(**body), 'retrieval': 'vector_cosine'}, {}
         if route in {'/query', '/queries/{query_id}'}:
-            result = runtime.knowledge_queries.create(body['question'], state=body.get('state', 'current'),
-                                                       owner=owner, key=key) if method == 'POST' else \
+            result = runtime.knowledge_queries.create(
+                body['question'], state=body.get('state', 'current'), owner=owner, key=key,
+                retrieval=body.get('retrieval')) if method == 'POST' else \
                 runtime.knowledge_queries.get(ids['query_id'], owner=owner)
             status = 200 if result['status'] == 'SUCCESS' else 409 if result['status'] == 'STALE' else \
                 502 if result['status'] == 'ERROR' else 202
