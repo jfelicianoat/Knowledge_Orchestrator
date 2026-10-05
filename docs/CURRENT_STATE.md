@@ -1,5 +1,18 @@
 # Estado vigente de Knowledge Orchestrator
 
+Incremento 29, **3 de octubre de 2026 — System 1 opcional vía AI Broker 2.11**. Reranking de
+claims posterior al retrieval y preparación semántica de transcripciones de YouTube en el worker,
+con fuente íntegra, mínimos de evidencia y fallback al flujo anterior. El Client_API actualizado
+exige `threshold_profile: "default"` para los casos propios; ambos usos lo envían. Los intentos
+brutos sirven para diagnóstico y no activan descartes. `target` se admite en evaluación explícita.
+
+**555 pruebas pasan, 16 omitidas por entorno; Ruff y mypy (161 archivos) pasan.** La comprobación
+final del contrato/integración incluye 69 pruebas y 23 subtests, sin fallos. Las demos controladas
+reducen RAG 12→2 candidatos y resumen 5→3 segmentos; no se afirma calidad ni ahorro de modelos reales.
+Por defecto los flags están apagados. [Activación y arquitectura](System1_Integration.md) ·
+[Verificación y límites](System1_Acceptance_20261003.md).
+
+
 Incremento 28, **27–28 de septiembre de 2026 — 0.4.0, la auditoría del 27-sep y el primer conocimiento
 real**. Se revisó `docs/Auditoria 20260927/INFORME_AUDITORIA_KNOWLEDGE_ORCHESTRATOR.md`: sus nueve P1 son
 ciertos y se reprodujeron (el documento de «verificación» fechado el 4-oct no es fiable: cita un

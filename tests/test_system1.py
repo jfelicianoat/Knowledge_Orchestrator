@@ -262,12 +262,86 @@ class System1SettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             state = Path(temporary)
             (state / 'system1.json').write_text('{"rag_enabled":true,"min_chunks":3}', encoding='utf-8')
-            with patch.dict('os.environ', {'KO_SYSTEM1_SHADOW_MODE': 'true', 'KO_SYSTEM1_MAX_CHUNKS': '5'}):
+            with patch.dict('os.environ', {'KO_SYSTEM1_SHADOW_MODE': 'true', 'KO_SYSTEM1_MAX_CHUNKS': '5',
+                                           'KO_SYSTEM1_RAG_THRESHOLD_PROFILE': 'ranking'}):
                 settings = load_system1_settings(state)
                 self.assertTrue(settings.rag_enabled)
                 self.assertTrue(settings.shadow_mode)
                 self.assertEqual((settings.min_chunks, settings.max_chunks), (3, 5))
+                self.assertEqual(settings.rag_threshold_profile, 'ranking')
         for kwargs in ({'min_chunks': 0}, {'min_chunks': 10, 'max_chunks': 2}, {'relevance_keep': float('nan')},
                        {'transcript_enabled': 'true'}, {'segment_tokens': 0}, {'adjacent_segments': -1}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 replace(System1Settings(), **kwargs)
+
+
+class UpdatedSystem1ContractTests(unittest.IsolatedAsyncioTestCase):
+    async def test_custom_use_cases_explicitly_request_default_thresholds(self):
+        def handler(request):
+            if request.url.path.endswith('/capabilities'):
+                return httpx.Response(200, json={'system1_judgments': True})
+            payload = json.loads(request.content)
+            self.assertEqual(payload['threshold_profile'], 'default')
+            self.assertNotIn('target', payload)
+            decision = 10 if payload['decision_type'] == 'score' else 'substantive'
+            return httpx.Response(200, json=judgment(payload, decision))
+        client = BrokerClient(BrokerSettings(base_url='http://broker.test'), transport=httpx.MockTransport(handler))
+        self.addAsyncCleanup(client.close)
+        await client.capabilities()
+        service = System1Service(client, System1Settings(rag_enabled=True, transcript_enabled=True))
+        self.assertFalse((await service.rerank('pregunta', candidates(2))).audit['fallback'])
+        self.assertFalse((await service.filter_transcript('Contenido técnico.', source_id='video')).audit['fallback'])
+
+    async def test_rejected_raw_attempt_never_changes_business_context(self):
+        class Rejected:
+            async def judge(self, request, **kwargs):
+                decision = 10 if request['decision_type'] == 'score' else 'promotion'
+                response = judgment(request, decision, accepted=False, fallback=True)
+                response['reason_code'] = 'SELF_REPORTED_SCORE'
+                response['attempts'] = [{'provider': 'ollama_system1', 'model': 'teacher',
+                                         'reason_code': 'SELF_REPORTED_SCORE', 'decision': decision,
+                                         'confidence': 1.0, 'score_source': 'self_reported'}]
+                return response
+        service = System1Service(Rejected(), System1Settings(rag_enabled=True, transcript_enabled=True))
+        original = candidates()
+        rag = await service.rerank('pregunta', original)
+        self.assertEqual(rag.items, original)
+        self.assertEqual(rag.audit['rejected_judgment']['attempts'][0]['confidence'], 1.0)
+        text = transcript_fixture()
+        transcript = await service.filter_transcript(text, source_id='video')
+        self.assertEqual(transcript.text, text)
+        self.assertEqual(transcript.audit['reason_code'], 'SELF_REPORTED_SCORE')
+
+    async def test_target_is_evaluation_only_and_preserves_actual_model_name(self):
+        request = {'use_case': 'goal_completion', 'input': {'goal': 'x'}, 'decision_type': 'binary',
+                   'target': {'provider': 'laya_mcp', 'model': 'multilingual'}}
+        validate_judgment_request(request)
+        response = judgment(request, True, provider='laya_mcp')
+        response['model'] = 'convaiinnovations/laya/multilingual'
+        def handler(http_request):
+            self.assertEqual(json.loads(http_request.content)['target'], request['target'])
+            return httpx.Response(200, json=response)
+        client = BrokerClient(BrokerSettings(), transport=httpx.MockTransport(handler))
+        client._capabilities = {'system1_judgments': True}
+        self.addAsyncCleanup(client.close)
+        result = await client.judge(request)
+        self.assertEqual(result['model'], 'convaiinnovations/laya/multilingual')
+        for target in ({'provider': 'lmstudio'}, {'provider': 'laya_mcp', 'extra': True},
+                       {'provider': 'laya_mcp', 'model': ''}):
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                validate_judgment_request({**request, 'target': target})
+
+    async def test_self_reported_accepted_response_is_invalid_and_not_used(self):
+        request = {'use_case': 'case', 'input': {'x': 1}, 'decision_type': 'binary'}
+        response = judgment(request, True)
+        response['attempts'] = [{'score_source': 'self_reported'}]
+        with self.assertRaises(ValueError):
+            validate_judgment(response, request)
+
+    async def test_named_profiles_can_be_configured_separately(self):
+        broker = FakeJudge()
+        service = System1Service(broker, System1Settings(rag_enabled=True, transcript_enabled=True,
+                                 rag_threshold_profile='ranking', transcript_threshold_profile='transcripts'))
+        await service.rerank('pregunta', candidates(2))
+        await service.filter_transcript('explicación', source_id='video')
+        self.assertEqual([r['threshold_profile'] for r in broker.requests], ['ranking', 'ranking', 'transcripts'])

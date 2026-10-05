@@ -14,6 +14,8 @@ class System1Settings:
     transcript_enabled: bool = False
     shadow_mode: bool = False
     require_calibrated: bool = False
+    rag_threshold_profile: str = "default"
+    transcript_threshold_profile: str = "default"
     http_timeout_seconds: float = 75.0
     stage_timeout_seconds: float = 90.0
     relevance_keep: float = 0.80
@@ -33,6 +35,9 @@ class System1Settings:
             if isinstance(default, bool):
                 if type(value) is not bool:
                     raise ValueError(f'{item.name}: se requiere booleano')
+            elif isinstance(default, str):
+                if not isinstance(value, str) or not 1 <= len(value.strip()) <= 128:
+                    raise ValueError(f'{item.name}: perfil inválido')
             elif type(value) not in {int, float} or not math.isfinite(value) or (
                     isinstance(default, int) and type(value) is not int):
                 raise ValueError(f'{item.name}: número inválido')
@@ -63,6 +68,8 @@ def load_system1_settings(state: Path) -> System1Settings:
             if raw.lower() not in {'true', 'false', '1', '0'}:
                 raise ValueError(f'KO_SYSTEM1_{name.upper()}: booleano inválido')
             values[name] = raw.lower() in {'true', '1'}
+        elif isinstance(item.default, str):
+            values[name] = raw
         else:
             values[name] = int(raw) if isinstance(item.default, int) else float(raw)
     return System1Settings(**values)

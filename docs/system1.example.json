@@ -1,0 +1,20 @@
+{
+  "rag_enabled": true,
+  "transcript_enabled": true,
+  "shadow_mode": true,
+  "require_calibrated": false,
+  "rag_threshold_profile": "default",
+  "transcript_threshold_profile": "default",
+  "http_timeout_seconds": 75.0,
+  "stage_timeout_seconds": 90.0,
+  "relevance_keep": 0.80,
+  "relevance_uncertain": 0.55,
+  "rag_min_confidence": 0.85,
+  "min_chunks": 2,
+  "max_chunks": 8,
+  "context_tokens": 6000,
+  "transcript_min_confidence": 0.90,
+  "segment_tokens": 600,
+  "max_segments": 64,
+  "adjacent_segments": 1
+}

@@ -8,14 +8,25 @@ from typing import Any
 
 def validate_judgment_request(payload: dict[str, Any]) -> None:
     allowed = {'use_case', 'input', 'decision_type', 'options', 'criteria', 'rubric',
-               'instructions', 'threshold_profile', 'cloud_allowed'}
-    if set(payload) - allowed or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', payload.get('use_case', '')):
+               'instructions', 'threshold_profile', 'cloud_allowed', 'target'}
+    use_case = payload.get('use_case')
+    if set(payload) - allowed or not isinstance(use_case, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', use_case):
         raise ValueError('Petición System 1 inválida')
     if not isinstance(payload.get('input'), dict) or not payload['input']:
         raise ValueError('System 1 requiere input no vacío')
     kind = payload.get('decision_type')
-    if kind not in {'binary', 'choice', 'score'} or type(payload.get('cloud_allowed', False)) is not bool:
+    if (not isinstance(kind, str) or kind not in {'binary', 'choice', 'score'} or
+            type(payload.get('cloud_allowed', False)) is not bool):
         raise ValueError('Tipo de juicio o frontera inválidos')
+    target = payload.get('target')
+    if target is not None:
+        if (not isinstance(target, dict) or set(target) - {'provider', 'model'} or
+                not isinstance(target.get('provider'), str) or
+                target['provider'] not in {'ollama_system1', 'laya_mcp'}):
+            raise ValueError('Juez objetivo inválido')
+        model = target.get('model')
+        if model is not None and (not isinstance(model, str) or not model.strip()):
+            raise ValueError('Modelo objetivo inválido')
     for field, maximum in (('instructions', 4000), ('threshold_profile', 128)):
         value = payload.get(field)
         if value is not None and (not isinstance(value, str) or not 1 <= len(value.strip()) <= maximum):
@@ -56,6 +67,8 @@ def validate_judgment(payload: dict[str, Any], request: dict[str, Any]) -> dict[
     attempts = payload.get('attempts')
     if not isinstance(attempts, list) or any(not isinstance(v, dict) for v in attempts):
         raise ValueError('Intentos System 1 inválidos')
+    if payload['accepted'] is True and any(a.get('score_source') == 'self_reported' for a in attempts):
+        raise ValueError('Una confianza autodeclarada no puede ser un juicio aceptado')
     if payload['accepted'] is False:
         if payload.get('decision') is not None or payload.get('confidence') is not None:
             raise ValueError('Juicio rechazado con decisión')
@@ -78,7 +91,8 @@ def validate_judgment(payload: dict[str, Any], request: dict[str, Any]) -> dict[
         raise ValueError('Alternativas System 1 inválidas')
     values = [decision, *(a['value'] for a in alternatives)]
     expected = 2 if kind == 'binary' else len(request['options'] if kind == 'choice' else request['rubric'])
-    if len(values) != expected or len(set(values)) != expected or any(
+    complete = len(values) <= expected if kind == 'binary' else len(values) == expected
+    if not complete or len(set(values)) != len(values) or any(
             a['confidence'] > confidence for a in alternatives):
         raise ValueError('Dominio incompleto o top1 inválido')
     return payload

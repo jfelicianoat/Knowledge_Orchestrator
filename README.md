@@ -1,6 +1,9 @@
 # Knowledge Orchestrator — Desktop Pipeline
 
-Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows de conocimiento —chunking, síntesis, extracción de afirmaciones y comparación semántica— mientras AI Broker ejecuta la estrategia técnica. El validador acepta el contrato aditivo 2.10 y conserva compatibilidad con 2.8 y 2.9; el aviso de versión compara ya contra un mínimo numérico, no contra una cadena exacta (ver [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md)).
+Orquestador de escritorio que conecta la captura de contenido con el procesamiento por LLMs y la publicación en Obsidian. Orquesta workflows de conocimiento —chunking, síntesis, extracción de afirmaciones y comparación semántica— mientras AI Broker ejecuta la estrategia técnica. El validador acepta el contrato aditivo 2.11, con juicios System-1 opcionales y conserva compatibilidad con 2.8 y 2.9; el aviso de versión compara ya contra un mínimo numérico, no contra una cadena exacta (ver [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md)).
+
+La configuración y las demostraciones de reranking y filtrado de transcripciones están en
+[System 1](docs/System1_Integration.md), con [evidencia de verificación](docs/System1_Acceptance_20261003.md).
 
 ## Arquitectura del Ecosistema
 

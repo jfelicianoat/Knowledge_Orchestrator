@@ -48,7 +48,8 @@ class System1IntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('Evidencia exacta', generator.requests[0]['content']['prompt'])
         self.assertNotIn('"claim_id": 1,', generator.requests[0]['content']['prompt'])
         with closing(self.runtime.database.connect()) as connection:
-            event = connection.execute("SELECT details_json FROM events WHERE event_type='SYSTEM1_RAG_PREPARED'").                fetchone()[0]
+            event = connection.execute(
+                "SELECT details_json FROM events WHERE event_type='SYSTEM1_RAG_PREPARED'").fetchone()[0]
         self.assertNotIn('¿Resultado exacto?', event)
         self.assertNotIn('quote', event)
         # Otro vector bajo la misma clave no puede reutilizar una respuesta ajena.
@@ -110,8 +111,10 @@ class System1IntegrationTests(unittest.IsolatedAsyncioTestCase):
             transcript_enabled=True, segment_tokens=40, adjacent_segments=0))
         planned = await planner.plan_unplanned_async()
         self.assertEqual(len(planned), 1)
-        workflow = self.runtime.workflow_repository.get_workflow(planned[0])
-        self.assertIn('system1', json.loads(workflow.plan_json))
+        with closing(self.runtime.database.connect(readonly=True)) as connection:
+            plan = connection.execute('SELECT plan_json FROM workflows WHERE workflow_id = ?',
+                                      (planned[0],)).fetchone()[0]
+        self.assertIn('system1', json.loads(plan))
         task = self.runtime.workflow_repository.list_workflow_tasks(planned[0])[0]
         self.assertNotIn('Patrocinio', json.loads(task.request_json)['content']['prompt'])
         self.assertEqual(self.runtime.repository.get(capture_id).transcript_content, original)
@@ -141,3 +144,28 @@ class System1IntegrationTests(unittest.IsolatedAsyncioTestCase):
         worker._stop.set()
         self.assertEqual(await asyncio.wait_for(operation, 1), [])
         self.assertTrue(cancelled.is_set())
+
+    async def test_real_embeddings_rerank_and_return_exact_evidence(self):
+        texts = ['El producto comparte palabras con la pregunta pero trata otro tema.',
+                 'El experimento obtuvo exactamente 42 unidades en la medición.']
+        ids = []
+        for index, text in enumerate(texts):
+            note = self.publish(f'vector_real_{index}', '# Resultado\n\n' + text + '\n')
+            self.runtime.semantic_maintenance.ingest_extraction(note.note_id, self.extraction(note, text))
+            claim = next(c for c in self.runtime.semantic_repository.list_claims() if c.note_id == note.note_id)
+            ids.append(claim.claim_id)
+            self.runtime.semantic_repository.record_embedding(claim.claim_id, 'fixture-space',
+                                                               [1, 0] if index == 0 else [0.8, 0.6])
+        service = self.runtime.knowledge_queries
+        service.system1 = System1Service(FakeJudge({ids[0]: 1, ids[1]: 10}),
+                                         System1Settings(rag_enabled=True, min_chunks=1))
+        created = service.create('¿Resultado de la medición?', state='current', owner='consumer',
+                                 key='real-vector-query', retrieval={'vector': [1, 0], 'model': 'fixture-space'})
+        generator = FakeQueryBroker({'claim_ids': [ids[1]], 'insufficient': False})
+        processor = KnowledgeQueryProcessor(service, generator)
+        self.assertEqual(await processor.dispatch_once(), 1)
+        self.assertEqual(await processor.poll_once(), 1)
+        result = service.get(created['query_id'], owner='consumer')
+        self.assertEqual(result['status'], 'SUCCESS')
+        self.assertEqual([c['claim_id'] for c in result['claims']], [ids[1]])
+        self.assertEqual(result['evidence'][0]['quote'], texts[1])
