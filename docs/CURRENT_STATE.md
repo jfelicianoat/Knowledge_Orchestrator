@@ -1,5 +1,46 @@
 # Estado vigente de Knowledge Orchestrator
 
+Incremento 30, **8–9 de octubre de 2026 — 0.4.1, prueba de uso real con la ventana y el AI Broker**.
+Recorridos automatizados sobre la ventana real (clics en los botones, diálogos interceptados y
+capturas), con el Broker real (192.168.1.52) y carpetas aisladas. **594 pruebas, Ruff y mypy (161
+archivos) limpios; ejecutable 0.4.1 regenerado** (sin instalador: falta Inno Setup). Regresiones en
+`tests/test_uso_real_2026_10_08.py` y en las suites afectadas. Manual de uso:
+[`Manual_de_uso_Knowledge_Orchestrator.pdf`](Manual_de_uso_Knowledge_Orchestrator.pdf) (fuente en `docs/manual/`; se regenera con `python docs/manual/build_pdf.py`).
+
+| Encontrado usando la app | Corrección |
+|---|---|
+| «Revisar carpetas» (aviso de Inicio) no hacía nada: navegaba a una página inexistente | Lleva a Ajustes |
+| Un fichero roto en la bandeja desaparecía a cuarentena sin rastro en Documentos | Incidencia «Formato no válido/Sin transcripción», no reintentable, con «Abrir ubicación» y «Cerrar incidencia» |
+| Tras conectar, Ajustes solo ofrecía «Automático»: `/models` superaba 10 s, no se reintentaba en 5 min y se anunciaba como Broker caído | Límite propio de 30 s, reintento a 30 s, evento propio; la barra lateral se recupera tras cualquier fallo suelto |
+| El refresco de 2 s re-seleccionaba cada lista y recargaba sus formularios: en Organización se perdía lo escrito | `_keep_selection`: solo se fija la selección si cambia |
+| `TASK_TIMEOUT` a 600 s con el perfil de fábrica (consenso de 4 modelos 27–33B) en un documento de 690 bytes | Plazo 1800 s (migración 025), texto claro y mensaje del Broker en detalles técnicos; evento en la línea de tiempo |
+| «Reintentar» fallaba al instante con `DOCUMENT_BUDGET_EXHAUSTED` (el fallo sin coste retenía toda la reserva) | Peticiones `local_only` no reservan dinero |
+| Tras «Reintentar», la captura quedaba en PENDING para siempre: ni borrador visible ni «Finalizado» | Pasa a SUBMITTING; migración 026 repara los atascados (excluye reprocesados) |
+| 3 de 11 comparaciones fallaban por omitir `replacement_text` y eso apartaba 14 días al mejor modelo (granite) | Si se omite se usa la evidencia literal (la que se aplicaría igualmente); un texto inventado sigue rechazándose |
+| Aplicar un cambio sin puente de Obsidian quedaba «aplicándose» para siempre y el lote en recuperación, sin aviso | Lote no aplicable con motivo; «Aplicar cambio» desactivado y explicado; APPLYING visible en Revisión |
+| Otros: reimportar no avisaba; `.txt` titulado con el nombre del fichero; propuestas en conflicto editables con error técnico; «UNKNOWN», códigos y eventos sin traducir; columnas cortadas; error en inglés en Fuentes; clic en «Iniciar API» perdido durante el refresco; resultado de «Probar acceso local» borrado a los 2 s; mensaje de contradicciones sin decir cuáles | Corregidos |
+
+Medido contra el Broker real: con «Automático según la tarea» un documento corto tarda 7–14 min; con
+«Respuesta directa» + `gemma4:12b`, ~3 min. Comparaciones de prueba: `granite4.1:30b` y
+`qwen3-coder:30b` 5/5, `lfm2:24b` 2/5 (responde «Confirma» casi siempre; un prompt con definiciones
+no lo arregló y se descartó). **Complemento de Obsidian verificado** con su código sin modificar ejecutado en Node (anfitrión que imita solo `vault.read/process`, `secretStorage` y `onLayoutReady`): desde la ventana real se guardó y comprobó la conexión, se aplicó una contradicción real por lote (escritura y recibo del complemento) y se revirtió (nota restaurada, segundo recibo). Después, **dentro de Obsidian 1.12.7 real** (perfil aislado con `--user-data-dir`, manejado por CDP: modo restringido desactivado, secreto en su llavero, complemento activado): comprobar conexión, aplicar una propuesta real por lote y revertirla desde la ventana del Orchestrator, con 0 fallos; Obsidian ve las notas restauradas y sus recibos APPLIED. La configuración real de Obsidian del usuario no se tocó. También en Obsidian real: una edición hecha dentro de Obsidian después de calcular el cambio hace que el complemento lo rechace y conserva la edición; calculado sobre la versión actual, se aplica. Con el ejecutable final: `--backup`, `--full-backup`, `--restore` (sin `--root`, sobre carpeta no vacía y válido), `--diagnostics` (sin secretos), `--once` (cuarentena visible) y API (lectura, 401 sin credencial o falsa, 403 por permiso, 202/idempotencia/409/400 en ingesta, consumidor de la app y su revocación en caliente): 25/25. «Automático» elige `granite4.1:30b` como modelo de análisis con el catálogo real.
+
+Última tanda (9-oct): **descartar una contradicción dejaba sus afirmaciones «en disputa» para siempre** (fuera del conocimiento vigente, de las consultas y de las políticas, sin forma de recuperarlas desde la ventana): ahora vuelven a su estado anterior si ninguna otra contradicción abierta las implica; la migración 027 repara las que ya estaban así. **Respaldo de afirmaciones en fuentes cortas (1–3 tramos)**: la ponderación por rareza no es medible y castigaba paráfrasis fieles; medido sobre 100 afirmaciones reales, 46→59 respaldadas, sin cambio en transcripciones largas. Verificado de punta a punta en la ventana real: fuente web con dirección local rechazada («Dirección no pública»), edición y desactivación de fuentes, temas inactivos y prioridades, perfil de fábrica «Automático» (≈5 min por documento), novedad detectada e incorporada sola, y **política de autoaprobación que aplicó un cambio sola a través de Obsidian real** 5 s después de reanudar el control global. 594 pruebas + 14 del complemento; ejecutable con 27 migraciones. Después: dos vídeos reales largos de la bandeja (53 tramos) procesados con el Broker: en fuentes largas la regla de respaldo actual coincide con la anterior en 50/50 afirmaciones (la variante sin límite habría cambiado 32: por eso se limitó a ≤3 tramos). API con el ejecutable: pregunta fundamentada con el Broker real (respuesta con citas de afirmaciones vigentes; una consulta hecha antes de cambiar el conocimiento queda STALE con KNOWLEDGE_CHANGED, como documenta el contrato), rechazo de propuesta, cambio de vigencia, alta y comprobación de fuente RSS real (50 novedades), rutas de gobernanza y 403 por permisos. Aprobar por API con Obsidian cerrado: 503 OBSIDIAN_UNAVAILABLE con la operación pendiente (APPLYING, nota intacta); al abrir Obsidian real y recuperar, la propuesta queda APPLIED y la nota con el cambio. Las 13 afirmaciones respaldadas de los vídeos largos revisadas a mano: correctas. Revisadas a mano las 37 «enlazadas por el modelo»: ~12 falsos negativos (paráfrasis; cifras habladas como «015» por 0,15 %), ~24 no comprobables (definiciones, metodología, conclusiones) y 1 que contradice la fuente («alfa negativo» cuando el vídeo dice que aporta valor), bien rechazada. En fuentes largas: precisión 13/13 y cobertura ~50 %. No se amplía la cobertura: normalizar cifras habladas o relajar la ponderación arriesgaría respaldar cifras falsas, que es lo que el criterio protege. 594 pruebas en verde sobre el código final.
+
+Encontrado al verificarlo: un 409 del Broker (identidad ya usada con otro contenido, típico al reprocesar tras reinstalar) se mostraba como «CONTRACT_VALIDATION_FAILED · Broker HTTP 409»; ahora es `IDEMPOTENCY_CONFLICT` con explicación y «Reintentar» lo resuelve. Y granite devolvía como texto propuesto un fragmento literal de la evidencia, que se rechazaba como inferencia: ahora se acepta (se aplica la evidencia completa); un texto inventado se sigue rechazando. 591 pruebas + 14 del complemento.
+
+Cierre (9-oct): granite a veces copia la evidencia perdiendo letras («la versión» → «l sión»), y la
+comparación se rechazaba. Ahora se acepta un texto casi literal (parecido ≥ 0,9) siempre que no añada
+cifras ni negaciones que no estén en la evidencia; se aplica la evidencia completa. Tras el cambio, en la
+ventana real, los 6 análisis con incidencia reintentados terminan y dejan 5 propuestas pendientes de
+revisión. Recorridos finales sin fallos: tarjetas de Inicio, envío múltiple, editor de instrucciones,
+«Elegir…» de carpetas, filtros y paginación de la Biblioteca, localizar nota movida y retirar, «Revisar
+selección/todas», desplegable de lotes anteriores, «Consultar» y «Actualizar recibo» de una reversión
+(APPLIED), paginación de Actividad y políticas (evaluar, simular una propuesta, quitar filtro, recargar,
+guardar con motivo —revoca la autorización— y simular la página siguiente). **594 pruebas, Ruff y mypy
+limpios; ejecutable 0.4.1 regenerado** y comprobado (`--once --root` sobre carpeta nueva: 27 migraciones).
+
+
 Incremento 29, **3 de octubre de 2026 — System 1 opcional vía AI Broker 2.11**. Reranking de
 claims posterior al retrieval y preparación semántica de transcripciones de YouTube en el worker,
 con fuente íntegra, mínimos de evidencia y fallback al flujo anterior. El Client_API actualizado

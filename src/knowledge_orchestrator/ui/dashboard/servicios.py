@@ -46,6 +46,8 @@ class ServiciosMixin(OperacionesMixin):
         self._services_status = OperationsStatusService(self.runtime)
         self._services_queue: queue.SimpleQueue = queue.SimpleQueue()
         self._services_busy = False
+        self._services_pending = None
+        self._api_probe_note: str | None = None
         self._services_snapshot: dict = {}
         self._api_activity: list[dict] = []
         self._api_activity_offset = 0
@@ -206,10 +208,18 @@ class ServiciosMixin(OperacionesMixin):
 
     def _read_services(self, operation=None):
         if self._services_busy:
+            # Una orden (iniciar/detener) que llega durante una lectura no se
+            # pierde: se ejecuta en cuanto termine.
+            if operation is not None:
+                self._services_pending = operation
             return
         self._services_busy = True
-        self.api_start_button.state(['disabled'])
-        self.api_stop_button.state(['disabled'])
+        if operation is not None:
+            # Solo al iniciar o detener. El refresco de cada 2 s también pasaba
+            # por aquí y dejaba los botones apagados mientras leía: un clic en
+            # ese momento no hacía nada (prueba real 8-oct).
+            self.api_start_button.state(['disabled'])
+            self.api_stop_button.state(['disabled'])
         results, service = self._services_queue, self._services_status
 
         def read():
@@ -234,6 +244,9 @@ class ServiciosMixin(OperacionesMixin):
             self.after(100, self._poll_services)
             return
         self._services_busy = False
+        pending, self._services_pending = self._services_pending, None
+        if pending is not None:
+            self.after_idle(lambda: self._read_services(pending))
         if snapshot is not None:
             self._services_snapshot = snapshot
             self._render_services(snapshot)
@@ -247,7 +260,11 @@ class ServiciosMixin(OperacionesMixin):
         self.api_status_var.set(f"{state} · {api['address'] or 'Sin listener activo en esta sesión'}\n"
                                 'La API solo acepta conexiones locales autenticadas. '
                                 'Esta vista no comprueba otros procesos.')
-        self.api_hint_var.set(API_ERRORS.get(api['error_code'], '') or (
+        if not api['running']:
+            self._api_probe_note = None
+        # El resultado de «Probar acceso local» se quedaba 2 s: el refresco lo
+        # sustituía por «Consumidores cargados…». Se mantiene mientras la API siga activa.
+        self.api_hint_var.set(API_ERRORS.get(api['error_code'], '') or self._api_probe_note or (
             'Consumidores cargados para este servidor.' if api['running'] else
             'Acceso configurado. Inicia la API para atender solicitudes.' if api['configured'] else
             'No hay consumidores. Crea uno con «Nuevo consumidor…»; '
@@ -482,6 +499,7 @@ class ServiciosMixin(OperacionesMixin):
             message = 'Credencial no válida o revocada.'
         else:
             message = f'La API respondió {status}.'
+        self._api_probe_note = message
         self.api_hint_var.set(message)
         self.status_var.set(message)
         return message

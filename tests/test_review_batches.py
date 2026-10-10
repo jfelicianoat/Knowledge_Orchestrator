@@ -55,6 +55,19 @@ class ReviewBatchTests(unittest.TestCase):
     def receipt(self, service, batch):
         return service.repository.get(batch['batch_id'], owner='human:test')
 
+    def test_without_obsidian_bridge_nothing_is_planned_and_the_reason_is_given(self):
+        # Prueba real 8-oct: sin el puente, la aprobación se quedaba «aplicándose»
+        # para siempre y el lote en recuperación, sin ningún mensaje.
+        from knowledge_orchestrator.integrations.obsidian_bridge import UnconfiguredNoteEditor
+
+        _, _, candidate = self.candidate()
+        self.runtime.semantic_maintenance.note_editor = UnconfiguredNoteEditor()
+        batch = self.preview(self.batches(), candidate)
+        self.assertEqual(batch['plan']['counts']['eligible_tasks'], 0)
+        self.assertIn('puente de Obsidian', ' '.join(batch['plan']['items'][0]['blockers']))
+        self.assertEqual(self.runtime.semantic_repository.get_candidate(candidate.candidate_id).status,
+                         'PENDING_REVIEW')
+
     def test_preview_is_frozen_idempotent_and_does_not_publish(self):
         old, _, candidate = self.candidate()
         before = old.vault_path.read_bytes()

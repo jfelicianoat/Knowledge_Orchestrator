@@ -84,6 +84,22 @@ class MarkdownImportUiTests(unittest.TestCase):
         self.assertEqual(list(self.runtime.paths.inbox.glob("*.md")), [])
         self.assertIn("No se añadió ningún documento", self.window.status_var.get())
 
+    def test_already_imported_documents_are_announced_and_not_copied_again(self) -> None:
+        # Antes se copiaban otra vez, la ingesta los rechazaba como duplicados y
+        # solo lo decía un mensaje de la barra de estado que otros eventos tapaban.
+        capture = self.outside / "captura.md"
+        capture.write_text(CAPTURE, encoding="utf-8")
+        self._import([capture], convert=True)
+        self.assertTrue(self.runtime.ingestion.ingest(self.runtime.paths.inbox / "captura.md").accepted)
+
+        infos = mock.Mock()
+        with mock.patch.object(trabajo_acciones.messagebox, "showinfo", infos):
+            self._import([capture], convert=True)
+        infos.assert_called_once()
+        self.assertEqual(infos.call_args.args[0], "Ya estaban importados")
+        self.assertEqual(list(self.runtime.paths.inbox.glob("*.md")), [])
+        self.assertIn("No se añadió ningún documento", self.window.status_var.get())
+
 
 if __name__ == "__main__":
     unittest.main()

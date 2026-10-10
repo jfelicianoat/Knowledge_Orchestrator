@@ -31,6 +31,11 @@ CLASSIFICATION_LABELS = {
     "internal": "Uso interno",
     "public": "Contenido público",
 }
+#: Rótulos para la lista de perfiles: los completos no caben en su columna
+#: («Automático segúr», «Solo procesamier»). El formulario usa los completos.
+SHORT_STRATEGY_LABELS = {"single": "Directa", "mixture_of_agents": "Consenso", "auto": "Automática"}
+SHORT_CLASSIFICATION_LABELS = {"local_only": "Solo local", "confidential": "Confidencial",
+                               "internal": "Interno", "public": "Público"}
 LONG_CONTEXT_LABELS = {
     "fail": "Dividir el documento localmente",
     "map_reduce": "Procesar documentos extensos por bloques",
@@ -326,8 +331,8 @@ class ConfiguracionMixin(TemasMixin):
         self._replace_tree(
             self.profiles_tree,
             [(str(item.profile_id), (item.name, item.preferred_model or "Automático",
-              _label_for(STRATEGY_LABELS, item.execution_strategy),
-              _label_for(CLASSIFICATION_LABELS, item.data_classification),
+              _label_for(SHORT_STRATEGY_LABELS, item.execution_strategy),
+              _label_for(SHORT_CLASSIFICATION_LABELS, item.data_classification),
               "sí" if item.enabled else "no"))
              for item in profiles],
         )

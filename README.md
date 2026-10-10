@@ -61,7 +61,7 @@ ampliada siguen en desarrollo; los checkpoints distinguen pruebas locales y prue
 
 ```
 ┌──────────────────┬─────────────────────────────┬───────────────────────────┐
-│ KO  v0.4.0       │ Documentos                  │ Documento seleccionado    │
+│ KO  v0.4.1       │ Documentos                  │ Documento seleccionado    │
 │ [+ Importar]     │ [En proceso 2][Atención 2]… │ ✓──✓──○──○──○  (5 pasos)  │
 │ TRABAJO          │ 🔍 Buscar…                  │ ┃ Qué pasa y cómo seguir  │
 │  Inicio          │ ● Título      Estado  hace… │ ┃ [Reintentar] [Abrir]    │

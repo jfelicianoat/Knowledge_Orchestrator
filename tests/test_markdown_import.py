@@ -77,6 +77,14 @@ class MarkdownImportTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(original.read_bytes()).hexdigest(), before)
         self.assertTrue(original.exists())
 
+    def test_plain_text_takes_its_first_short_line_as_title(self) -> None:
+        from knowledge_orchestrator.services.markdown_import import detect_title
+
+        self.assertEqual(detect_title("\nActualización sobre Python (octubre de 2026)\n\nPython 3.15…\n", None,
+                                      "Actualizacion_Python"), "Actualización sobre Python (octubre de 2026)")
+        long_paragraph = "Una frase muy larga " * 10
+        self.assertEqual(detect_title(long_paragraph, None, "notas"), "notas")
+
     def test_capture_id_is_deterministic_and_frontmatter_title_wins(self) -> None:
         text = "---\ntitle: Nota de Obsidian\ntags: [x]\n---\n\nCuerpo sin encabezado.\n"
         first = self._write("a.md", text)

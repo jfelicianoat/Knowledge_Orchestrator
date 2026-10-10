@@ -8,6 +8,9 @@ from knowledge_orchestrator.domain.broker_contracts import auxiliary_invocations
 from knowledge_orchestrator.domain.models import ProfileDefinition
 from knowledge_orchestrator.services.broker_shield import shield_prompt
 
+#: Plazo de la redacción con un solo modelo; el de consenso es del perfil.
+DIRECT_TIMEOUT_SECONDS = 1800
+
 
 class PromptRenderError(ValueError):
     pass
@@ -159,7 +162,10 @@ def build_chat_request(
             "max_proposers": proposer_count,
             "max_judges": 0,
             "max_rounds": 1,
-            "timeout_seconds": profile.consensus_timeout_seconds if use_consensus or use_auto else 600,
+            # Un modelo local grande puede tardar minutos solo en cargar: con
+            # 600 s fijos la respuesta directa también se cortaba (TASK_TIMEOUT).
+            "timeout_seconds": profile.consensus_timeout_seconds if use_consensus or use_auto
+            else DIRECT_TIMEOUT_SECONDS,
             "early_stop": True,
             "selection": {
                 "mode": "auto",

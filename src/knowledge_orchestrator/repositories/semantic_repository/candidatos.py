@@ -294,10 +294,47 @@ class CandidatosMixin(AfirmacionesMixin):
             connection.execute("UPDATE update_candidates SET status='REJECTED',blocked_reason='HUMAN_REJECTED',"
                                "reviewed_by=?,reviewed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE candidate_id=?",
                                (actor, candidate_id))
+            self._release_dispute(connection, candidate_id, actor=actor)
             connection.execute('INSERT INTO events(event_type,message,details_json) VALUES (?,?,?)',
                                ('MAINTENANCE_PROPOSAL_REJECTED', 'Propuesta rechazada tras revisión',
                                 json.dumps({'candidate_id': candidate_id, 'revision': expected_revision,
                                             'actor': actor, 'reason': reason})))
+
+    @staticmethod
+    def _release_dispute(connection, candidate_id: int, *, actor: str) -> None:
+        """Al descartar una contradicción, sus afirmaciones dejan de estar en disputa.
+
+        La comparación las marcaba DISPUTED y descartar la propuesta no lo
+        deshacía: quedaban fuera del conocimiento vigente, de las consultas y
+        de las políticas para siempre, sin forma de recuperarlas desde la
+        interfaz (prueba real 9-oct). Vuelven al estado que tenían antes de esa
+        contradicción, salvo que otra contradicción abierta las siga implicando.
+        """
+
+        row = connection.execute("SELECT relation, target_claim_id, new_claim_id FROM update_candidates "
+                                 "WHERE candidate_id=?", (candidate_id,)).fetchone()
+        if row is None or row['relation'] != 'CONTRADICTS':
+            return
+        for claim_id in (row['target_claim_id'], row['new_claim_id']):
+            claim = connection.execute('SELECT knowledge_state FROM knowledge_claims WHERE claim_id=?',
+                                       (claim_id,)).fetchone()
+            if claim is None or claim['knowledge_state'] != 'DISPUTED':
+                continue
+            if connection.execute(
+                "SELECT 1 FROM update_candidates WHERE relation='CONTRADICTS' AND candidate_id<>? "
+                "AND status IN ('PENDING_REVIEW','CONFLICT','APPLYING') AND (target_claim_id=? OR new_claim_id=?)",
+                (candidate_id, claim_id, claim_id),
+            ).fetchone():
+                continue
+            previous = connection.execute(
+                "SELECT from_state FROM claim_state_history WHERE claim_id=? AND candidate_id=? "
+                "AND to_state='DISPUTED' "
+                'ORDER BY revision DESC LIMIT 1', (claim_id, candidate_id),
+            ).fetchone()
+            restored = previous['from_state'] if previous and previous['from_state'] not in (None, 'DISPUTED') \
+                else 'CURRENT'
+            record_review_state(connection, claim_id, restored, actor=actor,
+                                reason='Contradicción descartada en la revisión humana', candidate_id=candidate_id)
 
     def evidence_quote(self, claim_id: int) -> str:
         with closing(self.database.connect()) as connection:

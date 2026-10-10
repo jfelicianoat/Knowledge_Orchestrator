@@ -51,6 +51,11 @@ class ReviewBatchService:
             if size > 8 * 1024 * 1024:
                 raise ValueError('La vista previa supera 8 MiB; divide la selección en lotes menores')
             items.append(item)
+        if not self.maintenance.editor_ready():
+            for item in items:
+                if item['eligible']:
+                    item['eligible'] = False
+                    item['blockers'].append(self.maintenance.EDITOR_MISSING)
         eligible = [item for item in items if item['eligible']]
         for index, item in enumerate(eligible):
             for other in eligible[index + 1:]:

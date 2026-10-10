@@ -10,6 +10,7 @@ from knowledge_orchestrator.repositories.database import Database
 
 ACTIVE_CAPTURE_STATUSES = ("STAGED", "PENDING", "SUBMITTING", "QUEUED", "PROCESSING")
 ACTIVE_TASK_STATUSES = ("READY", "SUBMITTING", "QUEUED", "PROCESSING", "CANCEL_REQUESTED")
+RETRYABLE_INCIDENTS = frozenset({"FILE_LOCKED", "FILE_UNSTABLE"})
 #: Latidos que se repiten solos y taparían la actividad real de los documentos.
 ACTIVITY_NOISE = (
     "BROKER_ONLINE", "KNOWLEDGE_RECONCILED", "API_REQUEST", "BROKER_QUEUE_UPDATED", "BROKER_TASKS_UPDATED",
@@ -354,7 +355,9 @@ class UiSnapshotService:
                 "FROM update_candidates u "
                 "JOIN notes n ON n.note_id = u.target_note_id "
                 "JOIN captures c ON c.capture_id = n.capture_id "
-                "WHERE u.status IN ('PENDING_REVIEW','CONFLICT') ORDER BY u.created_at, u.candidate_id"
+                # APPLYING también: sin el puente de Obsidian una aprobación se
+                # quedaba así y la propuesta desaparecía de la vista.
+                "WHERE u.status IN ('PENDING_REVIEW','CONFLICT','APPLYING') ORDER BY u.created_at, u.candidate_id"
             ).fetchall()
         return [
             ReviewItem(
@@ -613,7 +616,14 @@ class UiSnapshotService:
     @staticmethod
     def _incident_item(row: Any) -> WorkItem:
         code = str(row["error_code"])
-        label = "Archivo bloqueado" if code == "FILE_LOCKED" else "Archivo inestable"
+        # Bloqueado o inestable: sigue en la bandeja y se puede reintentar. El
+        # resto se apartó a cuarentena: hay que corregir el fichero e importarlo.
+        retryable = code in RETRYABLE_INCIDENTS
+        label = {
+            "FILE_LOCKED": "Archivo bloqueado",
+            "FILE_UNSTABLE": "Archivo inestable",
+            "TRANSCRIPTION_MISSING": "Sin transcripción",
+        }.get(code, "Formato no válido")
         return WorkItem(
             capture_id=f"incident:{row['incident_id']}",
             incident_id=int(row["incident_id"]),
@@ -632,8 +642,11 @@ class UiSnapshotService:
             attempt=0,
             error_code=code,
             error_message=str(row["message"]),
-            retryable=True,
-            progress_text="El archivo sigue en la carpeta vigilada y puede reintentarse de forma segura.",
+            retryable=retryable,
+            progress_text=(
+                "El archivo sigue en la carpeta vigilada y puede reintentarse de forma segura." if retryable
+                else "El archivo se apartó a cuarentena; corrígelo y vuelve a importarlo."
+            ),
         )
 
 

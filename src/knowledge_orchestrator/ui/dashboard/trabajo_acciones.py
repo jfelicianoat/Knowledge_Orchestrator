@@ -96,6 +96,19 @@ class AccionesMixin(DetalleMixin):
                 "\n".join(lines) + "\n\nCorrige el fichero y vuelve a importarlo; el original no se ha tocado.",
                 parent=self,
             )
+        already = [item for item in compatible + ordinary
+                   if item.capture_id and self.runtime.repository.get(item.capture_id) is not None]
+        if already:
+            names = "\n".join(f"• {item.title}" for item in already[:8])
+            more = f"\n… y {len(already) - 8} más" if len(already) > 8 else ""
+            messagebox.showinfo(
+                "Ya estaban importados",
+                f"{names}{more}\n\nNo se duplican: búscalos en Documentos o en Biblioteca. Si quieres "
+                "procesarlos otra vez, usa «Volver a procesar» sobre el documento.",
+                parent=self,
+            )
+            compatible = [item for item in compatible if item not in already]
+            ordinary = [item for item in ordinary if item not in already]
         if ordinary and not self._confirm_conversion(ordinary):
             ordinary = []
         if not compatible and not ordinary:
@@ -303,8 +316,11 @@ class AccionesMixin(DetalleMixin):
                 else "El documento ya terminó o cambió de estado."
             )
         else:
+            quarantined = item.incident_id is not None and not item.retryable
             if not messagebox.askyesno(
-                "Ignorar incidencia",
+                "Cerrar incidencia" if quarantined else "Ignorar incidencia",
+                "Dejará de aparecer en esta lista. El archivo sigue en la carpeta de cuarentena por si lo "
+                "necesitas. ¿Continuar?" if quarantined else
                 "El documento se marcará como cancelado, pero se conservarán el archivo y el historial. ¿Continuar?",
                 parent=self,
             ):

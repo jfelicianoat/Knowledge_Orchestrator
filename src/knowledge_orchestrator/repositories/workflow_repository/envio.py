@@ -20,9 +20,16 @@ def request_cost(request_json: str) -> float | None:
     """Lo que una petición puede gastar como máximo (`None` = sin límite)."""
 
     try:
-        value = (json.loads(request_json).get("model_requirements") or {}).get("max_cost_usd")
+        request = json.loads(request_json)
+        value = (request.get("model_requirements") or {}).get("max_cost_usd")
+        local_only = (request.get("risk") or {}).get("data_classification") == "local_only"
     except (json.JSONDecodeError, AttributeError):
         return None
+    if local_only:
+        # Solo modelos locales: no cuesta nada. Reservar el máximo hacía que un
+        # fallo sin coste informado (TASK_TIMEOUT) se quedara la bolsa entera y
+        # «Reintentar» muriera al instante con DOCUMENT_BUDGET_EXHAUSTED.
+        return 0.0
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return max(0.0, float(value))

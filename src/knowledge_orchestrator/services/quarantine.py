@@ -100,11 +100,15 @@ class QuarantineService:
             atomic_write_json(sidecar, error_payload)
         self.checkpoint("AFTER_QUARANTINE_SIDECAR")
         intent.unlink(missing_ok=True)
-        self.repository.record_event(
-            str(error_payload.get("code", "INGESTION_REJECTED")),
-            str(error_payload.get("reason", "Fichero rechazado")),
-            details={"path": str(destination), **error_payload},
-        )
+        code = str(error_payload.get("code", "INGESTION_REJECTED"))
+        reason = str(error_payload.get("reason", "Fichero rechazado"))
+        self.repository.record_event(code, reason, details={"path": str(destination), **error_payload})
+        # Un fichero roto que llega a la bandeja (p. ej. desde el plugin)
+        # desaparecía de ella sin dejar rastro en «Documentos»: solo un aviso
+        # pasajero en la barra de estado. Queda como incidencia visible hasta
+        # que la persona la cierre. Un duplicado no lo es: no hay nada que hacer.
+        if code != "DUPLICATE_CAPTURE":
+            self.repository.record_ingestion_incident(destination, code, reason)
 
     def _validate_managed_paths(
         self,

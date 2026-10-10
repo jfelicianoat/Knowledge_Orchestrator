@@ -202,7 +202,9 @@ class PhaseSevenUiSnapshotTests(unittest.TestCase):
         retried = self.runtime.workflow_repository.get_task(task.task_id)
         self.assertEqual(retried.status.value, "READY")
         self.assertNotEqual(retried.idempotency_key, original_key)
-        self.assertEqual(self.runtime.repository.get(item.capture_id).status.value, "PENDING")
+        # En cola de envío, no PENDING: desde PENDING la captura nunca avanzaba
+        # y su borrador o su publicación no llegaban a verse (prueba real 8-oct).
+        self.assertEqual(self.runtime.repository.get(item.capture_id).status.value, "SUBMITTING")
 
         self.assertIsNotNone(self.runtime.workflow_repository.claim_submission(task.task_id))
         self.runtime.workflow_repository.mark_submission_error(task.task_id, "BROKER_OFFLINE", "Broker no disponible")

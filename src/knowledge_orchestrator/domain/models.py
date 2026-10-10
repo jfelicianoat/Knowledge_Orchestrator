@@ -117,7 +117,7 @@ class ProfileDefinition:
     multitasking_steps: tuple[str, ...] = ("synthesis",)
     consensus_preset: str = "fast"
     consensus_max_proposers: int = 3
-    consensus_timeout_seconds: int = 600
+    consensus_timeout_seconds: int = 1800
     consensus_fallback_to_single: bool = True
     cloud_allowed: bool = False
     allowed_providers: tuple[str, ...] = ("ollama",)

@@ -32,6 +32,8 @@ from knowledge_orchestrator.domain.errors import CaptureContractError
 from .filesystem import write_synced
 
 IMPORTABLE_SUFFIXES = (".md", ".markdown", ".txt")
+#: Una primera línea más larga es un párrafo, no un título.
+TITLE_LINE_MAX = 120
 #: Claves que delatan que el autor quería escribir una captura contractual.
 _CONTRACT_MARKERS = ("contract_version", "capture_id")
 _HEADING = re.compile(r"(?m)^#{1,6}[ \t]+(.+?)[ \t#]*$")
@@ -44,6 +46,10 @@ class ImportCandidate:
     title: str
     size_bytes: int
     reason: str = ""
+    #: Identidad de la captura que produciría: sirve para avisar antes de copiar
+    #: si ese documento ya se importó (antes solo lo decía, fugazmente, la barra
+    #: de estado después de rechazarlo como duplicado).
+    capture_id: str = ""
 
 
 def _split_frontmatter(text: str) -> tuple[dict | None, str]:
@@ -95,10 +101,17 @@ def inspect_import(path: Path) -> ImportCandidate:
         except CaptureContractError as error:
             title = str(metadata.get("title") or fallback_title)
             return ImportCandidate(source, "malformed", title, size, _readable_reason(error))
-        return ImportCandidate(source, "compatible", document.title, size)
+        return ImportCandidate(source, "compatible", document.title, size, capture_id=document.capture_id)
     if not body.strip():
         return ImportCandidate(source, "unreadable", fallback_title, size, "El documento está vacío")
-    return ImportCandidate(source, "ordinary", detect_title(body, metadata, fallback_title), size)
+    return ImportCandidate(source, "ordinary", detect_title(body, metadata, fallback_title), size,
+                           capture_id=manual_capture_id(body.strip("\n")))
+
+
+def manual_capture_id(content: str) -> str:
+    """La identidad de un documento convertido sale de su contenido."""
+
+    return f"manual_{hashlib.sha256(content.encode('utf-8')).hexdigest()[:40]}"
 
 
 def detect_title(body: str, metadata: dict | None, fallback: str) -> str:
@@ -108,6 +121,11 @@ def detect_title(body: str, metadata: dict | None, fallback: str) -> str:
     heading = _HEADING.search(body)
     if heading and heading.group(1).strip():
         return heading.group(1).strip()[:500]
+    # Un .txt no suele tener encabezados, pero su primera línea casi siempre es
+    # el título: mejor «Actualización sobre Python» que «Actualizacion_Python».
+    first = next((line.strip() for line in body.splitlines() if line.strip()), "")
+    if 3 <= len(first) <= TITLE_LINE_MAX:
+        return first
     return fallback[:500]
 
 
@@ -127,8 +145,7 @@ def build_capture(path: Path, *, now: datetime | None = None) -> tuple[str, str]
     content = body.strip("\n")
     if not content.strip():
         raise ValueError("El documento está vacío")
-    digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-    capture_id = f"manual_{digest[:40]}"
+    capture_id = manual_capture_id(content)
     captured_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
     envelope = {
         "contract_version": "1.0",

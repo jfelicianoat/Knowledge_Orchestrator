@@ -92,8 +92,13 @@ class LabelsTests(unittest.TestCase):
 
     def test_row_shows_file_name_not_full_path(self) -> None:
         self.assertEqual(DashboardBase._work_row_text(BASE_ITEM), "Documento\ndoc.md")
-        blocked = item(incident_id=2, title="notas.md", filename="notas.md", path=r"C:\inbox\notas.md")
+        blocked = item(incident_id=2, title="notas.md", filename="notas.md", path=r"C:\inbox\notas.md",
+                       retryable=True)
         self.assertEqual(DashboardBase._work_row_text(blocked), "notas.md\nEn la carpeta vigilada")
+        # Lo apartado a cuarentena ya no está en la bandeja: decirlo sería falso.
+        quarantined = item(incident_id=3, title="rota.md", filename="rota.md", path=r"C:\failed\rota.md",
+                           retryable=False)
+        self.assertEqual(DashboardBase._work_row_text(quarantined), "rota.md\nEn cuarentena")
 
     def test_tone_never_travels_alone(self) -> None:
         self.assertEqual(DashboardBase._work_tone(item(incident_id=1, category="attention")), "warning")

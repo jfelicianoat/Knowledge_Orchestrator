@@ -220,6 +220,8 @@ class EstadoMixin(ControlMixin):
                     connection, task_id, actual_cost=coste_liquidable(target, broker_result, error),
                 )
 
+            if target in {TaskStatus.SUCCESS, TaskStatus.ERROR}:
+                self._anotar_fin_de_tarea(connection, current, target, error)
             if target is TaskStatus.PROCESSING:
                 self._marcar_captura_en_proceso(connection, current["capture_id"])
             elif target is TaskStatus.SUCCESS:
@@ -227,6 +229,29 @@ class EstadoMixin(ControlMixin):
             elif target in {TaskStatus.ERROR, TaskStatus.CANCELLED}:
                 self._cerrar_paso_con_fallo(connection, current, task_id, target, error)
             return True
+
+    @staticmethod
+    def _anotar_fin_de_tarea(
+        connection: sqlite3.Connection, current: sqlite3.Row, target: TaskStatus, error: dict[str, Any],
+    ) -> None:
+        """Deja en la línea de tiempo del documento que el Broker terminó o falló.
+
+        Antes un documento fallido solo mostraba «preparado» y «validación»: la
+        persona veía el error arriba pero no cuándo ni en qué parte ocurrió.
+        """
+
+        step = "la síntesis" if current["step_kind"] == "SYNTHESIS" else (
+            "una parte" if current["step_kind"] == "CHUNK" else "el documento")
+        if target is TaskStatus.SUCCESS:
+            event, message = "BROKER_TASK_COMPLETED", f"El Broker terminó {step}."
+        else:
+            event = "BROKER_TASK_FAILED"
+            message = f"El Broker no pudo terminar {step} ({error.get('code') or 'error'})."
+        connection.execute(
+            "INSERT INTO events(capture_id, event_type, message, details_json) VALUES (?, ?, ?, ?)",
+            (current["capture_id"], event, message,
+             json.dumps({"task_id": current["task_id"], "error_code": error.get("code")}, ensure_ascii=False)),
+        )
 
     def _reintentar_con_mas_presupuesto(
         self,

@@ -24,6 +24,10 @@ class NoteEditor(Protocol):
 
 
 class UnconfiguredNoteEditor:
+    @staticmethod
+    def is_configured() -> bool:
+        return False
+
     def replace(self, path: Path, content: str, *, base_hash: str, result_hash: str, request_id: str) -> dict:
         raise ObsidianBridgeUnavailable('Configura el puente de Obsidian para actualizar las notas existentes')
 

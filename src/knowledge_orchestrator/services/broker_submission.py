@@ -21,6 +21,9 @@ class DispatchDecision:
     response: dict[str, Any] | None = None
     retry_at: str | None = None
     message: str | None = None
+    #: Código para guardar; un 409 (identidad ya usada con otro contenido) no es
+    #: un fallo de contrato y se resuelve reintentando con una clave nueva.
+    code: str = "CONTRACT_VALIDATION_FAILED"
 
 
 async def attempt_broker_submission(
@@ -47,5 +50,7 @@ async def attempt_broker_submission(
             return DispatchDecision("retry", retry_at=retry_at.isoformat(), message=str(error))
         return DispatchDecision("exhausted", message=str(error))
     except (PermanentBrokerError, BrokerContractError, json.JSONDecodeError) as error:
+        if isinstance(error, PermanentBrokerError) and getattr(error, "status_code", None) == 409:
+            return DispatchDecision("permanent", message=str(error), code="IDEMPOTENCY_CONFLICT")
         return DispatchDecision("permanent", message=str(error))
     return DispatchDecision("accepted", response=response)

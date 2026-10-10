@@ -46,14 +46,19 @@ def check_application(connection: sqlite3.Connection, candidate_id: int, *, base
     if not connection.execute('SELECT 1 FROM knowledge_claims k WHERE k.claim_id=? AND '
                               + KnowledgeRepository.provenance_filter(), (row['new_claim_id'],)).fetchone():
         raise KnowledgeConflict('La procedencia de la evidencia requiere revisión')
-    if connection.execute(
-        "SELECT 1 FROM update_candidates WHERE relation='CONTRADICTS' AND candidate_id<>? "
+    others = [str(item[0]) for item in connection.execute(
+        "SELECT candidate_id FROM update_candidates WHERE relation='CONTRADICTS' AND candidate_id<>? "
         "AND status IN ('PENDING_REVIEW','CONFLICT','APPLYING') "
-        'AND (target_claim_id IN (?,?) OR new_claim_id IN (?,?))',
+        'AND (target_claim_id IN (?,?) OR new_claim_id IN (?,?)) ORDER BY candidate_id',
         (candidate_id, row['target_claim_id'], row['new_claim_id'],
          row['target_claim_id'], row['new_claim_id']),
-    ).fetchone():
-        raise KnowledgeConflict('Hay otras contradicciones pendientes sobre estos claims')
+    ).fetchall()]
+    if others:
+        # Antes: «Hay otras contradicciones pendientes sobre estos claims», sin
+        # decir cuáles ni qué hacer (prueba real 8-oct).
+        raise KnowledgeConflict('Hay otras contradicciones pendientes sobre estas afirmaciones: resuelve antes '
+                                'la propuesta ' + ', '.join(f'#{value}' for value in others)
+                                + ' (aplícala o descártala en Revisión)')
     if row['base_hash'] != base_hash:
         raise ValueError('La nota cambió desde el diff')
     if connection.execute(

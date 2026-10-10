@@ -68,6 +68,13 @@ EVENT_LABELS = {
     "AUTOMATION_SIMULATED": "Simulación de política", "AUTOMATION_RUN_QUEUED": "Ejecución programada",
     "AUTOMATION_RUN_FINISHED": "Ejecución terminada", "AUTOMATION_ITEM_FINISHED": "Aplicado por una política",
     "AUTOMATION_RECOVERY_REQUIRED": "Ejecución pendiente de recuperar",
+    # Encontrados sin traducir en «Actividad reciente» durante la prueba real del 8-oct.
+    "API_CONSUMER_CREATED": "Consumidor de la API creado", "API_CONSUMER_REVOKED": "Acceso a la API revocado",
+    "CONTRACT_VALIDATION_FAILED": "Formato de captura no válido", "DUPLICATE_CAPTURE": "Documento ya importado",
+    "DOMAIN_ENRICHMENT_FAILED": "No se pudo clasificar", "QUARANTINE_RECOVERY_FAILED": "Cuarentena por recuperar",
+    "SEMANTIC_JOB_STATE_CHANGED": "Análisis actualizado", "SOURCE_CHECK_CHANGED": "Fuente con novedades",
+    "SOURCE_CHECK_UNCHANGED": "Fuente sin novedades", "SOURCE_CHECK_ERROR": "Error al comprobar una fuente",
+    "CONSENSUS_FALLBACK_REQUIRED": "Se recurre a un solo modelo",
     "QUERY_CREATED": "Consulta creada", "API_INGESTION_RECEIVED": "Documento recibido por API",
     "API_INGESTION_DELIVERED": "Documento de API incorporado",
     "INGESTION_RESULT": "Importación", "NOTES_PUBLISHED": "Notas publicadas",
@@ -105,6 +112,15 @@ def provider_error_text(code: str | None, message: str) -> str:
         return ("El modelo agotó su presupuesto de respuesta razonando antes de contestar. "
                 "Se reintenta una vez con el doble de presupuesto; si vuelve a fallar, elige en Ajustes "
                 "un modelo sin razonamiento o sube «Longitud máxima de la respuesta».")
+    if code == "IDEMPOTENCY_CONFLICT":
+        return ("El Broker ya había recibido este documento con otra configuración (por ejemplo, desde otra "
+                "instalación o antes de borrar los datos locales) y no acepta repetir la misma identidad con "
+                "otro contenido. Pulsa «Reintentar»: se enviará con una identidad nueva.")
+    if code == "TASK_TIMEOUT":
+        return ("El Broker cortó la tarea porque el modelo no terminó a tiempo (con modelos locales grandes "
+                "suele ser porque aún estaba cargando). «Reintentar» la envía de nuevo con la configuración "
+                "actual; si se repite, elige en Ajustes un modelo concreto más pequeño o el método "
+                "«Respuesta directa». El mensaje completo del Broker está en «Mostrar detalles técnicos».")
     return message
 
 
@@ -330,7 +346,10 @@ class DashboardBase(EstiloMixin):
             # El mensaje puede ser un error técnico del cliente HTTP en inglés
             # («All connection attempts failed»): delante va qué ha pasado.
             label = self._event_label(event.event_type)
-            self.status_var.set(f"{label}: {event.message}" if event.message and label != event.message
+            # Si el mensaje ya empieza por la etiqueta, repetirla decía
+            # «Tareas actualizadas: Tareas actualizadas: 1».
+            self.status_var.set(f"{label}: {event.message}"
+                                if event.message and not event.message.startswith(label)
                                 else event.message or label)
 
     def _selected_item(self) -> WorkItem | None:
@@ -370,7 +389,20 @@ class DashboardBase(EstiloMixin):
                 tree.insert("", "end", iid=row_id, **options)
         keep = tuple(row_id for row_id in selected if row_id in incoming)
         if keep:
-            tree.selection_set(keep)
+            DashboardBase._keep_selection(tree, keep)
+
+    @staticmethod
+    def _keep_selection(tree: ttk.Treeview, ids: Sequence[str]) -> None:
+        """Fija la selección solo si cambia.
+
+        En Tk 8.6 `selection_set` emite <<TreeviewSelect>> aunque la selección
+        sea la misma. El refresco de cada 2 s la volvía a fijar en todas las
+        listas, y cada vista recargaba su detalle: en Organización eso borraba
+        lo que la persona estaba escribiendo en el tema que editaba.
+        """
+
+        if set(tree.selection()) != set(ids):
+            tree.selection_set(tuple(ids))
 
     @staticmethod
     def _work_row_text(item: WorkItem) -> str:
@@ -381,7 +413,8 @@ class DashboardBase(EstiloMixin):
         if location == item.title:
             # Un archivo que no se pudo leer no tiene título propio: repetir el
             # nombre no aporta; decir dónde está, sí.
-            location = "En la carpeta vigilada" if item.incident_id is not None else ""
+            location = ("" if item.incident_id is None else "En la carpeta vigilada" if item.retryable
+                        else "En cuarentena")
         return f"{item.title}\n{location}"
 
     @staticmethod
@@ -441,6 +474,8 @@ class DashboardBase(EstiloMixin):
             "BROKER_RESULT_WARNING": "Aviso del Broker",
             "BROKER_CITATION_WARNING": "Revisión de citas necesaria",
             "BROKER_ONLINE": "Broker disponible", "BROKER_OFFLINE": "Broker no disponible",
+            "BROKER_MODELS_UNAVAILABLE": "Catálogo de modelos no disponible",
+            "BROKER_TASK_COMPLETED": "Procesado por el Broker",
             "KNOWLEDGE_RECONCILED": "Coherencia comprobada", "API_REQUEST": "Consulta por API",
             "FILE_LOCKED": "Archivo bloqueado", "FILE_UNSTABLE": "Archivo inestable",
             "INGESTION_CANCELLED": "Ingesta cancelada",

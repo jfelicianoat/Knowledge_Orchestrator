@@ -25,6 +25,31 @@ RELATION_LABELS = {
     "UNRELATED": "Sin relación",
     "UNCERTAIN": "Requiere criterio",
 }
+
+
+def relation_text(relation: str | None) -> str:
+    """Rótulo de la relación para leer; «UNKNOWN» es una comparación que aún no se hizo o falló."""
+
+    if relation == "UNKNOWN" or not relation:
+        return "Sin comparar"
+    return RELATION_LABELS.get(relation, relation)
+
+
+#: Motivos de bloqueo que se guardan como código; en pantalla salían tal cual.
+BLOCK_REASONS = {
+    "INCOMPLETE_APPLICATION_INTENT": "La aplicación se interrumpió sin datos suficientes para completarla.",
+    "NOTE_CHANGED_AFTER_DIFF": "La nota cambió después de preparar la propuesta.",
+    "NOTE_CHANGED_DURING_RECOVERY": "La nota cambió mientras se completaba la aplicación.",
+    "NOTE_CHANGED_DURING_APPLICATION": "La nota cambió mientras se aplicaba el cambio.",
+    "CONTENT_CHANGED_DURING_APPLICATION": "El contenido cambió mientras se aplicaba el cambio.",
+    "CONTENT_CHANGED_DURING_RECOVERY": "La nota o su evidencia cambiaron antes de completar la aplicación.",
+    "NOTE_UNREADABLE_DURING_RECOVERY": "No se pudo leer la nota al completar la aplicación.",
+    "EVIDENCE_CHANGED_AFTER_DIFF": "La evidencia nueva cambió después de preparar la propuesta.",
+    "HUMAN_REJECTED": "Descartada por una persona.",
+    "SUCCESSOR_REVERTED": "El cambio se revirtió.",
+}
+
+
 RELATION_TONES = {"SUPPORTS": "success", "EXTENDS": "accent", "CONTRADICTS": "error",
                   "SUPERSEDES": "warning", "UNRELATED": "neutral", "UNCERTAIN": "warning"}
 
@@ -78,7 +103,8 @@ class RevisionMixin(TrabajoMixin):
         panes.grid(row=1, column=0, sticky='nsew')
         left = tk.Frame(panes, bg=c['surface'])
         right = tk.Frame(panes, bg=c['surface'])
-        panes.add(left, minsize=300, width=380, stretch='never')
+        # 380 px no daban para las cuatro columnas: «Impacto» salía como «Alt», «Me».
+        panes.add(left, minsize=300, width=430, stretch='never')
         panes.add(right, minsize=520, stretch='always')
         left.columnconfigure(0, weight=1)
         left.rowconfigure(0, weight=1)
@@ -189,7 +215,9 @@ class RevisionMixin(TrabajoMixin):
                 str(item.candidate_id),
                 (
                     item.target_title,
-                    RELATION_LABELS.get(item.relation, item.relation),
+                    # En la lista se veía «UNKNOWN» y un conflicto no se distinguía.
+                    "En conflicto" if item.status == "CONFLICT" else "Aplicándose" if item.status == "APPLYING"
+                    else relation_text(item.relation),
                     "—" if item.confidence is None else f"{item.confidence:.0%}",
                     IMPACT_LABELS.get(item.impact, item.impact or "—"),
                 ),
@@ -210,7 +238,7 @@ class RevisionMixin(TrabajoMixin):
         self._review_tabs.tab(0, text=f"Propuestas pendientes  {count}" if count else "Propuestas pendientes")
         preserved = [identifier for identifier in previous if identifier in self._review_items]
         if preserved:
-            self.review_tree.selection_set(preserved)
+            self._keep_selection(self.review_tree, preserved)
             selected_id = focus if focus in preserved else preserved[0]
             self.review_tree.focus(selected_id)
             self._render_review(self._review_items[selected_id])
@@ -233,7 +261,7 @@ class RevisionMixin(TrabajoMixin):
         self._selected_review = item
         detail = self.runtime.semantic_maintenance.proposal_detail(item.candidate_id)
         assessment = detail['assessment'] or {}
-        relation = RELATION_LABELS.get(item.relation, item.relation)
+        relation = relation_text(item.relation)
         self.review_title_var.set(f"Actualizar «{item.target_title}»")
         self._set_pill(self.review_relation_pill, relation, tone=RELATION_TONES.get(item.relation, 'neutral'))
         self._set_pill(self.review_confidence_pill,
@@ -266,7 +294,24 @@ class RevisionMixin(TrabajoMixin):
         else:
             text.insert('end', 'Ninguno registrado.\n')
         text.insert('end', 'Restricción\n', 'h')
-        text.insert('end', (item.blocked_reason or 'Ninguna. Puedes aplicar o descartar la propuesta.') + '\n')
+        conflict = item.status == 'CONFLICT'
+        applying = item.status == 'APPLYING'
+        editor_ready = self.runtime.semantic_maintenance.editor_ready()
+        restriction = (BLOCK_REASONS.get(item.blocked_reason or '', item.blocked_reason)
+                       or 'Ninguna. Puedes aplicar o descartar la propuesta.')
+        if applying:
+            restriction = ('Aprobada y pendiente de escribirse en la nota. Se completará sola en cuanto el puente '
+                           'de Obsidian esté disponible (al arrancar o reintentar). '
+                           + ('' if editor_ready else self.runtime.semantic_maintenance.EDITOR_MISSING))
+        elif not editor_ready and not conflict:
+            restriction = self.runtime.semantic_maintenance.EDITOR_MISSING
+        if conflict:
+            # La nota cambió por debajo: la propuesta ya no puede aplicarse ni
+            # editarse (antes «Editar» fallaba con «El span objetivo no conserva
+            # su evidencia»). Se dice qué hacer en lugar de dejar probar.
+            restriction += ('\nEsta propuesta ya no se puede aplicar ni editar: descártala. Si el cambio sigue '
+                            'procediendo, el nuevo análisis de la nota generará una propuesta nueva.')
+        text.insert('end', restriction + '\n')
         text.insert('end', 'Histórico\n', 'h')
         text.insert('end', assessment.get('expected_effect', 'Requiere regeneración') + '\n')
         text.insert('end', 'Autoaprobación\n', 'h')
@@ -276,11 +321,11 @@ class RevisionMixin(TrabajoMixin):
         text.insert('end', f"Nota: {item.target_path or item.target_title} · "
                            f"Revisión de propuesta: {item.proposal_revision}", 'meta')
         text.configure(state='disabled')
-        self.review_reject_button.state(["!disabled"])
-        self.review_edit_button.state(['!disabled'])
-        self.review_policy_button.state(['!disabled'])
+        self.review_reject_button.state(['disabled'] if applying else ["!disabled"])
+        self.review_edit_button.state(['disabled'] if conflict or applying else ['!disabled'])
+        self.review_policy_button.state(['disabled'] if conflict or applying else ['!disabled'])
         self.review_audit_button.state(['!disabled'])
-        blocked = (item.status != 'PENDING_REVIEW' or item.blocked_reason
+        blocked = (item.status != 'PENDING_REVIEW' or item.blocked_reason or not editor_ready
                    or assessment.get('blockers') or not assessment.get('patch'))
         self.review_approve_button.state(['disabled'] if blocked else ['!disabled'])
 

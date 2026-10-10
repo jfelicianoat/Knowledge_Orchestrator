@@ -230,8 +230,12 @@ class ControlMixin(EnvioMixin):
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE workflow_id = ?",
                 (task["workflow_id"],),
             )
+            # SUBMITTING, no PENDING: el envío, el progreso y el cierre solo hacen
+            # avanzar la captura desde SUBMITTING/QUEUED. Con PENDING se quedaba
+            # «En cola local» para siempre: su borrador no aparecía para revisar
+            # y, publicada, nunca pasaba a «Finalizados» (prueba real 8-oct).
             connection.execute(
-                "UPDATE captures SET status = 'PENDING', last_error_code = NULL, last_error_message = NULL, "
+                "UPDATE captures SET status = 'SUBMITTING', last_error_code = NULL, last_error_message = NULL, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE capture_id = ?",
                 (task["capture_id"],),
             )

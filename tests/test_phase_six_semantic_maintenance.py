@@ -135,6 +135,57 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(persisted.status, "PROCESSING")
         self.assertIsNone(result_text)
 
+    def test_discarding_a_contradiction_releases_the_dispute(self) -> None:
+        # Prueba real 9-oct: descartar la contradicción dejaba ambas afirmaciones
+        # en disputa para siempre (fuera del conocimiento vigente y de las políticas).
+        _, _, candidate_id, _, new_text = self.prepare_candidate()
+        compared = self.runtime.semantic_maintenance.compare(candidate_id, {
+            "relation": "CONTRADICTS", "confidence": 0.9, "impact": "HIGH",
+            "rationale": "Versiones distintas.", "replacement_text": new_text})
+        repo = self.runtime.semantic_repository
+        claims = (compared.target_claim_id, compared.new_claim_id)
+        self.assertEqual({repo.get_claim(c).knowledge_state for c in claims}, {"DISPUTED"})
+        self.runtime.semantic_maintenance.reject(candidate_id, expected_revision=compared.proposal_revision,
+                                                 actor="human:test")
+        self.assertEqual({repo.get_claim(c).knowledge_state for c in claims}, {"CURRENT"})
+
+    def test_missing_replacement_uses_the_literal_new_evidence_but_an_invented_one_is_rejected(self) -> None:
+        # Prueba real 8-oct: 3 de 11 comparaciones fallaban porque el modelo
+        # clasificaba sin copiar el texto, que de todos modos tiene que ser la
+        # evidencia literal. Omitirlo ya no pierde la comparación; inventarlo sí.
+        _, _, candidate_id, old_text, new_text = self.prepare_candidate()
+        with self.assertRaisesRegex(SemanticContractError, "evidencia nueva"):
+            self.runtime.semantic_maintenance.compare(candidate_id, {
+                "relation": "SUPERSEDES", "confidence": 0.9, "impact": "HIGH",
+                "rationale": "Deducción.", "replacement_text": "Algo que la fuente no dice."})
+        # Copia casi literal con letras perdidas (granite, determinista): se acepta.
+        glitch = new_text.replace("estable", "estble")
+        compared = self.runtime.semantic_maintenance.compare(candidate_id, {
+            "relation": "SUPERSEDES", "confidence": 0.94, "impact": "HIGH",
+            "rationale": "Versión posterior.", "replacement_text": glitch})
+        self.assertIn("+" + new_text, compared.diff_text)
+        # Pero una copia casi igual que cambia la cifra o añade una negación, no.
+        for altered in (new_text.replace("2.0", "3.0"), new_text.replace("es 2.0", "ya no es 2.0")):
+            with self.assertRaisesRegex(SemanticContractError, "evidencia nueva"):
+                self.runtime.semantic_maintenance.compare(candidate_id, {
+                    "relation": "SUPERSEDES", "confidence": 0.9, "impact": "HIGH", "rationale": "x",
+                    "replacement_text": altered}, expected_revision=compared.proposal_revision)
+        # Un fragmento literal de la evidencia (prueba real 9-oct) tampoco inventa nada.
+        fragment = " ".join(new_text.rstrip(".").split()[-2:])
+        compared = self.runtime.semantic_maintenance.compare(candidate_id, {
+            "relation": "SUPERSEDES", "confidence": 0.94, "impact": "HIGH",
+            "rationale": "La evidencia local nueva declara una versión posterior.", "replacement_text": fragment},
+            expected_revision=compared.proposal_revision)
+        self.assertEqual(compared.status, "PENDING_REVIEW")
+        self.assertIn("+" + new_text, compared.diff_text)
+        compared = self.runtime.semantic_maintenance.compare(candidate_id, {
+            "relation": "SUPERSEDES", "confidence": 0.94, "impact": "HIGH",
+            "rationale": "La evidencia local nueva declara una versión posterior.", "replacement_text": None},
+            expected_revision=compared.proposal_revision)
+        self.assertEqual(compared.status, "PENDING_REVIEW")
+        self.assertEqual(compared.replacement_text.strip(), new_text.strip())
+        self.assertIn("+" + new_text, compared.diff_text)
+
     def test_new_local_evidence_produces_traceable_diff_and_human_approved_atomic_update(self) -> None:
         old_note, _, candidate_id, old_text, new_text = self.prepare_candidate()
         original = old_note.vault_path.read_text(encoding="utf-8")

@@ -78,7 +78,8 @@ class DetalleMixin(InicioMixin):
         return (
             bool(item.task_id) and item.status in {"READY", "ERROR"}
         ) or (
-            item.category == "attention" and item.incident_id is not None
+            # Lo apartado a cuarentena no se reintenta: hay que corregir el fichero.
+            item.category == "attention" and item.incident_id is not None and item.retryable
         ) or (
             # Falló antes de tener tareas (p. ej. perfil desactivado): se replanifica.
             item.category == "attention" and not item.task_id and item.status == "FAILED"
@@ -216,6 +217,13 @@ class DetalleMixin(InicioMixin):
                 "No se publicó. La fuente y el resultado se conservan; puedes volver a procesar el documento "
                 "(por ejemplo, tras cambiar el modelo o las instrucciones del perfil)."
             )
+        elif item.incident_id is not None and not item.retryable:
+            self.issue_title_var.set("El archivo no tiene el formato de una captura.")
+            self.issue_message_var.set(
+                f"Motivo: {item.error_message}\n\nSe apartó a cuarentena sin modificarlo («Abrir ubicación» "
+                "lleva a él). Corrígelo y vuelve a importarlo; si es un texto normal, quítale la cabecera de "
+                "captura e impórtalo con «Importar documentos». Después puedes cerrar esta incidencia."
+            )
         elif item.category == "attention":
             self.issue_title_var.set(
                 "No se pudo leer el archivo." if item.incident_id is not None
@@ -260,6 +268,8 @@ class DetalleMixin(InicioMixin):
         self.technical_var.set(
             f"Detalles técnicos: estado={item.status} · fase={item.phase} · modelo={item.model} "
             f"· intentos={item.attempt} · código={item.error_code or '—'}\nRuta: {item.path or item.filename}"
+            + (f"\nMensaje del Broker: {item.error_message}"
+               if item.error_message and item.incident_id is None and item.category == "attention" else "")
         )
         self.open_location_button.state(["!disabled"] if item.path else ["disabled"])
         if item.status == "AWAITING_REVIEW":
@@ -281,7 +291,9 @@ class DetalleMixin(InicioMixin):
             self.ignore_button.configure(text="Cancelar procesamiento")
             self.ignore_button.state(["!disabled"])
         elif item.category == "attention" and item.status in {"ERROR", "INGESTION_ERROR"}:
-            self.ignore_button.configure(text="Ignorar este archivo")
+            self.ignore_button.configure(
+                text="Cerrar incidencia" if item.incident_id is not None and not item.retryable
+                else "Ignorar este archivo")
             self.ignore_button.state(["!disabled"])
         else:
             self.ignore_button.configure(text="Ignorar este archivo")

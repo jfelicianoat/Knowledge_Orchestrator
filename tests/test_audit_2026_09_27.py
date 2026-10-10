@@ -362,7 +362,8 @@ class DocumentBudgetTests(AuditBase):
     """H08: el presupuesto es del documento, no de cada petición."""
 
     def test_split_document_never_reserves_more_than_its_budget(self) -> None:
-        self.profile(max_cost_usd=0.05)
+        # La bolsa protege el gasto en proveedores de pago; lo local no cuesta.
+        self.profile(max_cost_usd=0.05, data_classification="public")
         self.runtime.workflow_planner.max_context_tokens = 4_000
         self.ingest("coste", LONG_TRANSCRIPT)
         workflow_id = self.runtime.workflow_planner.plan_capture("coste")

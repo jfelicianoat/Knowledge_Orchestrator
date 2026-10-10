@@ -99,7 +99,7 @@ class InicioMixin(DashboardBase):
                    color=warning_fg, bg=warning_bg).grid(row=0, column=1, sticky="ew", pady=(12, 2))
         self._text(self.storage_banner, " ".join(storage), size=9, color="text", bg=warning_bg,
                    wraplength=820).grid(row=1, column=1, sticky="ew", pady=(0, 12), padx=(0, 16))
-        ttk.Button(self.storage_banner, text="Revisar carpetas", command=lambda: self._show_page("settings")).grid(
+        ttk.Button(self.storage_banner, text="Revisar carpetas", command=lambda: self._show_page("config")).grid(
             row=0, column=2, rowspan=2, padx=(0, 16))
         if not storage:
             self.storage_banner.grid_remove()

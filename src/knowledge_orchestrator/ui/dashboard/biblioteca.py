@@ -251,7 +251,7 @@ class BibliotecaMixin(RevisionMixin):
             )
         selected_id = str(self._selected_library_id) if self._selected_library_id is not None else ""
         if selected_id in {row_id for row_id, _values in rows}:
-            self.library_tree.selection_set(selected_id)
+            self._keep_selection(self.library_tree, (selected_id,))
             self._render_library_item(self._library_items[selected_id])
         else:
             self._selected_library_id = None

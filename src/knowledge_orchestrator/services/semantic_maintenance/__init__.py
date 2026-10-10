@@ -14,6 +14,7 @@ Aquí queda la orquestación: qué se encola, en qué orden y con qué revisión
 """
 from __future__ import annotations
 
+import dataclasses
 import difflib
 import json
 import uuid
@@ -53,6 +54,11 @@ __all__ = [
     "SemanticMaintenanceService",
 ]
 
+
+#: Parecido mínimo para aceptar una copia casi literal de la evidencia.
+NEAR_LITERAL_RATIO = 0.9
+#: Palabras que cambian el sentido: no se admite que aparezcan de nuevo en la copia.
+NEGATIONS = frozenset({"no", "nunca", "jamás", "ya", "tampoco", "ningún", "ninguna", "sin", "not", "never"})
 
 class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
     """Mantiene claims semanticos usando solo evidencia local verificable.
@@ -315,7 +321,12 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         base_hash = None
         if decision.relation in {"EXTENDS", "CONTRADICTS", "SUPERSEDES"} and not target.manual_lock:
             if not decision.replacement_text or not decision.replacement_text.strip():
-                raise SemanticContractError("La relación requiere replacement_text")
+                # El texto aplicado es siempre la evidencia nueva literal (se
+                # comprueba abajo). Si el modelo clasifica pero no la copia, se
+                # usa la evidencia en vez de perder la comparación: en la prueba
+                # real del 8-oct fallaban así 3 de cada 11 y se quedaban «Por
+                # comparar». Un texto distinto de la evidencia sigue rechazándose.
+                decision = dataclasses.replace(decision, replacement_text=new_quote)
             context = self.repository.note_context(target.note_id)
             document = self._read_checked_note(Path(context["vault_path"]))
             base_hash = self._hash_text(document)
@@ -324,8 +335,11 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             old_text = document[target.span_start:target.span_end]
             if not old_text:
                 raise SemanticContractError("El span objetivo está vacío")
-            replacement = decision.replacement_text.strip()
-            if replacement != new_quote.strip():
+            replacement = (decision.replacement_text or new_quote).strip()
+            # Un fragmento literal de la evidencia («25 de octubre de 2026» de
+            # «**Fecha oficial:** 25 de octubre de 2026.») no inventa nada: se
+            # aplica la evidencia completa igualmente (prueba real 9-oct).
+            if replacement != new_quote.strip() and not self._literal_fragment(replacement, new_quote):
                 raise SemanticContractError('El texto propuesto debe conservar la evidencia nueva, sin inferencias')
             replacement = new_quote
             if old_text != self.repository.evidence_quote(target.claim_id):
@@ -357,6 +371,25 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             expected_revision=expected_revision,
             actor=actor,
         )
+
+    @staticmethod
+    def _literal_fragment(fragment: str, evidence: str) -> bool:
+        """El texto del modelo es un trozo literal de la evidencia (sin marcas ni espacios extra)."""
+
+        def plain(value: str) -> str:
+            return " ".join(value.replace("**", "").replace("`", "").split()).strip(" \"'«».;:")
+
+        piece, source = plain(fragment), plain(evidence)
+        if len(piece.split()) >= 2 and piece in source:
+            return True
+        # Copia casi literal con un tropiezo del modelo («la versión» → «l sión»,
+        # determinista a temperatura 0: reintentar no lo arreglaba). Se aplica la
+        # evidencia completa igualmente; lo que no se admite es añadir cifras o
+        # negaciones, que es como se cuela una inferencia («ya no tiene soporte»).
+        added = set(piece.casefold().split()) - set(source.casefold().split())
+        return (difflib.SequenceMatcher(None, piece, source).ratio() >= NEAR_LITERAL_RATIO
+                and not any(any(char.isdigit() for char in word) for word in added)
+                and not added & NEGATIONS)
 
     def proposal_detail(self, candidate_id: int) -> dict:
         candidate = self.repository.get_candidate(candidate_id)
@@ -467,6 +500,22 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             raise SemanticContractError(
                 'No se puede comprobar la nota: revisa su acceso y codificación UTF-8'
             ) from None
+
+    #: Motivo, para personas, de que no se pueda aplicar ningún cambio a una nota existente.
+    EDITOR_MISSING = ('Para modificar notas ya publicadas hace falta el puente de Obsidian: configúralo en '
+                      'Ajustes → «Edición segura en Obsidian» y deja Obsidian abierto con el complemento '
+                      'Knowledge Orchestrator Bridge activo.')
+
+    def editor_ready(self) -> bool:
+        """Las ediciones de notas existentes pasan por el puente de Obsidian.
+
+        Sin él, una aprobación quedaba «aplicándose» para siempre y el lote en
+        recuperación, sin decir por qué (prueba real 8-oct). Un editor sin este
+        método (p. ej. el de las pruebas) se considera disponible.
+        """
+
+        check = getattr(self.note_editor, 'is_configured', None)
+        return True if check is None else bool(check())
 
     def approve(self, candidate_id: int, *, expected_revision: int | None = None,
                 actor: str = 'human:review', review_batch_id: str | None = None,

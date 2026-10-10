@@ -75,6 +75,15 @@ class ObsidianConnection:
                 pass
             return DEFAULT_BRIDGE_URL
 
+    def is_configured(self) -> bool:
+        """Hay credencial válida para esta bóveda (no comprueba que Obsidian esté abierto)."""
+
+        try:
+            self.client()
+        except ObsidianBridgeUnavailable:
+            return False
+        return True
+
     def status(self) -> dict:
         return self.client().status()
 

@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Knowledge Orchestrator · Manual de uso</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+  :root {
+    --ink: #1b2430; --muted: #5a6573; --faint: #8a94a1; --line: #d9dee5;
+    --accent: #0e8fb0; --accent-soft: #e6f5f9; --warn: #9a6400; --warn-soft: #fff6e2;
+    --bad: #b3261e; --bad-soft: #fdecea; --ok: #1d7a46; --ok-soft: #e8f5ed;
+  }
+  * { box-sizing: border-box; }
+  html { font-family: "Segoe UI", "Calibri", Arial, sans-serif; color: var(--ink); font-size: 10.4pt; line-height: 1.5; }
+  body { margin: 0; }
+  h1, h2, h3, h4 { line-height: 1.25; margin: 0; }
+  h1 { font-size: 22pt; }
+  h2 { font-size: 16pt; margin: 0 0 3mm; padding-bottom: 2mm; border-bottom: 2px solid var(--accent); }
+  h3 { font-size: 12pt; margin: 5mm 0 1.5mm; color: var(--accent); }
+  h4 { font-size: 10.5pt; margin: 3.5mm 0 1mm; }
+  p { margin: 0 0 2.2mm; }
+  ul, ol { margin: 0 0 2.5mm; padding-left: 6mm; }
+  li { margin: 0 0 1mm; }
+  code, .k { font-family: "Cascadia Mono", Consolas, monospace; font-size: 9pt; background: #f2f4f7; padding: 0 1.2mm; border-radius: 2px; }
+  pre { font-family: "Cascadia Mono", Consolas, monospace; font-size: 8.6pt; background: #f2f4f7; padding: 3mm; border-radius: 3px; white-space: pre-wrap; margin: 0 0 3mm; }
+  .btn { display: inline-block; font-size: 9pt; font-weight: 600; padding: 0 1.6mm; border: 1px solid #9fb3c2; border-radius: 3px; background: #f7fafc; white-space: nowrap; }
+  .chapter { break-before: page; }
+  .keep { break-inside: avoid; }
+  figure { margin: 3mm 0 4mm; break-inside: avoid; }
+  figure img { width: 100%; border: 1px solid var(--line); border-radius: 3px; display: block; }
+  figure.half img { width: 70%; margin: 0 auto; }
+  figure.small img { width: 52%; margin: 0 auto; }
+  figcaption { font-size: 8.6pt; color: var(--muted); margin-top: 1.2mm; text-align: center; }
+  table { width: 100%; border-collapse: collapse; margin: 1mm 0 3.5mm; font-size: 9.3pt; break-inside: auto; }
+  th, td { text-align: left; vertical-align: top; padding: 1.4mm 2mm; border-bottom: 1px solid var(--line); }
+  th { background: #f2f5f8; font-weight: 600; }
+  tr { break-inside: avoid; }
+  .note, .warn, .tip, .bad { border-left: 3px solid; padding: 2.2mm 3mm; margin: 2.5mm 0 3.5mm; border-radius: 0 3px 3px 0; break-inside: avoid; }
+  .note { border-color: var(--accent); background: var(--accent-soft); }
+  .tip { border-color: var(--ok); background: var(--ok-soft); }
+  .warn { border-color: var(--warn); background: var(--warn-soft); }
+  .bad { border-color: var(--bad); background: var(--bad-soft); }
+  .note > b:first-child, .warn > b:first-child, .tip > b:first-child, .bad > b:first-child { display: block; margin-bottom: .6mm; }
+  .steps { counter-reset: s; list-style: none; padding-left: 0; }
+  .steps > li { counter-increment: s; position: relative; padding-left: 8mm; margin-bottom: 1.8mm; }
+  .steps > li::before { content: counter(s); position: absolute; left: 0; top: .2mm; width: 5.2mm; height: 5.2mm; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 8.4pt; font-weight: 700; text-align: center; line-height: 5.2mm; }
+  .cover { height: 255mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .cover .brand { display: flex; align-items: center; gap: 5mm; margin-top: 20mm; }
+  .cover .logo { font-size: 26pt; font-weight: 700; color: var(--accent); border: 2px solid var(--accent); padding: 2mm 4mm; border-radius: 3px; }
+  .cover h1 { font-size: 30pt; }
+  .cover .sub { font-size: 14pt; color: var(--muted); margin-top: 4mm; }
+  .cover .meta { font-size: 10pt; color: var(--muted); border-top: 1px solid var(--line); padding-top: 4mm; }
+  .cover img { width: 100%; border: 1px solid var(--line); border-radius: 4px; }
+  .toc ol { list-style: none; padding: 0; columns: 2; column-gap: 10mm; }
+  .toc li { margin: 0 0 1.6mm; break-inside: avoid; }
+  .toc a { color: var(--ink); text-decoration: none; }
+  .toc .n { display: inline-block; width: 7mm; color: var(--accent); font-weight: 700; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
+  .pill { display: inline-block; font-size: 8.4pt; padding: 0 1.6mm; border-radius: 8px; border: 1px solid; white-space: nowrap; }
+  .pill.ok { color: var(--ok); border-color: var(--ok); }
+  .pill.warn { color: var(--warn); border-color: var(--warn); }
+  .pill.bad { color: var(--bad); border-color: var(--bad); }
+  .pill.n { color: var(--muted); border-color: var(--faint); }
+  .flow { display: flex; align-items: stretch; gap: 1.5mm; margin: 2mm 0 4mm; }
+  .flow div { flex: 1; border: 1px solid var(--line); border-radius: 3px; padding: 2mm; font-size: 8.6pt; background: #fafbfc; }
+  .flow div b { display: block; color: var(--accent); font-size: 9.2pt; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ PORTADA -->
+<section class="cover">
+  <div>
+    <div class="brand"><span class="logo">KO</span><div><h1>Knowledge Orchestrator</h1><div class="sub">Manual de uso · versión 0.4.1</div></div></div>
+    <p style="margin-top:10mm;font-size:12pt;max-width:150mm">Convierte vídeos, apuntes y documentos en conocimiento revisado y publicado en tu bóveda de Obsidian, con la ayuda de los modelos de IA de tu AI Broker, sin perder nunca el original.</p>
+  </div>
+  <figure style="margin:0"><img src="img/m01_inicio.png" alt="Pantalla de inicio"></figure>
+  <div class="meta">Manual elaborado a partir de pruebas reales de la aplicación (ventana real y AI Broker real) realizadas el 8 de octubre de 2026. Las capturas de pantalla proceden de esas pruebas, con documentos de ejemplo.</div>
+</section>
+
+<!-- ============================================================ ÍNDICE -->
+<section class="chapter toc">
+  <h2>Contenido</h2>
+  <ol>
+    <li><a href="#que-es"><span class="n">1</span>Qué es y para qué sirve</a></li>
+    <li><a href="#conceptos"><span class="n">2</span>Conceptos que conviene conocer</a></li>
+    <li><a href="#arranque"><span class="n">3</span>Instalación y arranque</a></li>
+    <li><a href="#primeros"><span class="n">4</span>Primeros pasos: configurar en 5 minutos</a></li>
+    <li><a href="#ventana"><span class="n">5</span>La ventana: navegación y atajos</a></li>
+    <li><a href="#inicio"><span class="n">6</span>Inicio</a></li>
+    <li><a href="#entrada"><span class="n">7</span>Meter documentos</a></li>
+    <li><a href="#documentos"><span class="n">8</span>Documentos: seguir y resolver</a></li>
+    <li><a href="#borradores"><span class="n">9</span>Borradores y revisión humana</a></li>
+    <li><a href="#biblioteca"><span class="n">10</span>Biblioteca</a></li>
+    <li><a href="#afirmaciones"><span class="n">11</span>Afirmaciones</a></li>
+    <li><a href="#revision"><span class="n">12</span>Revisión de propuestas y reversión</a></li>
+    <li><a href="#fuentes"><span class="n">13</span>Fuentes vigiladas</a></li>
+    <li><a href="#actividad"><span class="n">14</span>Actividad</a></li>
+    <li><a href="#api"><span class="n">15</span>Automatización y API</a></li>
+    <li><a href="#organizacion"><span class="n">16</span>Organización: temas</a></li>
+    <li><a href="#ajustes"><span class="n">17</span>Ajustes en detalle</a></li>
+    <li><a href="#cli"><span class="n">18</span>Línea de comandos: copias y diagnóstico</a></li>
+    <li><a href="#problemas"><span class="n">19</span>Solución de problemas</a></li>
+    <li><a href="#flujos"><span class="n">20</span>Resumen de todos los flujos</a></li>
+  </ol>
+</section>
+
+<!-- ============================================================ 1 -->
+<section class="chapter" id="que-es">
+  <h2>1. Qué es y para qué sirve</h2>
+  <p><b>Knowledge Orchestrator</b> es una aplicación de escritorio para Windows que convierte material en bruto —transcripciones de vídeos de YouTube capturadas con el plugin, apuntes en Markdown, textos sueltos o novedades de webs y blogs— en <b>apuntes de estudio</b> bien redactados y en una <b>base de conocimiento</b> de afirmaciones con su evidencia, todo ello guardado en tu bóveda de Obsidian.</p>
+  <p>La aplicación no ejecuta los modelos de IA por sí misma: prepara las peticiones y se las entrega a tu <b>AI Broker</b>, que decide qué modelo local (Ollama, LM Studio…) las procesa. Después valida lo que vuelve, lo publica y lo mantiene.</p>
+
+  <div class="flow keep">
+    <div><b>1 · Entrada</b>Importas un documento, el plugin deja una captura en la carpeta vigilada o llega una novedad de una fuente.</div>
+    <div><b>2 · Validación</b>Se comprueba el formato, se guarda una copia segura y se clasifica por tema.</div>
+    <div><b>3 · IA</b>El Broker redacta el apunte (por partes si el documento es largo).</div>
+    <div><b>4 · Revisión</b>Opcional: apruebas o descartas el borrador antes de publicarlo.</div>
+    <div><b>5 · Publicación</b>La nota se escribe en la carpeta del tema dentro de tu bóveda.</div>
+    <div><b>6 · Conocimiento</b>Se extraen afirmaciones y se comparan con lo que ya sabías.</div>
+  </div>
+
+  <h3>Qué te aporta</h3>
+  <ul>
+    <li><b>Apuntes útiles, no resúmenes vagos</b>: el perfil de procesamiento pide definiciones, procedimientos, datos y advertencias, en español.</li>
+    <li><b>Seguridad del original</b>: tu archivo nunca se modifica ni se borra; todo lo rechazado se aparta a una carpeta de cuarentena con el motivo.</li>
+    <li><b>Control humano</b>: puedes exigir aprobar cada apunte antes de publicarlo, y ningún cambio sobre una nota existente se aplica sin tu decisión (salvo que tú autorices una política).</li>
+    <li><b>Conocimiento que evoluciona</b>: cuando un documento nuevo contradice, amplía o sustituye algo que ya tenías, la aplicación te lo propone con la evidencia al lado, y puedes deshacerlo después.</li>
+    <li><b>Trazabilidad</b>: cada documento tiene su línea de tiempo; cada afirmación, su evidencia; cada decisión, su motivo y su recibo.</li>
+  </ul>
+
+  <h3>Con qué se relaciona</h3>
+  <table>
+    <tr><th style="width:28%">Pieza</th><th>Papel</th></tr>
+    <tr><td><b>YT Capture Plugin</b></td><td>Extensión del navegador que guarda vídeos de YouTube (metadatos y transcripción) como archivos <code>.md</code> en la carpeta vigilada.</td></tr>
+    <tr><td><b>AI Broker</b></td><td>Servidor de tu red local que recibe las peticiones y elige y ejecuta los modelos. Necesita su dirección y, si lo exige, un token de administrador.</td></tr>
+    <tr><td><b>Obsidian</b></td><td>Donde lees tus notas. La aplicación escribe en la carpeta de la bóveda; el complemento opcional <i>Knowledge Orchestrator Bridge</i> permite ediciones seguras con Obsidian abierto.</td></tr>
+    <tr><td><b>Otras aplicaciones</b></td><td>Pueden consultar tu conocimiento o enviar documentos a través de la API local, con credenciales que tú creas y revocas.</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ 2 -->
+<section class="chapter" id="conceptos">
+  <h2>2. Conceptos que conviene conocer</h2>
+  <table>
+    <tr><th style="width:24%">Término</th><th>Qué significa</th></tr>
+    <tr><td><b>Carpeta vigilada</b> (bandeja)</td><td>Carpeta donde la aplicación recoge automáticamente los documentos nuevos. Por defecto <code>Descargas\YT-Knowledge-Inbox</code>. Los archivos aceptados salen de ella; los rechazados van a cuarentena.</td></tr>
+    <tr><td><b>Captura</b></td><td>Un documento con el formato que genera el plugin: cabecera con <code>contract_version</code>, <code>capture_id</code>, título… y una sección <code>## Transcripción</code>. Si importas un Markdown o texto normal, la aplicación lo convierte en captura (sin tocar el original).</td></tr>
+    <tr><td><b>Documento</b></td><td>Cada captura en proceso o procesada. Aparece en la pantalla Documentos con su estado y su línea de tiempo.</td></tr>
+    <tr><td><b>Tema</b></td><td>Categoría que decide en qué carpeta de la bóveda se publica la nota y con qué perfil se procesa. Se asigna por palabras clave del título, canal o etiquetas. Lo que no encaja va a <code>_inbox</code>.</td></tr>
+    <tr><td><b>Perfil</b></td><td>La política de procesamiento: qué modelos, qué método (respuesta directa, consenso o automático), privacidad, longitud, presupuesto, revisión humana e instrucciones. El perfil de fábrica se llama <i>Técnico Profundo</i>.</td></tr>
+    <tr><td><b>Borrador</b></td><td>El apunte generado cuando el perfil exige revisión humana. No se publica hasta que lo apruebas.</td></tr>
+    <tr><td><b>Nota</b></td><td>El apunte publicado en la bóveda. Tiene revisiones: cada cambio aplicado crea una nueva sin perder la anterior.</td></tr>
+    <tr><td><b>Afirmación</b></td><td>Un dato concreto extraído de una nota («Python 3.14 se publicó el 7 de octubre de 2025»), con su vigencia y su evidencia.</td></tr>
+    <tr><td><b>Respaldo</b></td><td><span class="pill ok">Fuente original</span> la frase aparece en el documento de origen; <span class="pill warn">Enlazada por el modelo</span> el modelo la relacionó con la fuente pero no se pudo comprobar; <span class="pill n">Solo en el resumen</span> solo consta en el apunte. <b>Solo las respaldadas por la fuente pueden proponer cambios</b> en otras notas.</td></tr>
+    <tr><td><b>Propuesta</b></td><td>Cambio sugerido sobre una nota existente porque un documento nuevo la confirma, amplía, sustituye o contradice. Siempre muestra «Ahora» y «Propuesto».</td></tr>
+    <tr><td><b>Fuente vigilada</b></td><td>Una web o feed RSS/Atom que la aplicación comprueba periódicamente para detectar novedades.</td></tr>
+    <tr><td><b>Política de autoaprobación</b></td><td>Regla que tú autorizas para aplicar sin intervención ciertas propuestas de fuentes concretas. Se crean desactivadas y el control global empieza en pausa.</td></tr>
+    <tr><td><b>Consumidor de la API</b></td><td>Otra herramienta autorizada a usar la API local, con permisos concretos (leer, preguntar, ingerir, revisar…).</td></tr>
+  </table>
+  <div class="note"><b>Regla de oro</b>La aplicación nunca modifica ni borra el archivo que tú le das. Copia, valida y trabaja sobre sus copias. Lo rechazado se aparta con un archivo <code>.error.json</code> que explica el motivo.</div>
+</section>
+
+<!-- ============================================================ 3 -->
+<section class="chapter" id="arranque">
+  <h2>3. Instalación y arranque</h2>
+  <h3>Con el ejecutable (lo habitual)</h3>
+  <ol class="steps">
+    <li>Copia la carpeta <code>dist\Knowledge-Orchestrator</code> (o instala con <code>Knowledge-Orchestrator-Setup.exe</code> si se generó el instalador).</li>
+    <li>Abre <code>Knowledge-Orchestrator.exe</code>. Se abre directamente la ventana.</li>
+    <li>Comprueba la versión bajo el logotipo <b>KO</b>, arriba a la izquierda (debe decir <b>v0.4.1</b>).</li>
+  </ol>
+  <h3>Desde el código fuente</h3>
+  <pre>start_orchestrator.bat                      (doble clic)
+python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .venv)</pre>
+  <h3>Dónde guarda cada cosa</h3>
+  <table>
+    <tr><th style="width:30%">Elemento</th><th>Ubicación por defecto</th></tr>
+    <tr><td>Datos internos (base SQLite, copias, cuarentena, registros)</td><td><code>%LOCALAPPDATA%\Knowledge Orchestrator\data</code></td></tr>
+    <tr><td>Carpeta vigilada</td><td><code>%USERPROFILE%\Downloads\YT-Knowledge-Inbox</code></td></tr>
+    <tr><td>Bóveda de resultados (Obsidian)</td><td>La que elijas en Ajustes</td></tr>
+    <tr><td>Ajustes de carpetas</td><td><code>%LOCALAPPDATA%\Knowledge Orchestrator\config\paths.json</code></td></tr>
+    <tr><td>Token del Broker</td><td>Dentro de los datos internos, cifrado para tu usuario de Windows</td></tr>
+  </table>
+  <div class="warn"><b>Mantén los datos internos en un disco local</b>La base SQLite falla en carpetas sincronizadas (Google Drive, OneDrive…). Si la ubicas allí, Inicio mostrará un aviso amarillo con el botón <span class="btn">Revisar carpetas</span>. La bóveda sí puede estar en una carpeta sincronizada.</div>
+  <div class="tip"><b>Probar sin tocar tus datos</b>Arranca con <code>--root C:\ruta\de\pruebas</code>: todo (datos, bandeja y bóveda) se crea dentro de esa carpeta y no se ingiere tu bandeja real.</div>
+  <p>Si al arrancar la carpeta de datos guardada no está disponible (disco desconectado, sin permisos), la aplicación te ofrece arrancar con carpetas locales sin tocar las anteriores; después podrás volver a elegirlas en Ajustes.</p>
+</section>
+
+<!-- ============================================================ 4 -->
+<section class="chapter" id="primeros">
+  <h2>4. Primeros pasos: configurar en 5 minutos</h2>
+  <p>En el primer arranque la aplicación busca el Broker en <code>http://127.0.0.1:8765</code>. Si tu Broker está en otro equipo verás en Inicio el aviso «<i>El procesamiento no está confirmado</i>» y en la barra lateral <span class="pill warn">Broker con incidencia</span>. Es normal: falta decirle dónde está.</p>
+  <figure><img src="img/s1_01_inicio_primer_arranque.png" alt=""><figcaption>Primer arranque: los documentos se conservarán y se procesarán cuando el Broker esté disponible.</figcaption></figure>
+  <ol class="steps">
+    <li><b>Conecta el Broker.</b> Ve a <b>Ajustes → Conexión a AI Broker</b>, escribe la <b>Dirección</b> (p. ej. <code>http://192.168.1.52:8765</code>) y el <b>Token</b> si tu Broker lo exige, y pulsa <span class="btn">Guardar conexión al Broker</span>. Se aplica al momento, sin reiniciar. En segundos la barra lateral pasa a <span class="pill ok">Broker disponible</span> y bajo la conexión aparece el contrato y los métodos que ofrece.</li>
+    <li><b>Elige las carpetas.</b> En <b>Carpetas del proceso</b> indica datos internos, carpeta vigilada y bóveda de resultados, y pulsa <span class="btn">Guardar carpetas</span>. Las carpetas se aplican al volver a abrir la aplicación.</li>
+    <li><b>Revisa el perfil.</b> En la lista de perfiles selecciona <i>Técnico Profundo</i>: elige el modelo que redacta, el que extrae afirmaciones, si quieres <b>Exigir revisión humana antes de publicar</b> y pulsa <span class="btn">Guardar política</span>.</li>
+    <li><b>Crea tus temas.</b> En <b>Organización</b>, <span class="btn">Nuevo tema</span>, escribe nombre y palabras clave y <span class="btn">Guardar tema</span>. Prueba un título en «Probar clasificación».</li>
+    <li><b>Mete tu primer documento</b> con <span class="btn">+ Importar documentos</span> o dejándolo en la carpeta vigilada, y síguelo en <b>Documentos</b>.</li>
+  </ol>
+  <figure><img src="img/s1_03_ajustes_broker_conectado.png" alt=""><figcaption>Ajustes con el Broker conectado: perfil arriba, conexión y carpetas debajo (la página se desplaza).</figcaption></figure>
+  <div class="note"><b>La lista de modelos tarda unos segundos</b>Tras conectar, el catálogo de modelos del Broker se descarga en segundo plano. Mientras llega, los desplegables de modelo solo ofrecen «Automático (Broker)»; vuelve a seleccionar el perfil al cabo de unos segundos para ver todos los modelos disponibles.</div>
+</section>
+
+<!-- ============================================================ 5 -->
+<section class="chapter" id="ventana">
+  <h2>5. La ventana: navegación y atajos</h2>
+  <p>A la izquierda está la <b>barra lateral</b>, agrupada por intención. Los números rojos indican cuántas cosas esperan tu atención en esa pantalla.</p>
+  <table>
+    <tr><th style="width:18%">Grupo</th><th style="width:26%">Pantalla</th><th>Para qué</th><th style="width:12%">Atajo</th></tr>
+    <tr><td rowspan="3"><b>Trabajo</b></td><td>Inicio</td><td>Resumen de un vistazo: qué avanza, qué necesita atención y la actividad reciente.</td><td><code>Ctrl+1</code></td></tr>
+    <tr><td>Documentos</td><td>Cada documento con su estado, pasos, línea de tiempo y acciones.</td><td><code>Ctrl+2</code></td></tr>
+    <tr><td>Revisión</td><td>Propuestas de cambio sobre notas existentes y reversión de cambios aplicados.</td><td><code>Ctrl+3</code></td></tr>
+    <tr><td rowspan="3"><b>Conocimiento</b></td><td>Biblioteca</td><td>Notas publicadas, con vista previa y acceso a Obsidian.</td><td><code>Ctrl+4</code></td></tr>
+    <tr><td>Afirmaciones</td><td>Cada dato extraído, con su vigencia, respaldo y evidencia.</td><td><code>Ctrl+5</code></td></tr>
+    <tr><td>Fuentes</td><td>Webs y feeds vigilados y sus novedades.</td><td><code>Ctrl+6</code></td></tr>
+    <tr><td rowspan="4"><b>Sistema</b></td><td>Actividad</td><td>El recorrido de cada novedad: cambios, análisis, propuestas, decisiones.</td><td><code>Ctrl+7</code></td></tr>
+    <tr><td>Automatización y API</td><td>API local, consumidores, procesos y políticas de autoaprobación.</td><td><code>Ctrl+8</code></td></tr>
+    <tr><td>Organización</td><td>Temas, carpetas, palabras clave y prioridad.</td><td><code>Ctrl+9</code></td></tr>
+    <tr><td>Ajustes</td><td>Perfil, Broker, carpetas y puente con Obsidian.</td><td><code>Ctrl+0</code></td></tr>
+  </table>
+  <h3>Otros atajos y controles</h3>
+  <table>
+    <tr><th style="width:30%">Atajo / control</th><th>Acción</th></tr>
+    <tr><td><code>Ctrl+O</code> o <span class="btn">+ Importar documentos</span></td><td>Elegir archivos para importar.</td></tr>
+    <tr><td><code>Ctrl+F</code></td><td>Ir al buscador: el de Biblioteca o Afirmaciones si estás en ellas; si no, el de Documentos.</td></tr>
+    <tr><td><code>F5</code></td><td>Actualizar la vista ahora.</td></tr>
+    <tr><td><span class="btn">Abrir carpeta vigilada</span></td><td>Abre la bandeja en el Explorador.</td></tr>
+    <tr><td><span class="btn">Pausar actualización</span> (pie)</td><td>Detiene el refresco automático de cada 2 s (útil para leer con calma); vuelve a pulsar para reanudar.</td></tr>
+  </table>
+  <p>En el pie de la barra lateral ves el estado del servicio (<i>Orquestador activo</i>) y del Broker (<i>Broker disponible</i> / <i>Broker con incidencia</i>), y en la barra inferior el último mensaje de la aplicación.</p>
+</section>
+
+<!-- ============================================================ 6 -->
+<section class="chapter" id="inicio">
+  <h2>6. Inicio</h2>
+  <figure><img src="img/m01_inicio.png" alt=""></figure>
+  <ul>
+    <li><b>Indicadores</b>: <i>En proceso</i>, <i>Necesitan atención</i>, <i>Decisiones pendientes</i> y <i>En la biblioteca</i>. Pulsa uno para ir directamente a esa lista.</li>
+    <li><b>Avisos</b>: si el Broker no responde o la carpeta de datos está en un sitio poco fiable, aparece una franja amarilla con la explicación y la acción (<span class="btn">Revisar carpetas</span> lleva a Ajustes).</li>
+    <li><b>Recorrido del conocimiento</b>: Fuentes → Cambios → Análisis → Propuestas → Revisión → Publicación, con cuántos elementos hay en cada etapa. Pulsa una etapa para ver sus elementos en Actividad. Debajo, un resumen: afirmaciones vigentes, históricas, en revisión, contradicciones y fuentes con errores.</li>
+    <li><b>Necesita tu atención</b>: los documentos con problemas o esperando una decisión; <span class="btn">Ver todos</span> abre Documentos filtrado.</li>
+    <li><b>Actividad reciente</b>: los últimos sucesos importantes, con hora y color (el color siempre va acompañado de texto).</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 7 -->
+<section class="chapter" id="entrada">
+  <h2>7. Meter documentos</h2>
+  <p>Hay cuatro puertas de entrada. Todas acaban en el mismo proceso.</p>
+  <h3>7.1 Importar desde el escritorio</h3>
+  <ol class="steps">
+    <li>Pulsa <span class="btn">+ Importar documentos</span> (o <code>Ctrl+O</code>) y elige uno o varios archivos <code>.md</code>, <code>.markdown</code> o <code>.txt</code> (máximo 20 MiB, en UTF-8).</li>
+    <li>La aplicación los examina sin bloquear la ventana y los clasifica:
+      <ul>
+        <li><b>Captura válida</b> (del plugin): se copia a la carpeta vigilada tal cual.</li>
+        <li><b>Texto o Markdown normal</b>: te pregunta una sola vez si quieres <span class="btn">Convertir y añadir</span>. Se crea una captura nueva con el texto completo; el título sale de la cabecera, del primer encabezado o de la primera línea.</li>
+        <li><b>Parece una captura pero está rota</b>: no se añade y se explica el motivo (p. ej. «falta la sección ## Transcripción»).</li>
+        <li><b>Ya importado antes</b>: se avisa con «Ya estaban importados» y no se duplica.</li>
+      </ul></li>
+    <li>Los añadidos aparecen en <b>Documentos → En proceso</b>.</li>
+  </ol>
+  <figure class="half"><img src="img/s1_08_dialogo_convertir.png" alt=""><figcaption>Conversión de un Markdown normal: el original no se modifica.</figcaption></figure>
+  <h3>7.2 Carpeta vigilada</h3>
+  <p>Deja archivos en la carpeta vigilada (o deja que lo haga el plugin de YouTube). La aplicación espera a que el archivo deje de cambiar, lo valida, guarda una copia con huella SHA-256 y lo saca de la bandeja. Si el archivo está bloqueado por otro programa o sigue cambiando, queda una incidencia reintentable. Si no tiene el formato de captura, se aparta a cuarentena y aparece en <b>Necesitan atención</b> como <span class="pill warn">Formato no válido</span> (ver capítulo 8).</p>
+  <div class="note"><b>Solo capturas en la carpeta vigilada</b>A la carpeta vigilada solo deben llegar capturas del plugin. Un Markdown normal dejado ahí irá a cuarentena; para esos usa «Importar documentos», que los convierte.</div>
+  <h3>7.3 Fuentes vigiladas</h3>
+  <p>Las novedades de webs y feeds RSS/Atom se incorporan desde la pantalla Fuentes (capítulo 13), automáticamente o tras revisarlas, según configures cada fuente.</p>
+  <h3>7.4 API local</h3>
+  <p>Otra aplicación con permiso de <b>Ingesta</b> puede enviar un título y un texto a <code>POST /api/v1/documents</code>; el servidor construye la captura y sigue el mismo proceso (capítulo 15).</p>
+  <h3>Qué pasa después</h3>
+  <div class="flow keep">
+    <div><b>Recibido</b>El archivo ha llegado.</div>
+    <div><b>Validado</b>Formato correcto, copia guardada, tema asignado.</div>
+    <div><b>Enviado</b>Petición entregada al Broker (en cola).</div>
+    <div><b>Procesado</b>El Broker devolvió el apunte y se validó.</div>
+    <div><b>Publicado</b>Nota escrita en la bóveda; original archivado.</div>
+  </div>
+  <p>Los documentos largos se dividen en partes por límites naturales del texto; cada parte se procesa por separado y luego se funden por niveles hasta caber en la ventana del modelo. Tras publicar, en segundo plano, se extraen las afirmaciones de la nota y se comparan con tu conocimiento previo.</p>
+</section>
+
+<!-- ============================================================ 8 -->
+<section class="chapter" id="documentos">
+  <h2>8. Documentos: seguir y resolver</h2>
+  <figure><img src="img/m02_documentos.png" alt=""></figure>
+  <h3>La lista</h3>
+  <ul>
+    <li><b>Filtros</b>: <i>En proceso</i>, <i>Necesitan atención</i>, <i>Finalizados</i> y <i>Todos</i>, con su recuento.</li>
+    <li><b>Buscador</b> (<code>Ctrl+F</code>): por título, nombre de archivo, ruta o estado.</li>
+    <li><b>Selección múltiple</b> con <code>Ctrl</code> o <code>Mayús</code>: el botón principal pasa a «Enviar N seleccionados» para reenviar varios a la vez.</li>
+  </ul>
+  <h3>El detalle</h3>
+  <ul>
+    <li><b>Pasos</b> Recibido → Validado → Enviado → Procesado → Publicado: verde completado, azul en curso, rojo fallido.</li>
+    <li><b>Qué pasa y cómo seguir</b>: el estado explicado en lenguaje llano y los botones que tienen sentido en ese momento.</li>
+    <li><b>Línea de tiempo</b>: los sucesos del documento con su hora (preparado, validado, procesado por el Broker, borrador listo, publicado, fallos…).</li>
+    <li><span class="btn">▸ Mostrar detalles técnicos</span>: estado interno, fase, modelo, intentos, código de error, ruta y, si falló, el mensaje completo del Broker.</li>
+  </ul>
+  <h3>Estados y acciones</h3>
+  <table>
+    <tr><th style="width:24%">Estado</th><th>Significado</th><th style="width:30%">Acciones</th></tr>
+    <tr><td><span class="pill n">En cola local</span></td><td>Validado, esperando a enviarse.</td><td><span class="btn">Enviar ahora</span> <span class="btn">Cancelar procesamiento</span></td></tr>
+    <tr><td><span class="pill n">En cola del Broker</span> · <span class="pill n">Procesando</span></td><td>El Broker lo tiene; puede tardar minutos con modelos locales grandes.</td><td><span class="btn">Cancelar procesamiento</span></td></tr>
+    <tr><td><span class="pill warn">Pendiente de revisión</span></td><td>Borrador listo; el perfil exige tu aprobación.</td><td><span class="btn">Revisar borrador…</span> <span class="btn">Descartar borrador</span></td></tr>
+    <tr><td><span class="pill bad">Error</span></td><td>El Broker o la validación fallaron. El texto explica la causa y qué hacer.</td><td><span class="btn">Reintentar</span> <span class="btn">Ignorar este archivo</span></td></tr>
+    <tr><td><span class="pill warn">Formato no válido</span> · <span class="pill warn">Sin transcripción</span></td><td>El archivo de la bandeja no era una captura válida; está en cuarentena.</td><td><span class="btn">Abrir ubicación</span> <span class="btn">Cerrar incidencia</span></td></tr>
+    <tr><td><span class="pill warn">Archivo bloqueado</span> · <span class="pill warn">Archivo inestable</span></td><td>Otro programa lo tenía abierto o seguía cambiando; sigue en la bandeja.</td><td><span class="btn">Reintentar</span> <span class="btn">Ignorar este archivo</span></td></tr>
+    <tr><td><span class="pill ok">Completado</span></td><td>Publicado en la biblioteca.</td><td><span class="btn">Abrir ubicación</span></td></tr>
+    <tr><td><span class="pill n">Cancelado</span> · <span class="pill n">Borrador descartado</span></td><td>No se publicó; el archivo y el historial se conservan.</td><td><span class="btn">Volver a procesar</span> (borrador descartado)</td></tr>
+  </table>
+
+  <h3>Reintentar un documento fallido</h3>
+  <figure><img src="img/s2_00_documento_fallido.png" alt=""><figcaption>Un documento que el Broker cortó por tiempo: la explicación dice qué hacer y el detalle técnico completo queda a un clic.</figcaption></figure>
+  <ol class="steps">
+    <li>Lee la explicación. Si la causa es tuya (modelo inadecuado, longitud corta), corrígela antes en Ajustes.</li>
+    <li>Pulsa <span class="btn">Reintentar</span>. El documento vuelve a la cola <b>con la configuración vigente del perfil completa</b> (modelo, privacidad, sustituciones, longitud y plazo), no con la que falló.</li>
+    <li>Síguelo en <i>En proceso</i>. Si el perfil exige revisión, terminará como <i>Pendiente de revisión</i>.</li>
+  </ol>
+
+  <h3>Cancelar</h3>
+  <p><span class="btn">Cancelar procesamiento</span> detiene el documento entero: no se envían más partes y se pide al Broker que pare las que tiene. El original se conserva y lo que llegue tarde no lo reabre. Queda en <i>Finalizados</i> como <span class="pill n">Cancelado</span>.</p>
+
+  <h3>Archivos rechazados (cuarentena)</h3>
+  <figure><img src="img/s2_01_incidencia_cuarentena.png" alt=""><figcaption>Un archivo sin el formato de captura: está en cuarentena, con su motivo, y no se puede reintentar tal cual.</figcaption></figure>
+  <p>Pulsa <span class="btn">Abrir ubicación</span> para ir a la carpeta de cuarentena (<code>failed\contracts</code> dentro de los datos internos), corrige el archivo y vuelve a importarlo. Después, <span class="btn">Cerrar incidencia</span> la quita de la lista (el archivo sigue en cuarentena por si lo necesitas).</p>
+</section>
+
+<!-- ============================================================ 9 -->
+<section class="chapter" id="borradores">
+  <h2>9. Borradores y revisión humana</h2>
+  <p>Si en el perfil marcas <b>Exigir revisión humana antes de publicar</b>, cada apunte queda como borrador. La política se fija al planificar el documento: cambiarla después no afecta a los que ya están en marcha.</p>
+  <ol class="steps">
+    <li>En <b>Documentos → Necesitan atención</b> selecciona el documento <span class="pill warn">Pendiente de revisión</span>.</li>
+    <li>Pulsa <span class="btn">Revisar borrador…</span>: se abre el texto completo exactamente como se publicaría.</li>
+    <li>Decide:
+      <ul>
+        <li><span class="btn">Aprobar y publicar</span>: se publica <b>ese mismo texto</b> (la aprobación queda ligada a su huella; si el resultado cambiara, no se publicaría).</li>
+        <li><span class="btn">Descartar borrador</span>: no se publica; la fuente y el resultado se conservan.</li>
+        <li><span class="btn">Cerrar</span>: decides más tarde.</li>
+      </ul></li>
+    <li>Un borrador descartado ofrece <span class="btn">Volver a procesar</span>, que genera un borrador nuevo con la configuración actual del perfil (p. ej. tras cambiar de modelo o de instrucciones). El descartado se conserva.</li>
+  </ol>
+  <figure><img src="img/s2_borrador_detalle.png" alt=""><figcaption>Un borrador pendiente tras un reintento: la línea de tiempo muestra el reintento, el procesamiento y el aviso de revisión.</figcaption></figure>
+  <figure><img src="img/s2_00d_borrador_dialogo.png" alt=""><figcaption>Revisión de un borrador: lo que ves es exactamente lo que se publicará.</figcaption></figure>
+</section>
+
+<!-- ============================================================ 10 -->
+<section class="chapter" id="biblioteca">
+  <h2>10. Biblioteca</h2>
+  <figure><img src="img/m04_biblioteca.png" alt=""></figure>
+  <ul>
+    <li><b>Buscar</b> por texto y filtrar por <b>tema</b> con los botones de la parte superior. La lista se pagina de 100 en 100 (<span class="btn">‹ Anterior</span> <span class="btn">Siguiente ›</span>).</li>
+    <li>Al seleccionar una nota ves su tema, revisión, fecha de publicación, ruta en la bóveda y una <b>vista previa</b> del texto.</li>
+    <li><span class="btn">Abrir en Obsidian</span> (o doble clic) la abre en Obsidian; <span class="btn">Abrir carpeta</span> muestra el archivo en el Explorador; <span class="btn">Ver documento de origen</span> te lleva al documento en la pantalla Documentos.</li>
+  </ul>
+  <h3>Notas cambiadas fuera de la aplicación</h3>
+  <p>Si editas, mueves o borras una nota publicada directamente en Obsidian, la aplicación lo detecta y activa el botón <span class="btn">Notas cambiadas fuera de la app</span>. En el diálogo, para cada nota:</p>
+  <table>
+    <tr><th style="width:32%">Acción</th><th>Cuándo usarla</th></tr>
+    <tr><td><span class="btn">Adoptar esta versión</span></td><td>Tu edición es buena: pasa a ser la versión registrada de la nota.</td></tr>
+    <tr><td><span class="btn">Localizar el fichero movido…</span></td><td>Moviste o renombraste la nota: indica dónde está ahora.</td></tr>
+    <tr><td><span class="btn">Retirar del índice</span></td><td>La borraste a propósito: deja de considerarse publicada.</td></tr>
+  </table>
+  <p>Mientras una nota tenga cambios sin resolver, la API no sirve su contenido (para no entregar algo distinto de lo registrado).</p>
+</section>
+
+<!-- ============================================================ 11 -->
+<section class="chapter" id="afirmaciones">
+  <h2>11. Afirmaciones</h2>
+  <figure><img src="img/m05_afirmaciones.png" alt=""></figure>
+  <p>Cada nota publicada se analiza en segundo plano: el modelo que extrae afirmaciones elige frases de la nota y tramos del documento original, y la aplicación <b>comprueba</b> que la evidencia existe en el texto. Así una afirmación inventada no puede colarse con una cita válida.</p>
+  <ul>
+    <li><b>Estado</b>: <i>Vigente</i>, <i>Histórica</i>, etc. Busca por entidad o texto y pulsa <span class="btn">Buscar</span>.</li>
+    <li><b>Vigencia · respaldo</b>: si sigue en vigor y si la fuente original la respalda.</li>
+    <li>El detalle muestra la afirmación, su evidencia literal, su origen, sus entidades y su evolución (qué la sustituyó o amplió).</li>
+  </ul>
+  <div class="note"><b>Elegir bien el modelo que extrae</b>Extraer afirmaciones exige devolver una estructura exacta: conviene un modelo que <b>no razone</b> antes de responder. Si un modelo devuelve respuestas inservibles, la aplicación lo aparta 14 días para la elección automática (puedes rehabilitarlo en Ajustes → <span class="btn">Modelos apartados por fallos…</span>).</div>
+</section>
+
+<!-- ============================================================ 12 -->
+<section class="chapter" id="revision">
+  <h2>12. Revisión de propuestas y reversión</h2>
+  <p>Cuando un documento nuevo trae afirmaciones respaldadas por su fuente que tocan algo que ya sabías, la aplicación las compara y crea <b>propuestas</b>: <i>confirma</i>, <i>amplía</i>, <i>sustituye</i> o <i>contradice</i>. Ninguna se aplica sola (salvo políticas que tú autorices). Las notas con <code>manual_lock</code> nunca se modifican automáticamente.</p>
+  <figure><img src="img/m03_revision.png" alt=""><figcaption>Una propuesta real: el documento nuevo da otra fecha de publicación. Arriba, propuestas «En conflicto» (su nota cambió y ya no pueden aplicarse).</figcaption></figure>
+  <div class="warn"><b>Para aplicar cambios hace falta el puente de Obsidian</b>Modificar una nota ya publicada (y revertir ese cambio) se hace a través del complemento <i>Knowledge Orchestrator Bridge</i> con Obsidian abierto, para no pisar ediciones en curso. Si no está configurado (Ajustes → «Edición segura en Obsidian»), <span class="btn">✓ Aplicar cambio</span> aparece desactivado y la restricción explica el motivo; puedes seguir revisando, editando y descartando.</div>
+  <h3>Decidir una propuesta</h3>
+  <ol class="steps">
+    <li>En <b>Propuestas pendientes</b> selecciona una. Verás la nota afectada, el tipo de cambio, la confianza y el impacto (en color si es alto o hay conflicto), y lado a lado <b>Ahora</b> y <b>Propuesto</b>, con la evidencia y la justificación debajo.</li>
+    <li>Decide:
+      <ul>
+        <li><span class="btn">✓ Aplicar cambio</span>: abre la vista previa del lote con lo que se cambiará; pulsa <span class="btn">Confirmar cambios elegibles</span> y confirma. Se crea una nueva revisión de la nota, conservando la anterior en su sección de histórico.</li>
+        <li><span class="btn">Editar</span>: ajusta el tipo de relación, la justificación o el texto propuesto (sin añadir hechos que no estén en la evidencia) y <span class="btn">Guardar nueva revisión</span>.</li>
+        <li><span class="btn">Descartar</span>: la nota no se toca y la propuesta queda registrada como descartada. Si era una contradicción, sus afirmaciones dejan de estar «en disputa» y vuelven a contar como conocimiento vigente (salvo que otra contradicción abierta las siga implicando).</li>
+      </ul></li>
+    <li>Consultas: <span class="btn">Ver trazabilidad</span> muestra todas las versiones de la propuesta y quién hizo qué; <span class="btn">Evaluar con política</span> te lleva a Automatización para simular qué haría una política con esa propuesta.</li>
+  </ol>
+  <figure><img src="img/s8_lote_vista_previa.png" alt=""><figcaption>Vista previa del lote antes de confirmar: qué se cambia, por qué y con qué riesgos.</figcaption></figure>
+  <h3>Cuándo una propuesta no se puede aplicar</h3>
+  <ul>
+    <li><b>En conflicto</b>: la nota cambió (por ejemplo, adoptaste una edición hecha en Obsidian). No se puede aplicar ni editar: descártala; el nuevo análisis de la nota generará otra si sigue procediendo.</li>
+    <li><b>Excluida en el lote por otras contradicciones</b>: hay otras propuestas de contradicción sobre las mismas afirmaciones. El motivo indica cuáles (#número): resuélvelas antes.</li>
+    <li><b>Aplicándose</b>: aprobada y pendiente de escribirse; se completa sola cuando el puente de Obsidian esté disponible.</li>
+  </ul>
+  <div class="note"><b>La IA se equivoca: por eso decides tú</b>En las pruebas, un modelo marcó como «Confirma» afirmaciones que se contradecían («publicado el 15 de octubre» frente a «el 1 de octubre») y otro propuso «Sustituye» para una fecha que seguía siendo cierta. Lee siempre «Ahora» y «Propuesto» antes de aplicar.</div>
+  <h3>Revisar varias a la vez</h3>
+  <p>Selecciona varias con <code>Ctrl</code>/<code>Mayús</code> y pulsa <span class="btn">Revisar selección</span>, o <span class="btn">Revisar todas las pendientes</span>. La vista previa indica cuáles son elegibles y por qué no lo son las demás; al confirmar se aplican solo las elegibles. <span class="btn">Lotes anteriores</span> muestra el historial con sus resultados.</p>
+  <h3>Deshacer un cambio aplicado (reversión)</h3>
+  <figure><img src="img/s12_reversion_vista_previa.png" alt=""><figcaption>Vista previa de una reversión: a la izquierda la nota actual, a la derecha cómo quedará.</figcaption></figure>
+  <ol class="steps">
+    <li>Abre la pestaña <b>Publicadas y reversión</b> y pulsa <span class="btn">Actualizar publicaciones</span>.</li>
+    <li>Selecciona el cambio y pulsa <span class="btn">Preparar nueva vista previa</span>: verás la nota que se restauraría.</li>
+    <li><span class="btn">Confirmar reversión</span>, confirma y escribe el motivo. Se restaura la nota, se registra un nuevo periodo del conocimiento anterior y se conservan ambas revisiones y el recibo original.</li>
+  </ol>
+</section>
+
+<!-- ============================================================ 13 -->
+<section class="chapter" id="fuentes">
+  <h2>13. Fuentes vigiladas</h2>
+  <figure><img src="img/m06_fuentes.png" alt=""></figure>
+  <ol class="steps">
+    <li><span class="btn">Añadir fuente</span>: nombre, URL, tipo (<b>Web</b> o <b>RSS/Atom</b>), frecuencia en segundos (mínimo 60), ámbito, <b>confianza de la fuente</b> (0–100), categoría (documentación oficial, blog oficial, secundaria…), qué hacer al detectar novedades (<i>Revisar primero</i> o <i>Incorporar novedades</i>) y, si hace falta, el <b>nombre</b> de la variable de entorno con la credencial (<code>KO_SOURCE_SECRET_…</code>, nunca el token en sí). <span class="btn">Guardar fuente</span>.</li>
+    <li>Selecciona la fuente y pulsa <span class="btn">Comprobar ahora</span> para no esperar a la siguiente comprobación.</li>
+    <li>Las <b>novedades</b> aparecen debajo con su estado; al seleccionar una ves su contenido, URL, fecha, confianza y ámbito.</li>
+    <li><span class="btn">Incorporar novedad seleccionada</span> la convierte en documento y entra en el proceso normal.</li>
+  </ol>
+  <div class="note"><b>La confianza describe la fuente, no los datos</b>Incluso de una fuente de confianza 100, cada afirmación necesita evidencia y cualquier cambio sobre tu conocimiento pasa por Revisión (o por una política que autorices).</div>
+  <p><span class="btn">Editar seleccionada</span> cambia la configuración (se valida: una frecuencia no numérica, por ejemplo, se rechaza con un mensaje).</p>
+</section>
+
+<!-- ============================================================ 14 -->
+<section class="chapter" id="actividad">
+  <h2>14. Actividad</h2>
+  <figure><img src="img/m07_actividad.png" alt=""></figure>
+  <p>Sigue cada novedad a lo largo de su recorrido. Elige la <b>Etapa</b> (<i>Cambios</i>, <i>Análisis</i>, <i>Propuestas</i>, <i>Histórico de decisiones</i>, <i>Actividad</i>) y qué <b>Mostrar</b> (<i>Pendientes</i>, <i>Con incidencias</i>, <i>Todos</i>). Al seleccionar un elemento ves su detalle y se habilitan las acciones que correspondan:</p>
+  <table>
+    <tr><th style="width:30%">Botón</th><th>Qué hace</th></tr>
+    <tr><td><span class="btn">Abrir detalle</span> / documento / fuente / revisión</td><td>Lleva al elemento en su pantalla.</td></tr>
+    <tr><td><span class="btn">Incorporar novedad</span></td><td>Igual que en Fuentes.</td></tr>
+    <tr><td><span class="btn">Ver versión anterior</span> / <span class="btn">Volver al detalle</span></td><td>Compara una nota con su revisión previa.</td></tr>
+    <tr><td><span class="btn">Ver trazabilidad</span></td><td>Historial completo de una propuesta.</td></tr>
+    <tr><td><span class="btn">Reintentar análisis</span></td><td>Repite la extracción o comparación que falló, indicando con qué modelo se hará.</td></tr>
+  </table>
+  <p>Los resultados se paginan con <span class="btn">Anterior</span> / <span class="btn">Siguiente</span>.</p>
+  <h3>Repetir un análisis que falló</h3>
+  <ol class="steps">
+    <li>Etapa <b>Análisis</b>, Mostrar <b>Con incidencias</b>.</li>
+    <li>Selecciona el elemento: el detalle dice si se puede reintentar y con qué modelo.</li>
+    <li><span class="btn">Reintentar análisis</span>. El intento anterior se conserva; el nuevo aparece con su propio número.</li>
+  </ol>
+  <figure><img src="img/s11_actividad_reintentar.png" alt=""><figcaption>Comparaciones fallidas listas para reintentar.</figcaption></figure>
+</section>
+
+<!-- ============================================================ 15 -->
+<section class="chapter" id="api">
+  <h2>15. Automatización y API</h2>
+  <h3>15.1 API y consumidores</h3>
+  <figure><img src="img/m08_api.png" alt=""></figure>
+  <ol class="steps">
+    <li><span class="btn">Nuevo consumidor…</span>: escribe un nombre sin espacios (p. ej. <code>obsidian-lector</code>) y marca solo los permisos necesarios: <b>Lectura</b> (documentos, afirmaciones, búsquedas), <b>Consultas IA</b>, <b>Ingesta</b> (enviar documentos; no publica directamente), <b>Fuentes</b>, <b>Revisión</b> (aprobar o rechazar propuestas) y <b>Gobernanza</b> (automatizaciones y su pausa). Pulsa <span class="btn">Crear y mostrar credencial</span>.</li>
+    <li>La credencial se muestra <b>una sola vez</b>: <span class="btn">Copiar credencial</span> y guárdala. La aplicación solo conserva una huella irreversible; si la pierdes, revoca y crea otra.</li>
+    <li>Elige el <b>puerto local</b> (por defecto 8766) y pulsa <span class="btn">Iniciar API</span>. Solo se habilita cuando existe al menos un consumidor, y solo escucha en este equipo. <span class="btn">Copiar dirección</span> copia la URL base; <span class="btn">Detener API</span> la apaga.</li>
+    <li><span class="btn">Probar acceso local</span>: pega una credencial para comprobar que funciona («Acceso correcto como …») o déjalo vacío para comprobar que la API exige credencial.</li>
+    <li><span class="btn">Copiar ejemplo de uso</span> copia una orden <code>curl</code> lista para adaptar; <span class="btn">Revocar acceso</span> desactiva un consumidor desde su siguiente petición (su actividad se conserva).</li>
+    <li>Abajo se ve la actividad: quién llamó, a qué y con qué resultado.</li>
+  </ol>
+  <figure class="small"><img src="img/s3_36_credencial.png" alt=""><figcaption>La credencial solo se muestra al crearla.</figcaption></figure>
+  <p>Principales rutas (todas bajo <code>/api/v1</code>, con cabecera <code>Authorization: Bearer &lt;credencial&gt;</code>): <code>/status</code>, <code>/documents</code>, <code>/claims</code>, <code>/entities</code>, <code>/knowledge/{id}</code>, <code>/search?q=</code>, <code>POST /query</code> (pregunta fundamentada), <code>POST /documents</code> (ingesta), <code>/review-tasks</code>. La descripción completa está en <code>/openapi.json</code> y en <code>docs/Knowledge_API.md</code>.</p>
+
+  <h3>15.2 Automatizaciones</h3>
+  <p><b>Procesos y estado</b> resume los procesos internos (vigilancia de fuentes, análisis, lotes) y sus últimas incidencias, con accesos a fuentes, análisis pendientes y lotes confirmados.</p>
+  <p><b>Políticas y decisiones</b> permite que ciertas propuestas se apliquen sin tu intervención, con varias capas de seguridad:</p>
+  <ol class="steps">
+    <li><span class="btn">Nueva política</span>: nombre, tipos de afirmación, confianza mínima de fuente y de comparación, límites por propuesta, por ejecución y por día, conectores, procedencias y cambios permitidos (<i>sustituye</i> / <i>amplía</i>), y las <b>fuentes autorizadas</b>.</li>
+    <li><span class="btn">Guardar desactivada</span>. Editar una política existente exige un motivo y revoca su autorización.</li>
+    <li><span class="btn">Simular guardada</span> (pestaña Simulación): qué propuestas pendientes aplicaría, cuáles excluiría y por qué. No publica nada. <span class="btn">Simular siguientes</span> avanza de página.</li>
+    <li><span class="btn">Autorizar esta versión</span>: confirma las condiciones y escribe el motivo.</li>
+    <li>El <b>control global</b> empieza en pausa: <span class="btn">Reanudar políticas autorizadas</span> (con motivo) las pone en marcha; <span class="btn">Pausar autoaprobación</span> las detiene en cualquier momento.</li>
+    <li><span class="btn">Desautorizar</span> retira la autorización de una política. La pestaña <b>Historial</b> guarda versiones, decisiones, simulaciones, ejecuciones y pausas.</li>
+  </ol>
+  <figure><img src="img/s3_32_politica_simulacion.png" alt=""><figcaption>Simulación de una política antes de autorizarla.</figcaption></figure>
+  <div class="note"><b>Por qué una política puede no aplicar nada</b>La simulación explica cada exclusión. Las más habituales: la propuesta es una contradicción (siempre exige persona), hay otras contradicciones abiertas sobre las mismas afirmaciones (resuélvelas en Revisión), el tipo de afirmación no está en la lista de la política, la fuente se editó o desactivó después de captar la novedad (la evidencia tiene que venir de la configuración vigente), o varias propuestas tocan la misma nota a la vez.</div>
+  <div class="warn"><b>Una fecha reciente no basta</b>Que una afirmación sea más nueva no autoriza a sustituir otra. Hace falta una propuesta respaldada por evidencia que cumpla todas las condiciones de la política, y la vigencia local no garantiza que algo siga siendo cierto en el mundo real.</div>
+</section>
+
+<!-- ============================================================ 16 -->
+<section class="chapter" id="organizacion">
+  <h2>16. Organización: temas</h2>
+  <figure><img src="img/m09_organizacion.png" alt=""></figure>
+  <ul>
+    <li>Cada documento nuevo va al <b>primer tema activo, por orden</b>, cuyas palabras clave aparecen en su título, canal o etiquetas. Si ninguno coincide, a <code>_inbox</code>.</li>
+    <li><span class="btn">Nuevo tema</span>: nombre, <b>carpeta en la bóveda</b> (si la dejas vacía, se usa el nombre; admite subcarpetas como <code>Finanzas/Trading</code>), palabras clave separadas por comas, <b>perfil de procesamiento</b> y si está activo. <span class="btn">Guardar tema</span>.</li>
+    <li>Para editar, selecciona el tema en la lista, cambia lo que quieras y guarda. Cambiar la carpeta solo afecta a documentos nuevos.</li>
+    <li><span class="btn">Subir prioridad</span> / <span class="btn">Bajar prioridad</span>: los temas de arriba se prueban primero (útil cuando un título encaja en dos).</li>
+    <li><b>Probar clasificación</b>: escribe un título y verás al instante qué tema lo recibiría con los temas guardados.</li>
+    <li><code>_inbox</code> es la red de seguridad: no se puede renombrar ni darle palabras clave; solo cambiar su perfil.</li>
+  </ul>
+  <p>Los errores (nombre repetido, sin palabras clave, ruta no válida) se explican junto al formulario, sin perder lo escrito.</p>
+</section>
+
+<!-- ============================================================ 17 -->
+<section class="chapter" id="ajustes">
+  <h2>17. Ajustes en detalle</h2>
+  <figure><img src="img/m10_ajustes.png" alt=""></figure>
+  <h3>Perfil de procesamiento</h3>
+  <table>
+    <tr><th style="width:30%">Campo</th><th>Qué decide</th></tr>
+    <tr><td>Modelo que redacta el apunte</td><td>Qué modelo escribe la nota. «Automático (Broker)» deja que el Broker elija. Los modelos que el Broker marca como incompatibles o en cuarentena no se ofrecen.</td></tr>
+    <tr><td>Modelo que extrae afirmaciones</td><td>Qué modelo hace el análisis estructurado. Mejor uno que no razone.</td></tr>
+    <tr><td>Método de procesamiento</td><td><b>Respuesta directa</b> (un modelo; lo más rápido), <b>Consenso entre modelos</b> (varios proponen y se combinan; más lento) o <b>Automático según la tarea</b> (el Broker decide; puede elegir consenso o agente).</td></tr>
+    <tr><td>Privacidad</td><td><b>Solo procesamiento local</b> (no sale de tu red; sin coste), confidencial, uso interno o contenido público.</td></tr>
+    <tr><td>Uso del contexto</td><td>Compresión del prompt (lo decide el Broker por defecto).</td></tr>
+    <tr><td>Longitud máxima de la respuesta</td><td>Tokens de salida (por defecto 8000). Los modelos que razonan necesitan más; si eliges uno con poco margen, se te avisa.</td></tr>
+    <tr><td>Presupuesto por documento (USD)</td><td>Límite de gasto para todo el documento (partes, síntesis y reintentos). Con privacidad «Solo procesamiento local» no se gasta nada.</td></tr>
+    <tr><td>Usar solo el modelo elegido</td><td>Prohíbe al Broker sustituir el modelo por otro.</td></tr>
+    <tr><td>Exigir revisión humana</td><td>Cada apunte queda como borrador hasta aprobarlo.</td></tr>
+  </table>
+  <figure><img src="img/s4_perfil_respuesta_directa.png" alt=""><figcaption>Perfil con «Respuesta directa» y un modelo concreto: la opción más rápida en las pruebas.</figcaption></figure>
+  <div class="tip"><b>Qué funcionó mejor en las pruebas (Broker y modelos de este equipo)</b>
+    <ul style="margin:1mm 0 0">
+      <li>Con el método <b>Automático según la tarea</b>, un documento corto tardó entre 7 y 14 minutos (el Broker eligió agente o consenso entre modelos de 27–33B) y uno superó el plazo que había entonces. Con <b>Respuesta directa</b> y <code>gemma4:12b</code>, unos 3 minutos.</li>
+      <li>Para <b>extraer y comparar afirmaciones</b>, <code>granite4.1:30b</code> y <code>qwen3-coder:30b</code> acertaron 5 de 5 comparaciones de prueba; <code>lfm2:24b</code>, solo 2 de 5 (tiende a responder «Confirma» siempre). Si ves comparaciones absurdas, fija aquí un modelo de análisis concreto.</li>
+    </ul></div>
+  <p><span class="btn">Editar instrucciones de extracción…</span> abre las cuatro instrucciones del perfil (criterios generales, documento completo, fragmentos largos y síntesis final). <span class="btn">Aplicar cambios</span> y luego <span class="btn">Guardar política</span>. <span class="btn">Modelos apartados por fallos…</span> lista los modelos excluidos de la elección automática y permite <span class="btn">Rehabilitar seleccionado</span> (útil si la causa del fallo ya se corrigió).</p>
+  <figure class="half"><img src="img/s5_modelos_apartados.png" alt=""><figcaption>Modelos apartados por fallos, con su motivo.</figcaption></figure>
+  <p>Los cambios afectan a documentos nuevos; <span class="btn">Reintentar</span> reenvía con la configuración vigente.</p>
+  <figure><img src="img/m10_ajustes_2.png" alt=""><figcaption>Más abajo: conexión al Broker y carpetas del proceso.</figcaption></figure>
+  <h3>Conexión a AI Broker</h3>
+  <p>Dirección y token. El campo del token se vacía al guardar (se guarda cifrado para tu usuario); déjalo vacío para conservar el guardado. <span class="btn">Eliminar token</span> lo borra. Si el Broker exige token y no está, la barra lateral mostrará «Broker con incidencia».</p>
+  <h3>Carpetas del proceso</h3>
+  <p>Datos internos, carpeta vigilada y bóveda, con <span class="btn">Elegir…</span>. Se validan al guardar: la bandeja y la bóveda no pueden coincidir ni estar una dentro de otra; la bandeja no puede estar dentro de los datos; la bóveda no puede ser la carpeta de datos. Se aplican al reabrir la aplicación.</p>
+  <h3>Edición segura en Obsidian (necesaria para aplicar cambios)</h3>
+  <p>Publicar notas nuevas no necesita nada más: se escriben directamente en la carpeta de la bóveda. Pero <b>modificar una nota ya publicada</b> (aplicar una propuesta o revertirla) se hace a través del complemento <i>Knowledge Orchestrator Bridge</i>, que comprueba dentro de Obsidian que la nota no ha cambiado.</p>
+  <ol class="steps">
+    <li>Copia los cinco ficheros de la carpeta <code>obsidian-bridge</code> del proyecto (<code>manifest.json</code>, <code>main.js</code>, <code>bridge-core.cjs</code>, <code>server.cjs</code>, <code>journal.cjs</code>) a <code>&lt;tu bóveda&gt;\.obsidian\plugins\knowledge-orchestrator-bridge\</code>.</li>
+    <li>En Obsidian (1.11.4 o posterior): Ajustes → Complementos de la comunidad → «Activar complementos de la comunidad» (desactiva el modo restringido) y activa <b>Knowledge Orchestrator Bridge</b>.</li>
+    <li>En los ajustes del complemento: crea en el llavero un secreto cuyo <b>valor</b> sea una clave de al menos 32 caracteres (distinta del token del Broker), selecciónalo en «Credencial compartida», deja el puerto 8767 y activa «Permitir propuestas del Orchestrator». El estado debe decir «Escuchando en http://127.0.0.1:8767».</li>
+    <li>En Knowledge Orchestrator → Ajustes → <b>Edición segura en Obsidian</b>: dirección <code>http://127.0.0.1:8767</code>, la misma clave, y <span class="btn">Guardar conexión con Obsidian</span>.</li>
+    <li><span class="btn">Comprobar conexión</span> debe responder «Obsidian responde y corresponde a la bóveda configurada». Obsidian tiene que estar abierto cuando apliques cambios.</li>
+  </ol>
+  <figure><img src="img/s11_puente_configurado.png" alt=""><figcaption>Conexión con el complemento guardada y comprobada.</figcaption></figure>
+</section>
+
+<!-- ============================================================ 18 -->
+<section class="chapter" id="cli">
+  <h2>18. Línea de comandos: copias y diagnóstico</h2>
+  <p>Con el entorno del código (o sustituyendo <code>python -m knowledge_orchestrator.app</code> por la ruta del ejecutable):</p>
+  <table>
+    <tr><th style="width:42%">Orden</th><th>Qué hace</th></tr>
+    <tr><td><code>--ui</code></td><td>Abre la ventana (el ejecutable lo hace siempre).</td></tr>
+    <tr><td><code>--backup</code></td><td>Copia consistente de la base SQLite en <code>backups\</code>.</td></tr>
+    <tr><td><code>--full-backup</code></td><td>ZIP restaurable con la base, las fuentes archivadas y un manifiesto con huellas (las notas de la bóveda se referencian, no se copian).</td></tr>
+    <tr><td><code>--restore copia.zip --root carpeta_vacía</code></td><td>Restaura un ZIP en una carpeta vacía comprobando cada huella. No sobrescribe nunca. Después hay que volver a configurar Broker y Obsidian (las credenciales no viajan).</td></tr>
+    <tr><td><code>--diagnostics diag.zip</code></td><td>ZIP para soporte con contadores, entorno, configuración y registros saneados (sin base de datos, sin notas y sin el token del Broker).</td></tr>
+    <tr><td><code>--once</code></td><td>Recupera estados pendientes, ingiere la bandeja y termina.</td></tr>
+    <tr><td><code>--api --api-port 8766</code></td><td>Arranca solo la API y los procesos, sin ventana.</td></tr>
+    <tr><td><code>--root carpeta</code></td><td>Usa otra raíz para todo (pruebas sin tocar tus datos).</td></tr>
+  </table>
+  <div class="tip"><b>Rutina recomendada</b>Haz <code>--full-backup</code> antes de actualizar la aplicación o de cambiar de equipo, y guarda el ZIP fuera del disco de datos.</div>
+</section>
+
+<!-- ============================================================ 19 -->
+<section class="chapter" id="problemas">
+  <h2>19. Solución de problemas</h2>
+  <table>
+    <tr><th style="width:30%">Qué ves</th><th>Causa probable y qué hacer</th></tr>
+    <tr><td>«Broker con incidencia» / «El procesamiento no está confirmado»</td><td>El Broker no responde o rechaza la credencial. Comprueba que está encendido y la dirección en Ajustes. Si responde pero rechaza (403/401), el token ha cambiado (suele rotar al reiniciar el Broker): pega el nuevo y guarda. Los documentos esperan y continúan solos.</td></tr>
+    <tr><td>Solo aparece «Automático (Broker)» en los modelos</td><td>El catálogo aún no ha llegado (tarda unos segundos tras conectar; si el Broker está ocupado se reintenta cada 30 s). Vuelve a seleccionar el perfil al poco.</td></tr>
+    <tr><td>Error «El Broker cortó la tarea porque el modelo no terminó a tiempo» (<code>TASK_TIMEOUT</code>)</td><td>Un modelo local grande tardó demasiado (a menudo, cargando). Pulsa Reintentar. Si se repite, en Ajustes elige un modelo concreto más pequeño o el método «Respuesta directa». El plazo actual es de 30 minutos.</td></tr>
+    <tr><td>«El modelo agotó su presupuesto de respuesta razonando»</td><td>El modelo pensó tanto que no llegó a escribir. Se reintenta solo una vez con el doble de margen; si vuelve a fallar, elige un modelo sin razonamiento o sube la longitud máxima.</td></tr>
+    <tr><td>«Presupuesto agotado» (<code>DOCUMENT_BUDGET_EXHAUSTED</code>)</td><td>Con proveedores de pago, el documento gastó su presupuesto. Sube el presupuesto en Ajustes y reintenta. Con «Solo procesamiento local» ya no se reserva dinero: si un documento quedó así con la versión 0.4.0, basta con pulsar Reintentar.</td></tr>
+    <tr><td>Formato no válido / Sin transcripción</td><td>El archivo de la bandeja no es una captura. Está en cuarentena: corrígelo o impórtalo como documento normal, y cierra la incidencia.</td></tr>
+    <tr><td>Archivo bloqueado / inestable</td><td>Otro programa lo tenía abierto. Ciérralo y pulsa Reintentar.</td></tr>
+    <tr><td>«Ya estaban importados»</td><td>Ese documento ya está en la aplicación. Búscalo en Documentos o Biblioteca; para procesarlo de nuevo usa «Volver a procesar».</td></tr>
+    <tr><td>Aviso «La carpeta de datos no es un buen sitio para la base de datos»</td><td>Está en una carpeta sincronizada. Elige un disco local en Ajustes → Carpetas del proceso y reinicia.</td></tr>
+    <tr><td>Una nota publicada no se actualiza / la API devuelve 409</td><td>Se editó fuera de la aplicación. Resuélvelo en Biblioteca → Notas cambiadas fuera de la app.</td></tr>
+    <tr><td>Pocas afirmaciones «respaldadas por la fuente»</td><td>El modelo extractor parafrasea en vez de señalar frases. Prueba otro modelo en «Modelo que extrae afirmaciones» y usa Actividad → Reintentar análisis.</td></tr>
+    <tr><td>«Aplicar cambio» desactivado: «hace falta el puente de Obsidian»</td><td>Configura Ajustes → Edición segura en Obsidian, abre Obsidian con el complemento Knowledge Orchestrator Bridge y vuelve a seleccionar la propuesta.</td></tr>
+    <tr><td>Propuesta «En conflicto»</td><td>La nota cambió desde que se preparó. Descártala; si el cambio sigue procediendo, saldrá una nueva tras el reanálisis.</td></tr>
+    <tr><td>Las comparaciones dicen «Confirma» cuando hay contradicción</td><td>El modelo de análisis no es adecuado. Elige uno concreto en «Modelo que extrae afirmaciones» (capítulo 17).</td></tr>
+    <tr><td>«El Broker ya había recibido este documento con otra configuración» (<code>IDEMPOTENCY_CONFLICT</code>)</td><td>Pasa al reprocesar un documento tras reinstalar, borrar los datos locales o usar otra instalación. Pulsa Reintentar: se envía con una identidad nueva.</td></tr>
+    <tr><td>Una propuesta no aparece aunque el documento nuevo contradice a otro</td><td>Solo proponen cambios las afirmaciones <b>respaldadas por la fuente</b>. Si el modelo que redacta parafrasea mucho, la aplicación no puede comprobar el respaldo y la afirmación queda como «enlazada por el modelo» (consúltala en Afirmaciones). Un modelo que redacte más pegado al texto ayuda.</td></tr>
+    <tr><td>Una consulta por API devuelve 409 <code>KNOWLEDGE_CHANGED</code></td><td>El conocimiento cambió mientras se respondía (se aplicó o descartó algo). Repite la pregunta con una clave nueva.</td></tr>
+    <tr><td>Una fuente muestra «Dirección no pública»</td><td>Por seguridad solo se vigilan direcciones públicas de Internet, en los puertos 80 o 443. Una dirección local o de tu red no se puede vigilar.</td></tr>
+    <tr><td>«Iniciar API» no se puede pulsar</td><td>No hay consumidores: crea uno con «Nuevo consumidor…».</td></tr>
+    <tr><td>Hace falta ayuda técnica</td><td>Genera <code>--diagnostics</code> y compártelo: no contiene tus notas ni tus credenciales.</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ 20 -->
+<section class="chapter" id="flujos">
+  <h2>20. Resumen de todos los flujos</h2>
+  <table>
+    <tr><th style="width:34%">Quiero…</th><th>Dónde y cómo</th></tr>
+    <tr><td>Conectar el Broker</td><td>Ajustes → Conexión → Dirección y Token → Guardar conexión al Broker</td></tr>
+    <tr><td>Cambiar de modelo, método o privacidad</td><td>Ajustes → perfil → campos → Guardar política</td></tr>
+    <tr><td>Revisar cada apunte antes de publicar</td><td>Ajustes → Exigir revisión humana → Guardar política</td></tr>
+    <tr><td>Ajustar cómo se redactan los apuntes</td><td>Ajustes → Editar instrucciones de extracción… → Aplicar → Guardar política</td></tr>
+    <tr><td>Rehabilitar un modelo apartado</td><td>Ajustes → Modelos apartados por fallos… → Rehabilitar seleccionado</td></tr>
+    <tr><td>Cambiar carpetas</td><td>Ajustes → Carpetas del proceso → Elegir… → Guardar carpetas → reabrir</td></tr>
+    <tr><td>Crear, editar u ordenar temas</td><td>Organización → Nuevo tema / seleccionar → Guardar tema; Subir/Bajar prioridad</td></tr>
+    <tr><td>Saber a qué tema irá un título</td><td>Organización → Probar clasificación</td></tr>
+    <tr><td>Añadir documentos</td><td>+ Importar documentos (Ctrl+O), carpeta vigilada, Fuentes o API</td></tr>
+    <tr><td>Ver cómo va un documento</td><td>Documentos → seleccionarlo → pasos y línea de tiempo</td></tr>
+    <tr><td>Reenviar uno o varios</td><td>Documentos → seleccionar (Ctrl/Mayús) → Enviar ahora / Reintentar / Enviar N seleccionados</td></tr>
+    <tr><td>Parar un documento</td><td>Documentos → Cancelar procesamiento</td></tr>
+    <tr><td>Aprobar o descartar un borrador</td><td>Documentos → Necesitan atención → Revisar borrador… → Aprobar y publicar / Descartar</td></tr>
+    <tr><td>Procesar otra vez un descartado</td><td>Documentos → Volver a procesar</td></tr>
+    <tr><td>Resolver un archivo rechazado</td><td>Documentos → Abrir ubicación → corregir → importar → Cerrar incidencia</td></tr>
+    <tr><td>Leer una nota publicada</td><td>Biblioteca → seleccionar → vista previa / Abrir en Obsidian</td></tr>
+    <tr><td>Arreglar una nota editada fuera</td><td>Biblioteca → Notas cambiadas fuera de la app → Adoptar / Localizar / Retirar</td></tr>
+    <tr><td>Consultar afirmaciones</td><td>Afirmaciones → Estado + texto → Buscar → detalle</td></tr>
+    <tr><td>Aplicar, editar o descartar una propuesta</td><td>Revisión → seleccionar → Aplicar cambio (Confirmar) / Editar / Descartar</td></tr>
+    <tr><td>Decidir muchas propuestas</td><td>Revisión → Revisar selección / Revisar todas → Confirmar cambios elegibles</td></tr>
+    <tr><td>Deshacer un cambio aplicado</td><td>Revisión → Publicadas y reversión → Preparar vista previa → Confirmar reversión</td></tr>
+    <tr><td>Vigilar una web o feed</td><td>Fuentes → Añadir fuente → Comprobar ahora → Incorporar novedad</td></tr>
+    <tr><td>Repetir un análisis fallido</td><td>Actividad → Análisis / Con incidencias → Reintentar análisis</td></tr>
+    <tr><td>Dar acceso a otra aplicación</td><td>Automatización y API → Iniciar API → Nuevo consumidor… → Copiar credencial</td></tr>
+    <tr><td>Quitar acceso</td><td>Automatización y API → seleccionar consumidor → Revocar acceso</td></tr>
+    <tr><td>Automatizar cambios de una fuente fiable</td><td>Automatización → Políticas → Nueva → Guardar → Simular → Autorizar → Reanudar</td></tr>
+    <tr><td>Parar toda automatización</td><td>Automatización → Políticas → Pausar autoaprobación</td></tr>
+    <tr><td>Hacer copia de seguridad / restaurar</td><td><code>--full-backup</code> / <code>--restore zip --root carpeta_vacía</code></td></tr>
+    <tr><td>Pedir ayuda técnica</td><td><code>--diagnostics diag.zip</code></td></tr>
+  </table>
+</section>
+
+</body>
+</html>

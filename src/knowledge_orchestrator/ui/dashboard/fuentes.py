@@ -194,6 +194,13 @@ class FuentesMixin(ConfiguracionMixin):
                   wraplength=580).grid(row=10, column=0, columnspan=2, sticky='w', padx=16, pady=12)
 
         def save():
+            # Antes llegaba al diálogo «invalid literal for int() with base 10: 'diez'».
+            for key, label in (('interval_seconds', 'La frecuencia'), ('trust_level', 'La confianza de fuente')):
+                if not fields[key].get().strip().isdigit():
+                    messagebox.showerror('No se pudo guardar la fuente',
+                                         f'{label} debe ser un número entero, por ejemplo '
+                                         f"{'3600' if key == 'interval_seconds' else '80'}.", parent=dialog)
+                    return
             try:
                 values = {key: choices[key][var.get()] if key in choices else var.get().strip()
                           for key, var in fields.items()}

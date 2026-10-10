@@ -202,7 +202,7 @@ class TemasMixin(BibliotecaMixin):
             tags={str(topic.topic_id): (() if topic.enabled else ("inactive",)) for topic in topics},
         )
         if self._editing_topic_id is not None and self._editing_topic_id in self._topic_items:
-            self.topics_tree.selection_set(str(self._editing_topic_id))
+            self._keep_selection(self.topics_tree, (str(self._editing_topic_id),))
         self._sync_topic_order_buttons()
         self._probe_classification()
 

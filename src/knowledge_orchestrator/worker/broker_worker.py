@@ -26,6 +26,7 @@ class BrokerWorker:
     """Bucle de red asíncrono aislado de la UI y del worker de filesystem."""
 
     _MAX_CRASH_BACKOFF_SECONDS = 30.0
+    _DISCOVERY_RETRY_SECONDS = 30.0
 
     def __init__(
         self,
@@ -186,14 +187,26 @@ class BrokerWorker:
                 if self._broker_online is True and now >= next_discovery:
                     try:
                         count = await self.discovery.refresh()
-                        self._emit("BROKER_MODELS_UPDATED", f"Modelos disponibles: {count}", {"count": count})
                     except BrokerClientError as error:
-                        self._emit("BROKER_OFFLINE", str(error))
-                    next_discovery = now + self.settings.discovery_interval_seconds
+                        # El catálogo es grande y, con el Broker ocupado generando,
+                        # tardaba más que el límite. Antes esto se anunciaba como
+                        # «Broker no disponible» (la barra lateral se quedaba en
+                        # «con incidencia» con el Broker sano) y no se reintentaba
+                        # hasta 5 minutos después: Ajustes solo ofrecía «Automático».
+                        self._emit("BROKER_MODELS_UNAVAILABLE", f"No se pudo leer el catálogo de modelos: {error}")
+                        next_discovery = now + min(self._DISCOVERY_RETRY_SECONDS,
+                                                   self.settings.discovery_interval_seconds)
+                    else:
+                        self._emit("BROKER_MODELS_UPDATED", f"Modelos disponibles: {count}", {"count": count})
+                        next_discovery = now + self.settings.discovery_interval_seconds
                 if self._broker_online is True and self.query_processor is not None:
                     await self._stage("consultas", self._query_cycle)
             except BrokerClientError as error:
                 self._emit("BROKER_OFFLINE", str(error))
+                # La salud solo se anuncia al cambiar: sin esto, tras un fallo
+                # suelto la interfaz seguía en «con incidencia» aunque el
+                # siguiente chequeo fuera bien. Se vuelve a confirmar.
+                self._broker_online = None
                 consecutive_errors += 1
             except Exception as error:
                 self._emit("BROKER_CYCLE_ERROR", str(error))

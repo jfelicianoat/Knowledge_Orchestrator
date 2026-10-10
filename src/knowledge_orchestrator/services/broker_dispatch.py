@@ -54,9 +54,7 @@ class BrokerDispatcher:
             elif decision.kind == "exhausted":
                 self.repository.mark_submission_error(task.task_id, "BROKER_UNAVAILABLE", decision.message or "")
             elif decision.kind == "permanent":
-                self.repository.mark_submission_error(
-                    task.task_id, "CONTRACT_VALIDATION_FAILED", decision.message or ""
-                )
+                self.repository.mark_submission_error(task.task_id, decision.code, decision.message or "")
             else:
                 self.repository.mark_accepted(task.task_id, decision.response or {})
                 accepted += 1

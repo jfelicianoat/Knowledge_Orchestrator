@@ -17,6 +17,8 @@ from knowledge_orchestrator.domain.broker_contracts import (
 from knowledge_orchestrator.domain.system1 import validate_judgment, validate_judgment_request
 from knowledge_orchestrator.redaction import sanitize
 
+MODELS_TIMEOUT_SECONDS = 30.0
+
 
 class BrokerClientError(RuntimeError):
     def __init__(
@@ -168,7 +170,10 @@ class BrokerClient:
         return dict(validate_task_status_response(self._json(response), task_id))
 
     async def list_models(self) -> list[dict[str, Any]]:
-        response = await self._request("GET", "/api/v1/models")
+        # El catálogo completo (más de 150 modelos con su huella) tarda varios
+        # segundos con el Broker ocupado: el límite general de 10 s no basta.
+        response = await self._request("GET", "/api/v1/models",
+                                       timeout=max(MODELS_TIMEOUT_SECONDS, self.settings.request_timeout_seconds))
         if response.status_code != 200:
             self._raise_for_status(response)
         return [dict(model) for model in validate_models_response(self._json(response))]

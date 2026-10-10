@@ -293,7 +293,7 @@ class TrabajoMixin(AccionesMixin):
         if resolved:
             if self._selected_work_id not in resolved:
                 self._selected_work_id = resolved[0]
-            self.work_tree.selection_set(resolved)
+            self._keep_selection(self.work_tree, resolved)
             self.work_tree.see(self._selected_work_id)
             self._render_work_selection([self._work_items[item_id] for item_id in resolved])
         else:
