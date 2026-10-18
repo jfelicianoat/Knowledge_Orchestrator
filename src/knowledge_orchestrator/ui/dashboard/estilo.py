@@ -22,6 +22,9 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
+from knowledge_orchestrator.ui.accesibilidad import install_accessibility
+from knowledge_orchestrator.ui.dialogos import install_dialog_behaviour
+
 FONT = "Segoe UI"
 FONT_SEMIBOLD = "Segoe UI Semibold"
 MONO = "Cascadia Mono"
@@ -109,6 +112,8 @@ class EstiloMixin(tk.Tk):
         ):
             self.option_add(pattern, value)
 
+        install_dialog_behaviour(self)
+        install_accessibility(self)
         style = ttk.Style(self)
         style.theme_use("clam")
         style.configure(
@@ -136,27 +141,39 @@ class EstiloMixin(tk.Tk):
         # -- Botones: base secundaria, acento para la acción principal
         style.configure("TButton", background=c["raised"], foreground=c["text"], bordercolor=c["border"],
                         lightcolor=c["raised"], darkcolor=c["raised"], padding=(12, 7), font=(FONT, 10))
+        # Deshabilitado gana a foco y a hover: con el anillo de foco acento, un
+        # botón inactivo parecía pulsable y el clic no hacía nada (auditoría 14-oct I-01).
+        disabled_frame = ("disabled", c["surface"])
         style.map("TButton",
-                  background=[("disabled", c["surface"]), ("pressed", c["accent_dark"]), ("active", c["hover"])],
-                  bordercolor=[("focus", c["accent"])],
-                  lightcolor=[("active", c["hover"])], darkcolor=[("active", c["hover"])])
+                  background=[disabled_frame, ("pressed", c["accent_dark"]), ("active", c["hover"])],
+                  foreground=[("disabled", c["faint"])],
+                  bordercolor=[("disabled", c["border"]), ("focus", c["accent"])],
+                  lightcolor=[disabled_frame, ("active", c["hover"])],
+                  darkcolor=[disabled_frame, ("active", c["hover"])])
         style.configure("Secondary.TButton", background=c["raised"], foreground=c["text"],
                         bordercolor=c["border"], padding=(14, 9), font=(FONT, 10))
-        style.map("Secondary.TButton", background=[("disabled", c["surface"]), ("active", c["hover"])])
+        style.map("Secondary.TButton", background=[disabled_frame, ("active", c["hover"])],
+                  foreground=[("disabled", c["faint"])],
+                  bordercolor=[("disabled", c["border"]), ("focus", c["accent"])],
+                  lightcolor=[disabled_frame], darkcolor=[disabled_frame])
+        # El anillo de foco por defecto es del color del botón: con Tab no se veía dónde estabas (I-14).
         style.configure("Accent.TButton", background=c["accent"], foreground="#061015", bordercolor=c["accent"],
-                        lightcolor=c["accent"], darkcolor=c["accent"], padding=(16, 9),
+                        lightcolor=c["accent"], darkcolor=c["accent"], focuscolor="#061015", padding=(16, 9),
                         font=(FONT_SEMIBOLD, 10))
         style.map("Accent.TButton",
-                  background=[("disabled", "#27434b"), ("active", "#55d8ea")],
-                  foreground=[("disabled", "#7d959c")],
-                  lightcolor=[("active", "#55d8ea")], darkcolor=[("active", "#55d8ea")])
+                  background=[disabled_frame, ("active", "#55d8ea")],
+                  foreground=[("disabled", c["faint"])],
+                  bordercolor=[("disabled", c["border"])],
+                  lightcolor=[disabled_frame, ("active", "#55d8ea")],
+                  darkcolor=[disabled_frame, ("active", "#55d8ea")])
         style.configure("Danger.TButton", background="#311b20", foreground="#ff9aa0", bordercolor="#7b3037",
                         lightcolor="#311b20", darkcolor="#311b20", padding=(14, 9), font=(FONT, 10))
-        style.map("Danger.TButton", background=[("disabled", c["surface"]), ("active", "#43232a")],
-                  foreground=[("disabled", c["faint"])], bordercolor=[("disabled", c["border"])])
+        style.map("Danger.TButton", background=[disabled_frame, ("active", "#43232a")],
+                  foreground=[("disabled", c["faint"])], bordercolor=[("disabled", c["border"])],
+                  lightcolor=[disabled_frame], darkcolor=[disabled_frame])
         style.configure("Ghost.TButton", background=c["surface"], foreground=c["accent"], bordercolor=c["surface"],
                         lightcolor=c["surface"], darkcolor=c["surface"], padding=(8, 6), font=(FONT, 10))
-        style.map("Ghost.TButton", background=[("active", c["raised"])])
+        style.map("Ghost.TButton", background=[("active", c["raised"])], foreground=[("disabled", c["faint"])])
 
         # -- Campos
         for name in ("TEntry", "Dark.TEntry", "TSpinbox"):

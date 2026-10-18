@@ -623,6 +623,7 @@ class UiSnapshotService:
             "FILE_LOCKED": "Archivo bloqueado",
             "FILE_UNSTABLE": "Archivo inestable",
             "TRANSCRIPTION_MISSING": "Sin transcripción",
+            "DUPLICATE_CAPTURE": "Ya importado",
         }.get(code, "Formato no válido")
         return WorkItem(
             capture_id=f"incident:{row['incident_id']}",

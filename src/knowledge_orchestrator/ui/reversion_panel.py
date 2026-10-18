@@ -10,11 +10,12 @@ import queue
 import threading
 import tkinter as tk
 import uuid
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import messagebox, ttk
 
 from knowledge_orchestrator.integrations.obsidian_bridge import ObsidianBridgeUnavailable
 from knowledge_orchestrator.services.reversion_view import reversion_view
 from knowledge_orchestrator.ui.automation_plan import text_panel
+from knowledge_orchestrator.ui.dialogos import ask_text
 from knowledge_orchestrator.ui.review_batch_dialog import ReviewBatchDialog
 
 STATES = {'PREVIEW': 'Vista previa · sin modificar notas', 'APPLYING': 'Reversión iniciada',
@@ -342,8 +343,7 @@ class ReversionPanel(ttk.Frame):
             'Se restaurará la nota mostrada y se registrará un nuevo período del conocimiento anterior. '
             'Se conservarán ambas revisiones y el recibo original. ¿Confirmar el cambio revisado?', parent=self):
             return
-        reason = simpledialog.askstring('Motivo de reversión', 'Explica por qué has decidido restaurar esta revisión:',
-                                         parent=self)
+        reason = ask_text(self, 'Motivo de reversión', 'Explica por qué has decidido restaurar esta revisión:')
         if not reason:
             return
         self._submit('confirmed', lambda: reversion_view(self.service.confirm(record['reversion_id'], actor='ui',

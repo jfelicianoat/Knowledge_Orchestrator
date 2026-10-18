@@ -75,6 +75,20 @@ def _readable_reason(error: CaptureContractError) -> str:
     return f"{field}: {issue.reason}"
 
 
+def parse_typed_paths(text: str) -> list[Path]:
+    """Rutas pegadas por la persona: una por línea o varias entre comillas, con «/» o con barra invertida.
+
+    El diálogo de archivos de Windows rechaza las rutas tecleadas con «/»
+    («El nombre de archivo no es válido»); esta es la vía alternativa (auditoría 14-oct I-05).
+    """
+
+    if '"' in text:
+        found = [quoted or bare for quoted, bare in re.findall(r'"([^"]+)"|(\S+)', text)]
+    else:
+        found = [line.strip() for line in text.splitlines()]
+    return [Path(raw) for raw in dict.fromkeys(found) if raw]
+
+
 def inspect_import(path: Path) -> ImportCandidate:
     """Decide qué hacer con un fichero elegido por la persona, sin modificarlo."""
 

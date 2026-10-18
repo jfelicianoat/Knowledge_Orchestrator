@@ -12,10 +12,12 @@ import queue
 import sqlite3
 import threading
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import ttk
 
 from knowledge_orchestrator.ui.dashboard.fuentes import FuentesMixin
 from knowledge_orchestrator.ui.operations_snapshots import OperationsSnapshots
+from knowledge_orchestrator.ui.proposal_audit_presenter import actor_label
 
 STATE_LABELS = {'CURRENT': 'Vigente', 'HISTORICAL': 'Histórico', 'SUPERSEDED': 'Sustituido',
                 'DISPUTED': 'Disputado', 'UNCERTAIN': 'Incierto', 'REVIEW_REQUIRED': 'Necesita revisión'}
@@ -30,6 +32,21 @@ def plain_statement(text: str) -> str:
     """La afirmación sin marcado Markdown, solo para mostrarla (lo guardado no cambia)."""
 
     return " ".join(text.replace("*", "").replace("__", "").replace("`", "").strip(" _").split())
+
+
+def fit_text(text: str, font: tkfont.Font, width: int) -> str:
+    """Recorta con «…» para que quepa en `width` píxeles; el Treeview cortaba a secas (auditoría 14-oct I-12)."""
+
+    if font.measure(text) <= width:
+        return text
+    low, high = 0, len(text)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if font.measure(text[:middle] + "…") <= width:
+            low = middle
+        else:
+            high = middle - 1
+    return text[:low].rstrip() + "…"
 
 #: Cómo se sabe que la fuente original dice lo que afirma la nota (auditoría H07).
 SUPPORT_LABELS = {
@@ -95,6 +112,9 @@ class ConocimientoMixin(FuentesMixin):
         horizontal.grid(row=1, column=0, sticky='ew')
         self.knowledge_tree.configure(xscrollcommand=horizontal.set)
         self.knowledge_tree.bind('<<TreeviewSelect>>', lambda _event: self._select_knowledge())
+        # Al cambiar el ancho de la ventana o arrastrar el borde de la columna.
+        self.knowledge_tree.bind('<Configure>', lambda _event: self._fit_knowledge_texts(), add='+')
+        self.knowledge_tree.bind('<ButtonRelease-1>', lambda _event: self._fit_knowledge_texts(), add='+')
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)
         self.knowledge_detail = tk.Text(right, wrap='word', bg=self.colors['raised'], fg=self.colors['text'],
@@ -170,6 +190,7 @@ class ConocimientoMixin(FuentesMixin):
                    + SHORT_SUPPORT.get(item.get('source_support') or '', ''), item['title']))
             for key, item in self._knowledge_items.items()
         ], texts={key: plain_statement(item['statement']) for key, item in self._knowledge_items.items()})
+        self._fit_knowledge_texts()
         total = snapshot['total']
         self.knowledge_summary.set(self._empty_knowledge_message(snapshot.get('coverage') or {})
                                    if not total else
@@ -194,6 +215,14 @@ class ConocimientoMixin(FuentesMixin):
                          '«Reintentar análisis»')
         return ' · '.join(parts) + '.'
 
+    def _fit_knowledge_texts(self) -> None:
+        tree = self.knowledge_tree
+        font = tkfont.Font(font=ttk.Style(self).lookup('Dark.Treeview', 'font') or 'TkDefaultFont')
+        width = int(tree.column('#0', 'width')) - 34  # sangría del árbol y separación con la columna siguiente
+        for key, item in self._knowledge_items.items():
+            if tree.exists(key):
+                tree.item(key, text=fit_text(plain_statement(item['statement']), font, width))
+
     def _select_knowledge(self) -> None:
         selected = self.knowledge_tree.selection()
         if not selected or selected[0] not in self._knowledge_items:
@@ -212,12 +241,13 @@ class ConocimientoMixin(FuentesMixin):
             sources = '\n'.join(source['title'] + ' · ' + source.get('source_url', 'Documento local')
                                 for source in claim['sources'])
             evolution = '\n'.join(f"{entry['created_at']} · {STATE_LABELS[str(entry['to_state'])]} · "
-                                   f"{entry['actor']}\n{entry['reason']}" for entry in history)
+                                   f"{actor_label(str(entry['actor']))}\n{entry['reason']}" for entry in history)
             succession = '\n'.join(f'{STATE_LABELS[c.knowledge_state]} · {c.statement}' for c in chain)
             self._knowledge_text(
                 claim['statement'] + '\n\n' + STATE_LABELS[claim['knowledge_state']]
                 + (' · Bloqueo manual' if claim['manual_lock'] else '')
-                + ('\nNo disponible como vigente según coherencia/procedencia.'
+                + ('\nRetenida: no cuenta como vigente hasta que se resuelva lo pendiente en su nota '
+                   '(una contradicción por revisar, un cambio aplicándose o la nota sin sincronizar).'
                    if claim['knowledge_state'] == 'CURRENT' and not item['available_current'] else '')
                 + '\n\nEntidades\n' + ', '.join(claim['entities'])
                 + '\n\nRespaldo en la fuente original\n' + support + '\n\n' + original

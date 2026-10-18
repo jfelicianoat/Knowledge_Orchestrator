@@ -107,11 +107,12 @@ class IngestionService:
             self._reject(source, self.paths.failed_transcriptions, payload, capture_id)
             return IngestionResult(False, capture_id, None, "TRANSCRIPTION_MISSING", payload["reason"])
 
-        if self.repository.get(capture_id) is not None:
+        existing = self.repository.get(capture_id)
+        if existing is not None:
             payload = {
                 "code": "DUPLICATE_CAPTURE",
                 "capture_id": capture_id,
-                "reason": "capture_id ya registrado",
+                "reason": f"Copia de «{existing.title}», que ya estaba importado (mismo capture_id)",
             }
             self._reject(source, self.paths.failed_duplicates, payload, capture_id)
             return IngestionResult(False, capture_id, None, "DUPLICATE_CAPTURE", payload["reason"])

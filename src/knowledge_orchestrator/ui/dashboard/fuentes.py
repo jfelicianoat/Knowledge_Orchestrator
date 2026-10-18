@@ -164,7 +164,10 @@ class FuentesMixin(ConfiguracionMixin):
             self.source_summary.set('Selecciona una fuente para editarla.')
             return
         existing = self.runtime.sources.repository.get(int(selected[0])) if edit else None
-        config = existing['config'] if existing else asdict(SourceConfig('Nueva fuente', 'web', 'https://example.org'))
+        # Una fuente nueva empieza sin nombre ni URL: con valores de ejemplo se
+        # guardaba «Nueva fuente · https://example.org» sin querer (auditoría 14-oct I-07).
+        config = existing['config'] if existing else {
+            **asdict(SourceConfig('Nueva fuente', 'web', 'https://example.org')), 'name': '', 'location': ''}
         dialog = tk.Toplevel(self)
         dialog.title('Editar fuente' if edit else 'Añadir fuente')
         dialog.transient(self)
@@ -194,6 +197,12 @@ class FuentesMixin(ConfiguracionMixin):
                   wraplength=580).grid(row=10, column=0, columnspan=2, sticky='w', padx=16, pady=12)
 
         def save():
+            for key, message in (('name', 'Escribe un nombre para la fuente.'),
+                                 ('location', 'Escribe la dirección de la fuente, por ejemplo '
+                                              'https://www.ejemplo.es/blog o la de su RSS.')):
+                if not fields[key].get().strip():
+                    messagebox.showerror('No se pudo guardar la fuente', message, parent=dialog)
+                    return
             # Antes llegaba al diálogo «invalid literal for int() with base 10: 'diez'».
             for key, label in (('interval_seconds', 'La frecuencia'), ('trust_level', 'La confianza de fuente')):
                 if not fields[key].get().strip().isdigit():
@@ -213,9 +222,17 @@ class FuentesMixin(ConfiguracionMixin):
                 else:
                     self.runtime.sources.repository.create(updated, actor='ui', key=uuid.uuid4().hex)
             except (ValueError, KnowledgeConflict) as error:
-                messagebox.showerror('No se pudo guardar la fuente', str(error), parent=dialog)
+                detail = str(error)
+                if 'URL' in detail or 'HTTP' in detail or 'Puerto' in detail:
+                    detail = f"La URL no es válida: {detail}. Debe empezar por http:// o https://."
+                messagebox.showerror('No se pudo guardar la fuente', detail, parent=dialog)
                 return
             self._refresh_sources()
             dialog.destroy()
 
-        ttk.Button(dialog, text='Guardar fuente', command=save).grid(row=11, column=1, sticky='e', padx=16, pady=16)
+        actions = ttk.Frame(dialog)
+        actions.grid(row=11, column=1, sticky='e', padx=16, pady=16)
+        ttk.Button(actions, text='Cancelar', command=dialog.destroy).pack(side='right')
+        ttk.Button(actions, text='Guardar fuente', style='Accent.TButton', command=save).pack(side='right', padx=(0, 8))
+        dialog.bind('<Escape>', lambda _event: dialog.destroy())
+        dialog.grab_set()

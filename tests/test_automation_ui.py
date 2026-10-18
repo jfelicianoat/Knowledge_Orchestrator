@@ -217,7 +217,7 @@ class AutomationUiTests(unittest.TestCase):
                                 _actions=lambda: actions_threads.append(threading.get_ident()))
         panel._submit = lambda *args, **kwargs: AutomationPanel._submit(panel, *args, **kwargs)
         with patch('knowledge_orchestrator.ui.automation_panel.messagebox.askyesno', return_value=True), \
-                patch('knowledge_orchestrator.ui.automation_panel.simpledialog.askstring', return_value='Pause test'):
+                patch('knowledge_orchestrator.ui.automation_panel.ask_text', return_value='Pause test'):
             AutomationPanel._pause(panel)
         kind, result, error, is_control = panel.results.get(timeout=3)
         self.assertEqual((kind, error, is_control), ('control', None, True))
@@ -370,7 +370,7 @@ class AutomationUiTests(unittest.TestCase):
         panel._simulate()
         settle()
         with patch('knowledge_orchestrator.ui.automation_panel.messagebox.askyesno', return_value=True), \
-                patch('knowledge_orchestrator.ui.automation_panel.simpledialog.askstring', return_value='Reviewed'):
+                patch('knowledge_orchestrator.ui.automation_panel.ask_text', return_value='Reviewed'):
             panel._activation(True)
         settle()
         self.assertTrue(repo.get(policy['policy_id'])['enabled'])

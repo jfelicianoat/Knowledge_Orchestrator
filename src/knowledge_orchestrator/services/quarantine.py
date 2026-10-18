@@ -102,13 +102,16 @@ class QuarantineService:
         intent.unlink(missing_ok=True)
         code = str(error_payload.get("code", "INGESTION_REJECTED"))
         reason = str(error_payload.get("reason", "Fichero rechazado"))
-        self.repository.record_event(code, reason, details={"path": str(destination), **error_payload})
+        duplicate = code == "DUPLICATE_CAPTURE"
+        # Un duplicado se anota también en la cronología del documento que ya existía.
+        self.repository.record_event(code, reason, details={"path": str(destination), **error_payload},
+                                     capture_id=str(error_payload["capture_id"]) if duplicate else None)
         # Un fichero roto que llega a la bandeja (p. ej. desde el plugin)
         # desaparecía de ella sin dejar rastro en «Documentos»: solo un aviso
         # pasajero en la barra de estado. Queda como incidencia visible hasta
-        # que la persona la cierre. Un duplicado no lo es: no hay nada que hacer.
-        if code != "DUPLICATE_CAPTURE":
-            self.repository.record_ingestion_incident(destination, code, reason)
+        # que la persona la cierre. Los duplicados también: apartarlos en
+        # silencio dejaba a la persona sin saber qué pasó con su copia (auditoría 14-oct I-04).
+        self.repository.record_ingestion_incident(destination, code, reason)
 
     def _validate_managed_paths(
         self,

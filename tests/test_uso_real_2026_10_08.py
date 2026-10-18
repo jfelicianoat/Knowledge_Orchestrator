@@ -72,13 +72,19 @@ class QuarantineVisibilityTests(RuntimeCase):
         self.assertTrue(self.runtime.repository.ignore_ingestion_incident(item.incident_id))
         self.assertFalse([i for i in self.snapshots.work_items() if i.incident_id is not None])
 
-    def test_a_duplicate_is_not_an_incident(self) -> None:
+    def test_a_duplicate_is_a_visible_incident_that_names_the_original(self) -> None:
+        # Auditoría 14-oct I-04: antes se apartaba en silencio y solo se veía en disco.
         content = generic_markdown(capture_id="doble", title="Doble", transcript="Texto aportado.")
         first = self.drop("doble.md", content)
         self.assertTrue(self.runtime.ingestion.ingest(first).accepted)
         second = self.drop("doble (2).md", content)
         self.assertEqual(self.runtime.ingestion.ingest(second).error_code, "DUPLICATE_CAPTURE")
-        self.assertFalse([i for i in self.snapshots.work_items() if i.incident_id is not None])
+        [item] = [i for i in self.snapshots.work_items() if i.incident_id is not None]
+        self.assertEqual((item.category, item.status_label, item.retryable), ("attention", "Ya importado", False))
+        self.assertIn("«Doble»", item.error_message)
+        self.assertTrue(Path(item.path).is_relative_to(self.paths.failed_duplicates))
+        self.assertIn("DUPLICATE_CAPTURE", [e.event_type for e in self.snapshots.work_events("doble")])
+        self.assertTrue(self.runtime.repository.ignore_ingestion_incident(item.incident_id))
 
     def test_quarantine_incident_cannot_be_resent_but_a_locked_file_can(self) -> None:
         from knowledge_orchestrator.ui.dashboard.trabajo_detalle import DetalleMixin

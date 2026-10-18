@@ -178,6 +178,11 @@ class RevisionMixin(TrabajoMixin):
         self.review_policy_button = ttk.Button(inquiry, text='Evaluar con política',
                                                command=self._evaluate_selected_policy)
         self.review_policy_button.pack(side='left')
+        # Por qué no se puede aplicar, junto al botón: antes solo lo decía el
+        # texto de «Restricción», abajo del todo (auditoría 14-oct I-01c).
+        self.review_block_var = tk.StringVar(value='')
+        tk.Label(buttons, textvariable=self.review_block_var, bg=c['surface'], fg=c['warning'], font=(FONT, 9),
+                 anchor='w', justify='left', wraplength=620).pack(fill='x', pady=(6, 0))
         for button in (self.review_approve_button, self.review_reject_button, self.review_edit_button,
                        self.review_policy_button, self.review_audit_button):
             button.state(['disabled'])
@@ -328,6 +333,11 @@ class RevisionMixin(TrabajoMixin):
         blocked = (item.status != 'PENDING_REVIEW' or item.blocked_reason or not editor_ready
                    or assessment.get('blockers') or not assessment.get('patch'))
         self.review_approve_button.state(['disabled'] if blocked else ['!disabled'])
+        reason = ''
+        if blocked and item.status in {'PENDING_REVIEW', 'CONFLICT'}:
+            reason = (restriction.splitlines()[0] if item.blocked_reason or not editor_ready or conflict
+                      else 'La evaluación no dejó un cambio aplicable: edítala o descártala.')
+        self.review_block_var.set(f'No se puede aplicar. {reason}' if reason else '')
 
     def _clear_review(self, *, empty: bool = False) -> None:
         self._selected_review = None
@@ -346,6 +356,7 @@ class RevisionMixin(TrabajoMixin):
             ),
         )
         self.review_approve_button.state(["disabled"])
+        self.review_block_var.set('')
         self.review_reject_button.state(["disabled"])
         self.review_edit_button.state(['disabled'])
         self.review_policy_button.state(['disabled'])
@@ -443,5 +454,11 @@ class RevisionMixin(TrabajoMixin):
             dialog.destroy()
             self._refresh_reviews()
 
-        ttk.Button(dialog, text='Guardar nueva revisión', style='Accent.TButton', command=save).grid(
-            row=6, column=0, sticky='e', padx=16, pady=16)
+        # Modal y con «Cancelar»: un segundo clic en «Editar» abría otra copia encima (auditoría 14-oct I-06).
+        actions = ttk.Frame(dialog)
+        actions.grid(row=6, column=0, sticky='e', padx=16, pady=16)
+        ttk.Button(actions, text='Cancelar', command=dialog.destroy).pack(side='right')
+        ttk.Button(actions, text='Guardar nueva revisión', style='Accent.TButton', command=save).pack(
+            side='right', padx=(0, 8))
+        dialog.bind('<Escape>', lambda _event: dialog.destroy())
+        dialog.grab_set()

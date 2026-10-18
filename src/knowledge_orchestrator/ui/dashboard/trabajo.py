@@ -14,9 +14,18 @@ from tkinter import ttk
 
 from knowledge_orchestrator.ui.dashboard.estilo import FONT, FONT_SEMIBOLD, MONO, TONES
 from knowledge_orchestrator.ui.dashboard.trabajo_acciones import AccionesMixin
+from knowledge_orchestrator.ui.snapshots import WorkItem
 
 FILTERS = (("active", "En proceso"), ("attention", "Necesitan atención"),
-           ("completed", "Finalizados"), ("all", "Todos"))
+           ("completed", "Finalizados"), ("cancelled", "Cancelados"), ("all", "Todos"))
+#: Terminados sin publicar: cuentan aparte para que «Finalizados» no crezca al cancelar (auditoría 14-oct I-03).
+UNPUBLISHED = frozenset({"CANCELLED", "REJECTED", "DRAFT_REJECTED"})
+
+
+def work_filter_key(item: WorkItem) -> str:
+    """Pestaña de Documentos en la que aparece el documento."""
+
+    return "cancelled" if item.category == "completed" and item.status in UNPUBLISHED else item.category
 
 
 def resolve_work_selection(
@@ -74,6 +83,8 @@ class TrabajoMixin(AccionesMixin):
 
         self._text(left, "Documentos", size=20, bold=True).grid(row=0, column=0, sticky="ew", padx=24,
                                                                   pady=(22, 12))
+        ttk.Button(left, text="Importar desde rutas…", style="Ghost.TButton",
+                   command=self._import_from_paths).grid(row=0, column=0, sticky="e", padx=12, pady=(22, 12))
         filter_row = tk.Frame(left, bg=c["surface"])
         filter_row.grid(row=1, column=0, sticky="w", padx=24, pady=(0, 12))
         self.filter_buttons: dict[str, tk.Button] = {}
@@ -82,7 +93,7 @@ class TrabajoMixin(AccionesMixin):
                 filter_row, text=label, command=partial(self._set_work_filter, key),
                 bg=c["surface"], fg=c["muted"], activebackground=c["raised"], activeforeground=c["text"],
                 relief="flat", borderwidth=0, highlightthickness=1, highlightbackground=c["border"],
-                padx=12, pady=6, font=(FONT_SEMIBOLD, 9), cursor="hand2",
+                highlightcolor=c["text"], padx=12, pady=6, font=(FONT_SEMIBOLD, 9), cursor="hand2",
             )
             button.pack(side="left", padx=(0, 6))
             self.filter_buttons[key] = button
@@ -99,6 +110,7 @@ class TrabajoMixin(AccionesMixin):
         search.bind("<FocusIn>", lambda _event: search_host.configure(highlightbackground=c["accent"]))
         search.bind("<FocusOut>", lambda _event: search_host.configure(highlightbackground=c["border"]))
         self.search_entry = search
+        search.accessible_name = "Buscar documentos por título o archivo"  # type: ignore[attr-defined]
 
         self.work_tree = ttk.Treeview(
             left,
@@ -246,12 +258,8 @@ class TrabajoMixin(AccionesMixin):
             return
         c = self.colors
         items = list(self._work_items.values())
-        counts = {
-            "active": sum(item.category == "active" for item in items),
-            "attention": sum(item.category == "attention" for item in items),
-            "completed": sum(item.category == "completed" for item in items),
-            "all": len(items),
-        }
+        counts = {key: sum(work_filter_key(item) == key for item in items) for key, _ in FILTERS}
+        counts["all"] = len(items)
         for key, label in FILTERS:
             button = self.filter_buttons[key]
             selected = key == self._work_filter
@@ -264,7 +272,7 @@ class TrabajoMixin(AccionesMixin):
         query = self.search_var.get().strip().casefold()
         visible = [
             item for item in items
-            if (self._work_filter == "all" or item.category == self._work_filter)
+            if (self._work_filter == "all" or work_filter_key(item) == self._work_filter)
             and (not query or query in " ".join((item.title, item.filename, item.path, item.status_label)).casefold())
         ]
         rows = [

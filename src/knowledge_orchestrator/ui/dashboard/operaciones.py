@@ -406,6 +406,9 @@ class OperacionesMixin(ConocimientoMixin):
         counts = result
         for key in ('sources', 'changes', 'analysis', 'proposals'):
             self._set_stage(key, int(counts[key]))
-        self.lifecycle_summary.set(f"{counts['current']} afirmaciones vigentes · {counts['historical']} históricas · "
-                                   f"{counts['review']} en revisión · {counts['contradictions']} contradicciones · "
-                                   f"{counts['source_errors']} fuentes con errores")
+        held = counts.get('held', 0)
+        self.lifecycle_summary.set(
+            f"{counts['current']} afirmaciones vigentes · "
+            + (f"{held} retenidas hasta resolver un cambio pendiente en su nota · " if held else '')
+            + f"{counts['historical']} históricas · {counts['review']} en revisión · "
+            f"{counts['contradictions']} contradicciones · {counts['source_errors']} fuentes con errores")

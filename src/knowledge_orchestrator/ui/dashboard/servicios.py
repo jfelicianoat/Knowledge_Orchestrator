@@ -4,12 +4,13 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import messagebox, ttk
 from urllib.parse import urlsplit
 
 from knowledge_orchestrator.services.operations_status import OperationsStatusService
 from knowledge_orchestrator.ui.automation_panel import AutomationPanel
 from knowledge_orchestrator.ui.dashboard.operaciones import OperacionesMixin
+from knowledge_orchestrator.ui.dialogos import ask_text
 from knowledge_orchestrator.ui.review_batch_dialog import ReviewBatchDialog
 
 API_STATES = {'STOPPED': 'Detenida', 'RUNNING': 'Escuchando en este equipo', 'STOPPING': 'Cerrando', 'ERROR': 'Error'}
@@ -391,7 +392,10 @@ class ServiciosMixin(OperacionesMixin):
         ttk.Button(buttons, text='Crear y mostrar credencial', style='Accent.TButton',
                    command=create).pack(side='right')
         ttk.Button(buttons, text='Cancelar', command=dialog.destroy).pack(side='right', padx=6)
+        name_entry.bind('<Return>', lambda _event: create())
+        dialog.bind('<Escape>', lambda _event: dialog.destroy())
         name_entry.focus_set()
+        dialog.grab_set()
 
     def _create_api_consumer(self, name: str, scopes: list[str]) -> str | None:
         """Crea el consumidor y enseña su credencial una sola vez. `None` si no se pudo."""
@@ -464,9 +468,9 @@ class ServiciosMixin(OperacionesMixin):
     def _probe_api_access(self) -> None:
         """Petición real al listener: con credencial dice quién eres; sin ella, que exige una."""
 
-        token = simpledialog.askstring(
-            'Probar acceso local', 'Pega una credencial para comprobarla, o deja vacío para comprobar solo '
-            'que la API responde. No se guarda.', show='•', parent=self)
+        token = ask_text(
+            self, 'Probar acceso local', 'Pega una credencial para comprobarla, o deja vacío para comprobar solo '
+            'que la API responde. No se guarda.', secret=True)
         if token is None:
             return
         self.api_probe_button.state(['disabled'])

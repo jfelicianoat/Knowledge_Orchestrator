@@ -12,7 +12,8 @@ import tkinter as tk
 from tkinter import ttk
 
 from knowledge_orchestrator.ui.automation_plan import text_panel, write_text
-from knowledge_orchestrator.ui.proposal_audit_presenter import audit_text
+from knowledge_orchestrator.ui.proposal_audit_presenter import actor_label, audit_text
+from knowledge_orchestrator.ui.snapshots import _date_time_label
 
 
 class ProposalAuditDialog(tk.Toplevel):
@@ -82,7 +83,8 @@ class ProposalAuditDialog(tk.Toplevel):
 
     @staticmethod
     def _label(version):
-        return f"Revisión {version['revision']} · {version['created_at']} · {version['actor']}"
+        return (f"Revisión {version['revision']} · {_date_time_label(version['created_at'])} · "
+                f"{actor_label(version['actor'])}")
 
     def _actions(self):
         self.retry.state(['disabled'] if self.busy else ['!disabled'])

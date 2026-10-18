@@ -49,6 +49,7 @@ class BibliotecaMixin(RevisionMixin):
         self.library_search_entry = ttk.Entry(search_host, textvariable=self.library_search_var,
                                               style="Search.TEntry")
         self.library_search_entry.pack(side="left", fill="x", expand=True)
+        self.library_search_entry.accessible_name = "Buscar en la biblioteca"  # type: ignore[attr-defined]
         self._text(search_host, "Título, tema o ruta · Ctrl+F", size=8, color="faint",
                    bg="raised").pack(side="right", padx=12)
         self.library_search_entry.bind(

@@ -81,6 +81,9 @@ class OperationsSnapshots:
             current = connection.execute('SELECT count(*) FROM knowledge_claims k WHERE ' + ' AND '.join(clauses),
                                          args).fetchone()[0]
             queries = {
+                # Vigentes en su estado pero retenidas por algo pendiente en su nota o su
+                # procedencia; sin esto «50 vigentes» no cuadraba con las 53 indexadas (auditoría 14-oct I-15).
+                'held': "SELECT count(*) FROM knowledge_claims WHERE knowledge_state='CURRENT'",
                 'historical': "SELECT count(*) FROM knowledge_claims WHERE knowledge_state "
                               "IN ('HISTORICAL','SUPERSEDED')",
                 'review': "SELECT count(*) FROM knowledge_claims WHERE knowledge_state IN "
@@ -95,7 +98,10 @@ class OperationsSnapshots:
                                   "AND status IN ('PENDING_REVIEW','CONFLICT','APPLYING')",
                 'source_errors': 'SELECT count(*) FROM monitored_sources WHERE failures>0',
             }
-            return {'current': current, **{key: connection.execute(sql).fetchone()[0] for key, sql in queries.items()}}
+            counts = {key: connection.execute(sql).fetchone()[0] for key, sql in queries.items()}
+            counts['current'] = current
+            counts['held'] -= current
+            return counts
 
     def refresh_counts(self) -> dict[str, int]:
         KnowledgeService(KnowledgeRepository(self.database)).reconcile()

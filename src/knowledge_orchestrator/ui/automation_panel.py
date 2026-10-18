@@ -6,7 +6,7 @@ import threading
 import time
 import tkinter as tk
 import uuid
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import messagebox, ttk
 
 from knowledge_orchestrator.ui.automation_form import AutomationForm
 from knowledge_orchestrator.ui.automation_plan import AutomationPlanView, text_panel, write_text
@@ -16,6 +16,7 @@ from knowledge_orchestrator.ui.automation_presenter import (
     simulation_matches,
     simulation_selection_matches,
 )
+from knowledge_orchestrator.ui.dialogos import ask_text
 from knowledge_orchestrator.ui.review_batch_dialog import STATUSES
 
 
@@ -369,8 +370,8 @@ class AutomationPanel(ttk.Frame):
             return
         policy = self.policy
         if policy:
-            reason = simpledialog.askstring('Guardar revisión desactivada',
-                                             'Motivo del cambio (se revocará la autorización anterior):', parent=self)
+            reason = ask_text(self, 'Guardar revisión desactivada',
+                              'Motivo del cambio (se revocará la autorización anterior):')
             if not reason:
                 return
             self._submit('policy', lambda: self.service.policies.update(policy['policy_id'], config,
@@ -459,7 +460,7 @@ class AutomationPanel(ttk.Frame):
             'condiciones mientras el control global esté reanudado. ¿Autorizar?' if enabled else '\n\n¿Desautorizar?')
         if not messagebox.askyesno(title, description, parent=self):
             return
-        reason = simpledialog.askstring(title, 'Motivo de la decisión:', parent=self)
+        reason = ask_text(self, title, 'Motivo de la decisión:')
         if not reason:
             return
         identifier = simulation['simulation_id'] if enabled and simulation else None
@@ -476,7 +477,7 @@ class AutomationPanel(ttk.Frame):
                    else 'Las políticas autorizadas podrán aplicar futuras propuestas elegibles. ¿Reanudar?')
         if not messagebox.askyesno(title, message, parent=self):
             return
-        reason = simpledialog.askstring(title, 'Motivo de la decisión:', parent=self)
+        reason = ask_text(self, title, 'Motivo de la decisión:')
         if reason:
             self._submit('control', lambda: self.service.policies.set_paused(
                 paused, expected_revision=revision, actor='ui', reason=reason), control=True)

@@ -1,9 +1,30 @@
 """Texto de auditoría: versión histórica y decisión actual siempre diferenciadas."""
 from __future__ import annotations
 
+from knowledge_orchestrator.ui.snapshots import _date_time_label
+
 STATES = {'PENDING_COMPARISON': 'Por comparar', 'PENDING_REVIEW': 'Pendiente de revisión',
           'APPLYING': 'Publicación en curso', 'APPLIED': 'Publicada', 'REJECTED': 'Descartada',
           'CONFLICT': 'Conflicto', 'ERROR': 'Error'}
+
+
+_ACTORS = {'broker:comparison': 'análisis automático del Broker', 'ui': 'tú, desde la aplicación',
+           'user:desktop': 'tú, desde la aplicación', 'scheduler': 'planificador automático',
+           'system:reconciliation': 'reconciliación automática'}
+
+
+def actor_label(actor: str | None) -> str:
+    """Quién hizo algo, en palabras: antes asomaban marcadores como «broker:comparison» (auditoría I-08)."""
+
+    actor = actor or ''
+    if actor in _ACTORS:
+        return _ACTORS[actor]
+    kind, _, name = actor.partition(':')
+    if kind == 'api' and name:
+        return f'consumidor de la API «{name}»'
+    if kind == 'policy' and name:
+        return f'política {name}'
+    return actor or 'sin dato'
 
 
 def audit_text(record: dict) -> dict[str, str]:
@@ -37,15 +58,18 @@ def audit_text(record: dict) -> dict[str, str]:
     evidence.append('La confianza de fuente y los modelos reportados no prueban veracidad factual.')
     decision = [f"Registro creado: {candidate['created_at']}",
                 f"Revisión actual de propuesta: {candidate['proposal_revision']}",
-                f"Decisión registrada por: {candidate['reviewed_by'] or 'Sin decisión de publicación'}",
+                "Decisión registrada por: " + (actor_label(candidate['reviewed_by']) if candidate['reviewed_by']
+                                             else 'Sin decisión de publicación'),
                 f"Fecha de decisión: {candidate['reviewed_at'] or 'Sin fecha'}",
                 f"Fecha de publicación: {candidate['applied_at'] or 'Sin publicación terminada'}",
                 f"Nota destino: {candidate['target_note_id']} · Afirmación anterior: {candidate['target_claim_id']}",
                 f"Afirmación nueva: {candidate['new_claim_id']} · Sucesor: "
                 + str(candidate['applied_successor_id'] or 'No publicado')]
     if selected:
-        decision.insert(0, f"Revisión consultada: {selected['revision']} · Autor: {selected['actor']} · "
-                           f"Registrada: {selected['created_at']}\n\nDecisión/publicación de la propuesta actual")
+        decision.insert(0, f"Revisión consultada: {selected['revision']} · "
+                           f"Autor: {actor_label(selected['actor'])} · "
+                           f"Registrada: {_date_time_label(selected['created_at'])}\n\n"
+                           "Decisión/publicación de la propuesta actual")
     policy = record['policy']
     if policy:
         decision.append(f"Política que autorizó la intención: {policy['policy_id']} · "

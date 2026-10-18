@@ -22,7 +22,7 @@ class PhaseThirteenOperationsUiTests(unittest.TestCase):
         snapshots = OperationsSnapshots(self.runtime.database)
         self.assertEqual(snapshots.knowledge()['items'], [])
         self.assertEqual(snapshots.counts(), dict.fromkeys(
-            ['current', 'historical', 'review', 'sources', 'changes', 'analysis', 'proposals',
+            ['current', 'held', 'historical', 'review', 'sources', 'changes', 'analysis', 'proposals',
              'applied', 'contradictions', 'source_errors'], 0))
         with self.assertRaises(ValueError):
             snapshots.knowledge(state='incorrect')

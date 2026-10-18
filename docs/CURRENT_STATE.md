@@ -1,5 +1,36 @@
 # Estado vigente de Knowledge Orchestrator
 
+Incremento 31, **17 de octubre de 2026 — 0.4.2, auditoría humana de UI del 14-oct**
+(`D:\Desarrollo\docs\Pruebas\Auditoria_KO_2026-10-14`). Regresiones en `tests/test_auditoria_2026_10_14.py`
+(comprobado que las de estilo, panel vacío y fuentes fallan con el código anterior). Verificado además en la
+ventana real con el Broker real (sandbox aislado). 615 pruebas, Ruff y mypy limpios; ejecutable 0.4.2 regenerado: enviar → cancelar → «Volver a procesar» → de nuevo en la cola
+del Broker, duplicado visible, vista vacía, diálogo de fuente y API; 0 fallos y capturas revisadas.
+
+| Hallazgo | Corrección |
+|---|---|
+| I-01 Botones deshabilitados idénticos a los activos | El estado deshabilitado gana al foco en todos los estilos de botón: sin anillo acento, fondo de superficie y texto tenue |
+| I-01b «Reintentar» de un cancelado no hacía nada | «Volver a procesar»: replanifica una revisión nueva (clave idempotente nueva) con el perfil actual |
+| I-01c «Aplicar cambio» sin puente, sin explicación | Motivo visible junto al botón («No se puede aplicar. Para modificar notas… hace falta el puente de Obsidian…») |
+| I-02 Bloque «No hay documentos en esta vista» con acciones sin selección | Sin documento no se muestra bloque de incidencia ni acciones |
+| I-03 «Finalizados» contaba cancelados | Pestaña propia «Cancelados» (cancelados, rechazados y borradores descartados) |
+| I-04 Duplicados solo visibles en disco | Incidencia «Ya importado» en «Necesitan atención» que nombra el original; evento en la cronología del original |
+| I-05 El importador rechaza rutas con «/» | Lo hace el diálogo común de Windows (nuevo y clásico, medido con pywinauto). Mientras está abierto, un hilo cambia «/» por «\» en su campo «Nombre» (salvo URLs); además se corrige la ruta entrecomillada que Tk devolvía pegada a la carpeta abierta. Verificado en la ventana real con la ruta de la auditoría (espacios, corchetes, ñ) hasta Documentos. Cubre también «¿Dónde está ahora la nota?» y el selector de carpetas de Ajustes (verificado: sin corrección «D:/tmp» se rechaza, con ella se elige). Extra: «Importar desde rutas…» para varias rutas de carpetas distintas |
+| I-06 «Editar propuesta» no modal y sin Cancelar | Modal, con «Cancelar» y Escape; igual «Añadir fuente» y «Nuevo consumidor…» |
+| I-07 Fuente guardada con URL inválida | No era falta de validación: el diálogo traía «Nueva fuente · https://example.org» rellenos. Ahora empieza vacío, exige nombre y URL y explica el error de URL |
+| I-08 «broker:comparison» y fechas ISO en trazabilidad | Autor en palabras («análisis automático del Broker») y fecha local |
+| I-09 «generating» en el mensaje | Fases del Broker traducidas; una desconocida dice «El Broker lo está procesando» |
+| I-10 OK/Cancel en inglés | `simpledialog` sustituido por un diálogo propio «Aceptar/Cancelar» (los `messagebox` nativos siguen el idioma de Windows) |
+| I-11 Aviso «Falta la credencial» mientras se pega el token | Se actualiza al escribir |
+| I-12 Afirmaciones cortadas sin «…» | Recorte con elipsis al ancho real de la columna, también al redimensionar |
+| I-13 Diálogos en la esquina de la pantalla | Todo diálogo transitorio aparece centrado sobre la ventana |
+| I-14 Teclado en «Nuevo consumidor…» | Enter activa el botón con foco (en toda la app) y crea desde el nombre; foco visible en botones de acento |
+| I-15 «50 vigentes» frente a 53 indexadas | El resumen cuenta las retenidas («3 retenidas hasta resolver un cambio pendiente en su nota») y el detalle explica por qué |
+| OBS-LOG Log solo con HTTP | `EventLogWorker` vuelca la tabla `events` a `orchestrator.log` (INFO, sin `details_json`) |
+| SOS-01 Cuarentena en `processing/` | Reproducción con vigilancia continua (cada 100 ms) repitiendo lo que hizo el auditor en la ventana real (ficheros rotos en cuarentena, sus rutas tecleadas con «/» en el diálogo de importación): ninguno pasó por `processing/`. Por código no puede ocurrir: `.error.json` solo se escribe dentro de `failed/` (`_validate_managed_paths`) y nada mueve de `failed/` a `processing/`. Si volviera a verse, ahora queda en el log (OBS-LOG) |
+| I-16 Sin UI Automation | `ui/accesibilidad.py`: al recibir foco, cada control pasa el foco de Windows a su ventana y se anota por MSAA Dynamic Annotation (rol, nombre, valor, estado); los campos toman el nombre de su etiqueta y las listas anuncian la fila elegida. Verificado con UIA en la ventana real recorriendo con Tab («Tree · Documentos», «Button · Revisión», «Edit · URL», «ComboBox · Tipo») y con el teclado intacto (mismo orden de Tab, se escribe y se pulsa igual). **Probado con NVDA 2025.3.1 real** (copia portátil, sintetizador silencioso, log IO): sin la capa solo decía «panel»; con ella, «Documentos, árbol, Informe trimestral…», «Enviar ahora, botón», «Nombre, edición», «Tipo, cuadro combinado, Web». La prueba destapó que el buscador se anunciaba con el código del icono: corregido. Además, Tab entraba en controles de las páginas ocultas (se apilaban con `tkraise`): ahora `_show_page` oculta las demás con `grid_remove` y el ciclo de Tab recorre solo la página visible, pestañas de filtro incluidas |
+
+**Escenarios pendientes de la auditoría (§6), ejecutados el 17-oct en la ventana real** (bóveda aislada con el editor de notas de las pruebas en lugar del puente): P-02 revisión en lote aplicada por el worker; P-10 «Decisión y publicación» muestra lote y publicación; P-01 reversión preparada y confirmada (nota restaurada, la otra intacta); P-03 evaluación con política; P-08 «Cerrar incidencia»; P-07 fichero corregido reimportado; P-05 fuente RSS real (BBC, 27 novedades); P-09 `--restore` con el ejecutable (se niega sin `--root` y sobre carpeta con datos; restaura en vacía). 0 fallos y 0 excepciones. P-04 con **Obsidian 1.12.7 real** (perfil y bóveda aislados, complemento activado por CDP): conexión guardada desde Ajustes, «Aplicar cambio» activo sin aviso, Obsidian muestra el cambio, la reversión lo restaura y el complemento deja sus recibos APPLIED. P-06 con **NVDA 2025.3.1 real** (ver I-16). Todos los escenarios de §6 ejecutados.
+
 Incremento 30, **8–9 de octubre de 2026 — 0.4.1, prueba de uso real con la ventana y el AI Broker**.
 Recorridos automatizados sobre la ventana real (clics en los botones, diálogos interceptados y
 capturas), con el Broker real (192.168.1.52) y carpetas aisladas. **594 pruebas, Ruff y mypy (161

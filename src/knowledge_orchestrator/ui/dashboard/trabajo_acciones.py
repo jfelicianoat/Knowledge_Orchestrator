@@ -17,9 +17,15 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from knowledge_orchestrator.domain.errors import CaptureContractError
-from knowledge_orchestrator.services.markdown_import import ImportCandidate, inspect_import, write_converted
+from knowledge_orchestrator.services.markdown_import import (
+    ImportCandidate,
+    inspect_import,
+    parse_typed_paths,
+    write_converted,
+)
 from knowledge_orchestrator.ui.dashboard.estilo import FONT, FONT_SEMIBOLD
 from knowledge_orchestrator.ui.dashboard.trabajo_detalle import DetalleMixin
+from knowledge_orchestrator.ui.dialogos import ask_text, chosen_path, windows_paths_accept_slashes
 
 
 def _size_label(size: int) -> str:
@@ -43,13 +49,28 @@ class AccionesMixin(DetalleMixin):
         resto. El original nunca se modifica.
         """
 
-        selected = filedialog.askopenfilenames(
-            parent=self, title="Importar documentos",
-            filetypes=(("Documentos de texto", "*.md *.markdown *.txt"), ("Markdown", "*.md"), ("Texto", "*.txt")),
-        )
+        with windows_paths_accept_slashes("Importar documentos"):
+            selected = filedialog.askopenfilenames(
+                parent=self, title="Importar documentos",
+                filetypes=(("Documentos de texto", "*.md *.markdown *.txt"), ("Markdown", "*.md"), ("Texto", "*.txt")),
+            )
         if not selected:
             return
-        paths = [Path(raw_path) for raw_path in selected]
+        self._inspect_imports([Path(chosen_path(raw_path)) for raw_path in selected])
+
+    def _import_from_paths(self) -> None:
+        """Vía alternativa al diálogo de Windows, que rechaza las rutas tecleadas con «/»."""
+
+        raw = ask_text(
+            self, "Importar desde rutas",
+            "Pega la ruta de uno o varios documentos .md o .txt, una por línea o cada una entre comillas. "
+            "Sirven tanto «/» como «\\». El original no se modifica.",
+        )
+        paths = parse_typed_paths(raw or "")
+        if paths:
+            self._inspect_imports(paths)
+
+    def _inspect_imports(self, paths: list[Path]) -> None:
         plural = "s" if len(paths) != 1 else ""
         self.status_var.set(f"Revisando {len(paths)} documento{plural}…")
         self._run_import_step(lambda: [inspect_import(path) for path in paths], self._review_import_candidates)
@@ -250,6 +271,8 @@ class AccionesMixin(DetalleMixin):
             try:
                 if item.task_id and item.status == "READY":
                     changed = True
+                elif item.status == "CANCELLED":
+                    changed = self.runtime.workflow_repository.reopen_failed_capture(item.capture_id)
                 elif item.incident_id is not None:
                     path = Path(item.path)
                     if not path.exists():

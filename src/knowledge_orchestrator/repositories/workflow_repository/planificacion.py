@@ -55,12 +55,17 @@ class PlanificacionMixin(RepositorioBase):
                 )
 
     def reopen_failed_capture(self, capture_id: str) -> bool:
-        """Devuelve a la cola local una captura que falló antes de tener workflow."""
+        """Devuelve a la cola local una captura fallida o cancelada sin resultado vigente.
+
+        Cancelar conserva el archivo; «Volver a procesar» planifica una revisión
+        nueva (clave idempotente nueva) en vez de dejar el documento muerto.
+        """
 
         with self.database.transaction(immediate=True) as connection:
             changed = connection.execute(
                 "UPDATE captures SET status = 'PENDING', last_error_code = NULL, last_error_message = NULL, "
-                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE capture_id = ? AND status = 'FAILED' "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE capture_id = ? "
+                "AND status IN ('FAILED', 'CANCELLED') "
                 "AND domain_enriched_at IS NOT NULL AND processing_path IS NOT NULL "
                 "AND NOT EXISTS (SELECT 1 FROM workflows w WHERE w.capture_id = captures.capture_id "
                 "AND w.status IN ('PLANNED', 'RUNNING', 'SUCCESS'))",

@@ -95,7 +95,7 @@ class ReversionUiTests(unittest.TestCase):
         published = old.vault_path.read_bytes()
         for answer, reason in ((False, 'unused'), (True, None), (True, '')):
             with patch(MODULE + '.messagebox.askyesno', return_value=answer), \
-                    patch(MODULE + '.simpledialog.askstring', return_value=reason):
+                    patch(MODULE + '.ask_text', return_value=reason):
                 panel._confirm()
             self.assertFalse(panel.busy)
             self.assertEqual(old.vault_path.read_bytes(), published)
@@ -127,7 +127,7 @@ class ReversionUiTests(unittest.TestCase):
             raise OSError('lost after commit')
         with patch.object(panel.service, 'confirm', side_effect=lose_response), \
                 patch(MODULE + '.messagebox.askyesno', return_value=True), \
-                patch(MODULE + '.simpledialog.askstring', return_value='Reviewed'):
+                patch(MODULE + '.ask_text', return_value='Reviewed'):
             panel._confirm()
             self.settle(panel)
         self.assertTrue(panel.uncertain)
@@ -235,7 +235,7 @@ class ReversionUiTests(unittest.TestCase):
                              root.winfo_rooty() + root.winfo_height())
         self.assertGreater(float(panel.canvas.bbox('all')[3]), panel.canvas.winfo_height())
         with patch(MODULE + '.messagebox.askyesno', return_value=True), \
-                patch(MODULE + '.simpledialog.askstring', return_value='Native review'):
+                patch(MODULE + '.ask_text', return_value='Native review'):
             panel._confirm()
         settle()
         self.assertEqual(panel.record['status'], 'APPLIED')

@@ -91,7 +91,7 @@ BROKER_STATUS_EVENTS = {"BROKER_ONLINE": "online", "BROKER_OFFLINE": "incidencia
 
 INGESTION_MESSAGES = {
     "DUPLICATE_CAPTURE": ("Este documento ya estaba importado; no se ha duplicado. "
-                          "La copia repetida queda en cuarentena."),
+                          "La copia repetida queda en cuarentena y en «Necesitan atención»."),
     "UNSUPPORTED_FILE": "Solo se admiten documentos Markdown (.md).",
     "FILE_LOCKED": "El archivo está en uso por otro programa; aparecerá en «Necesitan atención» para reintentarlo.",
     "FILE_UNSTABLE": "El archivo aún se está escribiendo; aparecerá en «Necesitan atención» para reintentarlo.",
@@ -324,6 +324,12 @@ class DashboardBase(EstiloMixin):
 
     def _show_page(self, page: str) -> None:
         self._current_page = page
+        # Las páginas comparten celda; con solo `tkraise` las de detrás seguían «visibles» para Tk
+        # y Tab llevaba el foco a controles que no se ven (auditoría 14-oct I-16).
+        for name, other in self.pages.items():
+            if name != page:
+                other.grid_remove()
+        self.pages[page].grid()
         self.pages[page].tkraise()
         self._paint_navigation(page)
         if page == "work":

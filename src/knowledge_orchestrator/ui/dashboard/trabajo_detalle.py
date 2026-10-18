@@ -26,6 +26,18 @@ PHASE_TEXT = {
     "processing": "El Broker lo está procesando",
     "cancel_requested": "Cancelando el procesamiento",
     "success": "Resultado recibido; preparando la publicación",
+    # Fases que publica el Broker en el progreso de la tarea (auditoría 14-oct I-09).
+    "routing": "El Broker está eligiendo el modelo",
+    "scheduling": "El Broker está planificando la tarea",
+    "loading_model": "El Broker está cargando el modelo",
+    "optimizing_context": "El Broker está preparando el texto para el modelo",
+    "converting": "El Broker está convirtiendo el documento",
+    "generating": "El modelo está generando la respuesta",
+    "hibernating": "El Broker ha pausado la tarea y la reanudará sola",
+    "waiting_for_tools": "El Broker espera a sus herramientas",
+    "completed": "El Broker terminó la tarea",
+    "failed": "El Broker informó de un fallo",
+    "cancelled": "Tarea cancelada",
 }
 #: Errores que ocurren antes de que el Broker acepte la tarea.
 SUBMISSION_ERRORS = ("BROKER_OFFLINE", "BROKER_UNAVAILABLE", "SUBMISSION", "HTTP_", "AUTH")
@@ -67,7 +79,8 @@ def humane_phase(item: WorkItem) -> str:
         return f"Progreso: {units.group(1)} de {units.group(2)} partes procesadas"
     if item.progress_text:
         return item.progress_text
-    return PHASE_TEXT.get(item.phase.lower(), item.phase)
+    # Una fase nueva del Broker no debe asomar en inglés: se queda en los detalles técnicos.
+    return PHASE_TEXT.get(item.phase.lower(), "El Broker lo está procesando")
 
 
 class DetalleMixin(InicioMixin):
@@ -83,6 +96,9 @@ class DetalleMixin(InicioMixin):
         ) or (
             # Falló antes de tener tareas (p. ej. perfil desactivado): se replanifica.
             item.category == "attention" and not item.task_id and item.status == "FAILED"
+        ) or (
+            # Cancelado: el archivo se conserva y se puede volver a procesar.
+            item.status == "CANCELLED" and item.incident_id is None
         )
 
     @staticmethod
@@ -157,11 +173,12 @@ class DetalleMixin(InicioMixin):
     def _render_work_selection(self, items: list[WorkItem]) -> None:
         """Muestra detalle individual o un resumen seguro para acciones por lote."""
 
-        if len(items) == 1:
-            self._render_work_detail(items[0])
-            return
         if not items:
             self._render_empty_detail()
+            return
+        self.issue_frame.grid()
+        if len(items) == 1:
+            self._render_work_detail(items[0])
             return
 
         retryable = [item for item in items if self._can_send_item(item)]
@@ -217,6 +234,13 @@ class DetalleMixin(InicioMixin):
                 "No se publicó. La fuente y el resultado se conservan; puedes volver a procesar el documento "
                 "(por ejemplo, tras cambiar el modelo o las instrucciones del perfil)."
             )
+        elif item.error_code == "DUPLICATE_CAPTURE":
+            self.issue_title_var.set("Este documento ya estaba importado.")
+            self.issue_message_var.set(
+                f"{item.error_message}. La copia se apartó a cuarentena sin procesarla para no duplicar el "
+                "conocimiento («Abrir ubicación» lleva a ella). Si es una versión nueva, dale otro capture_id "
+                "o impórtala con «Importar documentos»; si no, cierra esta incidencia."
+            )
         elif item.incident_id is not None and not item.retryable:
             self.issue_title_var.set("El archivo no tiene el formato de una captura.")
             self.issue_message_var.set(
@@ -239,7 +263,8 @@ class DetalleMixin(InicioMixin):
         elif item.category == "completed":
             if item.status in {"CANCELLED", "REJECTED"}:
                 self.issue_title_var.set("Documento cancelado.")
-                self.issue_message_var.set("No se publicó. El archivo y su historial se conservan.")
+                self.issue_message_var.set("No se publicó. El archivo y su historial se conservan; "
+                                           "«Volver a procesar» lo envía de nuevo con el perfil actual.")
             else:
                 self.issue_title_var.set("Documento publicado en la biblioteca.")
                 self.issue_message_var.set("Terminó el flujo; puedes consultarlo en Biblioteca. "
@@ -285,7 +310,8 @@ class DetalleMixin(InicioMixin):
             self.ignore_button.state(["disabled"])
             return
         can_retry = self._can_send_item(item)
-        self.retry_button.configure(text="Enviar ahora" if item.status == "READY" else "Reintentar")
+        self.retry_button.configure(text="Enviar ahora" if item.status == "READY" else
+                                    "Volver a procesar" if item.status == "CANCELLED" else "Reintentar")
         self.retry_button.state(["!disabled"] if can_retry else ["disabled"])
         if self._can_cancel_item(item):
             self.ignore_button.configure(text="Cancelar procesamiento")
@@ -317,9 +343,8 @@ class DetalleMixin(InicioMixin):
         self.detail_path_var.set("El detalle aparecerá aquí.")
         self.detail_id_var.set("")
         self._set_work_steps(None)
-        self.issue_title_var.set("No hay documentos en esta vista.")
-        self.issue_message_var.set("Cambia el filtro, limpia la búsqueda o importa un documento para empezar.")
-        self._paint_issue("neutral")
+        # Sin documento no hay incidencia ni acciones que mostrar (auditoría 14-oct I-02).
+        self.issue_frame.grid_remove()
         self.timeline.configure(state="normal")
         self.timeline.delete("1.0", "end")
         self.timeline.configure(state="disabled")

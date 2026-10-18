@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from knowledge_orchestrator.ui.automation_plan import text_panel, write_text
+from knowledge_orchestrator.ui.dialogos import windows_paths_accept_slashes
 
 STATE_TEXT = {
     "CONFLICT": "Editada fuera de la aplicación",
@@ -118,9 +119,10 @@ class NoteReconciliationDialog(tk.Toplevel):
         item = self._selected()
         if item is None:
             return
-        chosen = filedialog.askopenfilename(parent=self, title="¿Dónde está ahora la nota?",
-                                            initialdir=str(self.service.vault),
-                                            filetypes=(("Notas Markdown", "*.md"),))
+        with windows_paths_accept_slashes("¿Dónde está ahora la nota?"):
+            chosen = filedialog.askopenfilename(parent=self, title="¿Dónde está ahora la nota?",
+                                                initialdir=str(self.service.vault),
+                                                filetypes=(("Notas Markdown", "*.md"),))
         if not chosen:
             return
         try:

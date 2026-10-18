@@ -18,6 +18,7 @@ from knowledge_orchestrator.services.broker_connection import (
 )
 from knowledge_orchestrator.services.path_settings import PipelinePathStore, load_pipeline_paths, storage_warnings
 from knowledge_orchestrator.ui.dashboard.temas import TemasMixin
+from knowledge_orchestrator.ui.dialogos import windows_paths_accept_slashes
 from knowledge_orchestrator.ui.obsidian_connection_panel import ObsidianConnectionPanel
 
 STRATEGY_LABELS = {
@@ -165,6 +166,9 @@ class ConfiguracionMixin(TemasMixin):
         self.broker_url_var = tk.StringVar(value=self.runtime.broker_worker.settings.base_url)
         self.broker_token_var = tk.StringVar(value="")
         self.broker_credential_var = tk.StringVar(value=self._broker_credential_status())
+        # El aviso «Falta la credencial» seguía ahí mientras se pegaba el token (auditoría 14-oct I-11).
+        self.broker_token_var.trace_add(
+            "write", lambda *_args: self.broker_credential_var.set(self._broker_credential_status()))
         tk.Label(
             connection, text="Dirección", bg=self.colors["raised"], fg=self.colors["muted"],
             font=("Segoe UI", 9),
@@ -343,7 +347,8 @@ class ConfiguracionMixin(TemasMixin):
             self._select_profile()
 
     def _choose_folder(self, variable: tk.StringVar) -> None:
-        selected = filedialog.askdirectory(parent=self, initialdir=variable.get() or None)
+        with windows_paths_accept_slashes("Elegir carpeta"):
+            selected = filedialog.askdirectory(parent=self, title="Elegir carpeta", initialdir=variable.get() or None)
         if selected:
             variable.set(selected)
 
@@ -366,6 +371,8 @@ class ConfiguracionMixin(TemasMixin):
         self.status_var.set("Ubicaciones guardadas para el próximo inicio.")
 
     def _broker_credential_status(self) -> str:
+        if self.broker_token_var.get().strip():
+            return "Token nuevo escrito. Pulsa «Guardar conexión al Broker» para protegerlo y aplicarlo."
         if self.connection_store.has_stored_token():
             return "Credencial protegida para este usuario de Windows. Déjala vacía para conservarla."
         if self.runtime.broker_worker.settings.admin_token:

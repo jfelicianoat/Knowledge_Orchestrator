@@ -53,6 +53,7 @@ from knowledge_orchestrator.services.workflow_planner import WorkflowPlanner
 from knowledge_orchestrator.ui.event_bridge import UiEventBridge
 from knowledge_orchestrator.worker.automation_worker import AutomationWorker
 from knowledge_orchestrator.worker.broker_worker import BrokerWorker
+from knowledge_orchestrator.worker.event_log_worker import EventLogWorker
 from knowledge_orchestrator.worker.inbox_watcher import InboxWatcher
 from knowledge_orchestrator.worker.ingestion_worker import IngestionWorker
 from knowledge_orchestrator.worker.review_worker import ReviewWorker
@@ -107,9 +108,11 @@ class OrchestratorRuntime:
     obsidian_connection: ObsidianConnection
     api_server: ApiServerController = field(init=False)
     note_reconciliation: NoteReconciliationService = field(init=False)
+    event_log: EventLogWorker = field(init=False)
 
     def __post_init__(self) -> None:
         self.api_server = ApiServerController(self)
+        self.event_log = EventLogWorker(self.database)
         self.note_reconciliation = NoteReconciliationService(
             self.database, self.paths.obsidian_vault, self.semantic_maintenance,
         )
@@ -152,6 +155,7 @@ class OrchestratorRuntime:
 
     def start(self) -> RecoveryReport:
         report = self.recover_once(ingest_inbox=True)
+        self.event_log.start()
         self.watcher.start()
         self.broker_worker.start()
         self.source_worker.start()
@@ -166,6 +170,7 @@ class OrchestratorRuntime:
         self.source_worker.stop()
         self.broker_worker.stop()
         self.watcher.stop()
+        self.event_log.stop()
 
     def run_forever(self) -> None:
         report = self.start()
