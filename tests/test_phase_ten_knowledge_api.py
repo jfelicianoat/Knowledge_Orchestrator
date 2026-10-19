@@ -32,7 +32,7 @@ class FakeQueryBroker:
         return {'task_id': 'broker-' + request['request_id'],
                 'status_url': '/api/v1/tasks/broker-' + request['request_id']}
 
-    async def get_task(self, task_id, *, status_url=None):
+    async def get_task(self, task_id, *, status_url=None, operation_id=None):
         if self.responses:
             return self.responses.pop(0)
         return {'status': 'completed', 'result': {'assistant_content': json.dumps(self.result)}}

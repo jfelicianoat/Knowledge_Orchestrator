@@ -203,7 +203,10 @@ class KnowledgeQueryProcessor:
         count = 0
         for row in self.repository.active():
             try:
-                response = await self.client.get_task(row['broker_task_id'], status_url=row['status_url'])
+                response = await self.client.get_task(
+                    row['broker_task_id'], status_url=row['status_url'],
+                    operation_id=json.loads(row['request_json']).get('idempotency_key'),
+                )
                 status = response['status']
                 if status in {'success', 'completed'}:
                     result = response.get('result') or {}

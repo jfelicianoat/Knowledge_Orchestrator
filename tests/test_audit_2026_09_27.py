@@ -224,7 +224,7 @@ class _Client:
     def __init__(self, results: dict[str, dict]) -> None:
         self.results = results
 
-    async def get_task(self, task_id, *, status_url=None):
+    async def get_task(self, task_id, *, status_url=None, operation_id=None):
         return self.results[task_id]
 
 

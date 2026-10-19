@@ -138,3 +138,6 @@ class BrokerSettings:
     dispatcher_interval_seconds: float = 0.5
     max_context_tokens: int = 16_000
     submission_backoff_seconds: tuple[float, ...] = (30.0, 60.0, 120.0)
+    #: AI OS Core, el director del ecosistema. Vacío: la app funciona sin él.
+    core_url: str | None = field(default_factory=lambda: os.environ.get("KO_CORE_URL") or None)
+    core_token: str | None = field(default_factory=lambda: os.environ.get("KO_CORE_TOKEN") or None)

@@ -261,6 +261,28 @@ Véase [`docs/Phase_8_Operations.md`](docs/Phase_8_Operations.md).
 
 Fuentes vigiladas Web/RSS/Atom y su API: [`docs/Source_Monitoring.md`](docs/Source_Monitoring.md).
 
+## AI OS Core como director (0.4.3)
+
+Opcional: sin `KO_CORE_URL` todo funciona como antes. Con `KO_CORE_URL` y el token por app
+en `KO_CORE_TOKEN`, `BrokerClient.create_task` (el único camino al Broker: despachador,
+mantenimiento semántico y consultas de conocimiento) evalúa antes en AI OS Core la política
+`knowledge_orchestrator:broker` con el propósito de la petición (`study_notes`,
+`semantic_maintenance`…) y su `data_classification`, y solo envía con un ALLOW ejecutable:
+
+- denegada: la tarea falla con código `CORE_DENIED` y el motivo de Core, sin tocar el Broker;
+- Core no contesta: no se envía y se reintenta con el backoff de siempre;
+- cada tarea deja recibos en Core con su clave de idempotencia (`accepted` al enviarla; el
+  estado terminal cuando el sondeo la ve terminar).
+
+Recorrido real: `scripts/verify_ai_os_core.py <core> <token_ko> <token_director> <broker> <carpeta>`
+con `KO_BROKER_ADMIN_TOKEN` (7 comprobaciones, verde el 18-oct-2026; runtime real en una carpeta
+de usar y tirar).
+
+**0.4.4 — monitor de Core.** Cada tarea se ve en vivo en `<core>/monitor`: la autorización y los
+recibos llevan como `flow_id` la clave de idempotencia de la tarea, y el envío y el estado final
+se cuentan como salto KO → Broker (petición y luego respuesta o error, con su duración). Si el
+monitor no contesta, la tarea no se entera.
+
 ## Licencia
 
 MIT

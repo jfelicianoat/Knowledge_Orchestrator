@@ -79,6 +79,7 @@ class BrokerPoller:
                 payload = await self.client.get_task(
                     task.broker_task_id or task.task_id,
                     status_url=task.status_url,
+                    operation_id=task.idempotency_key,
                 )
             except TransientBrokerError:
                 continue

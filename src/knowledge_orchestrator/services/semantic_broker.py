@@ -56,7 +56,9 @@ class SemanticBrokerProcessor:
         updated = 0
         for job in self.repository.list_active_jobs():
             try:
-                payload = await self.client.get_task(job.broker_task_id or job.job_id, status_url=job.status_url)
+                payload = await self.client.get_task(
+                    job.broker_task_id or job.job_id, status_url=job.status_url, operation_id=job.idempotency_key
+                )
             except TransientBrokerError:
                 continue
             except (PermanentBrokerError, BrokerContractError) as error:

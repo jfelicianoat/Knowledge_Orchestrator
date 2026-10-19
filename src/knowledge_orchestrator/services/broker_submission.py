@@ -52,5 +52,8 @@ async def attempt_broker_submission(
     except (PermanentBrokerError, BrokerContractError, json.JSONDecodeError) as error:
         if isinstance(error, PermanentBrokerError) and getattr(error, "status_code", None) == 409:
             return DispatchDecision("permanent", message=str(error), code="IDEMPOTENCY_CONFLICT")
+        if isinstance(error, PermanentBrokerError) and error.code == "CORE_DENIED":
+            # Una política, no un contrato roto: que la app lo diga con su nombre
+            return DispatchDecision("permanent", message=str(error), code="CORE_DENIED")
         return DispatchDecision("permanent", message=str(error))
     return DispatchDecision("accepted", response=response)

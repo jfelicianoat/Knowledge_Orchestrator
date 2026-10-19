@@ -15,6 +15,12 @@ from knowledge_orchestrator.domain.broker_contracts import (
     validate_task_status_response,
 )
 from knowledge_orchestrator.domain.system1 import validate_judgment, validate_judgment_request
+from knowledge_orchestrator.integrations.ai_os_core import (
+    TERMINAL_RECEIPTS,
+    CoreDenied,
+    CoreUnavailable,
+    KoCoreGate,
+)
 from knowledge_orchestrator.redaction import sanitize
 
 MODELS_TIMEOUT_SECONDS = 30.0
@@ -60,6 +66,7 @@ class BrokerClient:
         # que un campo que ese Broker no tiene no se ignora, hace fallar la
         # petición entera con 422 y se lleva por delante la tarea.
         self._capabilities: dict[str, Any] = {}
+        self.core = KoCoreGate(settings.core_url, settings.core_token) if settings.core_url else None
 
     async def start(self) -> None:
         if self._client is None:
@@ -84,27 +91,45 @@ class BrokerClient:
         # Otro Broker puede anunciar otro contrato: conservar lo que prometía el
         # anterior haría que se le enviasen campos que no admite.
         self._capabilities = {}
+        self.core = KoCoreGate(settings.core_url, settings.core_token) if settings.core_url else None
 
     async def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_create_task_request(payload)
+        if self.core is not None:
+            # Sin ALLOW de Core no sale nada; caído = reintento, denegado = fallo de la tarea
+            try:
+                await self.core.authorize(payload)
+            except CoreUnavailable as error:
+                raise TransientBrokerError(f"{error}. Por seguridad no se ha enviado nada al Broker.",
+                                           code="CORE_UNAVAILABLE") from None
+            except CoreDenied as error:
+                raise PermanentBrokerError(str(error), code="CORE_DENIED") from None
         payload = self._strip_unsupported_fields(payload)
         response = await self._request("POST", "/api/v1/tasks", json=payload)
         if response.status_code not in {200, 202}:
             self._raise_for_status(response)
         data = self._json(response)
-        return dict(validate_accepted_response(data))
+        accepted = dict(validate_accepted_response(data))
+        if self.core is not None:
+            await self.core.receipt(str(payload["idempotency_key"]), "accepted", str(accepted.get("task_id", "")))
+        return accepted
 
     async def get_task(
         self,
         task_id: str,
         *,
         status_url: str | None = None,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
+        """`operation_id` (la clave de idempotencia de la tarea) le dice a Core cómo acabó."""
         response = await self._request("GET", status_url or f"/api/v1/tasks/{task_id}")
         if response.status_code != 200:
             self._raise_for_status(response)
         data = self._json(response)
-        return dict(validate_task_status_response(data, task_id))
+        status = dict(validate_task_status_response(data, task_id))
+        if self.core is not None and operation_id and status.get("status") in TERMINAL_RECEIPTS:
+            await self.core.receipt(operation_id, str(status["status"]), task_id)
+        return status
 
     def _strip_unsupported_fields(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Quita los campos que este Broker no anuncia (Client_API.md, 5.1).

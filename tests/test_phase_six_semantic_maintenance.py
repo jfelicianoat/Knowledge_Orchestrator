@@ -360,7 +360,7 @@ class PhaseSixSemanticMaintenanceTests(unittest.IsolatedAsyncioTestCase):
                     "cancel_url": "/api/v1/tasks/broker-" + job_id,
                 }
 
-            async def get_task(self, task_id, *, status_url=None):
+            async def get_task(self, task_id, *, status_url=None, operation_id=None):
                 job_id = task_id.removeprefix("broker-")
                 return {
                     "task_id": task_id,
