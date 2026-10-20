@@ -21,8 +21,10 @@ from tests import test_phase_three_workflows as phase_three
 
 
 class FakeCore:
-    def __init__(self, authorization: str = "ALLOW", *, down: bool = False, monitor_down: bool = False) -> None:
+    def __init__(self, authorization: str = "ALLOW", *, down: bool = False, monitor_down: bool = False,
+                 priority: int | None = None) -> None:
         self.authorization = authorization
+        self.priority = priority
         self.down = down
         self.monitor_down = monitor_down
         self.calls: list[tuple[str, dict]] = []
@@ -36,7 +38,8 @@ class FakeCore:
         self.calls.append((request.url.path, body))
         if request.url.path == "/api/v1/policies/evaluate":
             return httpx.Response(200, json={"authorization": self.authorization,
-                                             "executable": self.authorization == "ALLOW", "unknown_inputs": []})
+                                             "executable": self.authorization == "ALLOW", "unknown_inputs": [],
+                                             "broker_priority": self.priority})
         return httpx.Response(201, json={})
 
     def receipts(self) -> list[dict]:
@@ -126,6 +129,17 @@ class AiOsCoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r["status"] for r in receipts], ["accepted", "succeeded"])
         self.assertEqual({r["operation_id"] for r in receipts}, {broker.created[0]["idempotency_key"]})
         self.assertEqual(runtime.workflow_repository.get_task(task.task_id).status.value, "SUCCESS")
+
+    async def test_the_core_turn_is_the_base_of_the_broker_priority(self) -> None:
+        _, _, broker, _, _ = await self.dispatch(FakeCore(priority=500), "core_turno")
+        self.assertEqual(broker.created[0]["priority"], 500)  # una tarea normal (100) va en el turno de KO
+        _, _, broker, _, _ = await self.dispatch(FakeCore(), "core_sin_turno")
+        sent = broker.created[0]
+        self.assertEqual(sent["priority"], 100)  # sin turno fijado, la de siempre
+        client, broker = self.clients(FakeCore(priority=200))
+        self.addAsyncCleanup(client.close)
+        await client.create_task({**sent, "idempotency_key": "ko-interactiva", "priority": 25})
+        self.assertEqual(broker.created[0]["priority"], 50)  # una pregunta interactiva sigue pasando antes
 
     async def test_the_task_trip_is_seen_in_the_core_monitor(self) -> None:
         """KO 0.4.4: autorización, recibos y saltos comparten el flujo de la tarea."""

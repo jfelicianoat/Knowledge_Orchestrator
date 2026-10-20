@@ -63,7 +63,9 @@ class KoCoreGate:
         #: Cuándo salió cada tarea hacia el Broker (latencia en el monitor de Core).
         self._sent_at: dict[str, float] = {}
 
-    async def authorize(self, payload: dict[str, Any]) -> None:
+    async def authorize(self, payload: dict[str, Any]) -> int | None:
+        """Lanza sin ALLOW ejecutable; si no, el turno en la cola del Broker que el director
+        fijó a KO en el monitor (None = sin fijar)."""
         risk = _mapping(payload.get("risk"))
         metadata = _mapping(_mapping(payload.get("content")).get("metadata"))
         decision = await self._post("/api/v1/policies/evaluate", {
@@ -79,6 +81,8 @@ class KoCoreGate:
         })
         if decision.get("authorization") != "ALLOW" or decision.get("executable") is not True:
             raise CoreDenied(_denied_text(decision))
+        priority = decision.get("broker_priority")
+        return priority if isinstance(priority, int) else None
 
     async def receipt(self, operation_id: str, broker_status: str, task_id: str) -> None:
         """Un recibo perdido no tumba la tarea: Core verá el siguiente estado."""

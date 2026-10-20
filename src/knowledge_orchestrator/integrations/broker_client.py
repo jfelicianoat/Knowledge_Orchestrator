@@ -126,12 +126,16 @@ class BrokerClient:
         if self.core is not None:
             # Sin ALLOW de Core no sale nada; caído = reintento, denegado = fallo de la tarea
             try:
-                await self.core.authorize(payload)
+                turn = await self.core.authorize(payload)
             except CoreUnavailable as error:
                 raise TransientBrokerError(f"{error}. Por seguridad no se ha enviado nada al Broker.",
                                            code="CORE_UNAVAILABLE") from None
             except CoreDenied as error:
                 raise PermanentBrokerError(str(error), code="CORE_DENIED") from None
+            if turn is not None:
+                # El turno de KO es la base; la petición se mide respecto a la normal (100):
+                # una pregunta interactiva de ChatyGPT (25) sigue pasando antes que el resto
+                payload = {**payload, "priority": min(1000, round(turn * payload["priority"] / 100))}
         payload = self._strip_unsupported_fields(payload)
         response = await self._request("POST", "/api/v1/tasks", json=payload)
         if response.status_code not in {200, 202}:
