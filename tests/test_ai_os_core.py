@@ -160,3 +160,52 @@ class AiOsCoreTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SinPegarTokensTests(unittest.IsolatedAsyncioTestCase):
+    """Core deja su conexión a KO y le da el token del Broker, que se renueva tras un 403."""
+
+    async def test_core_da_el_token_del_broker_y_lo_renueva(self) -> None:
+        import os
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        from unittest import mock
+
+        vigente = ["broker-1"]
+
+        class Core(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                ok = self.headers.get("Authorization") == "Bearer tok-ko"
+                self.send_response(200 if ok else 401)
+                self.end_headers()
+                self.wfile.write(json.dumps({"token": vigente[0]} if ok else {}).encode())
+
+            def log_message(self, *_: object) -> None:
+                pass
+
+        servidor = HTTPServer(("127.0.0.1", 0), Core)
+        threading.Thread(target=servidor.serve_forever, daemon=True).start()
+        self.addCleanup(servidor.shutdown)
+        carpeta = tempfile.mkdtemp()
+        url = f"http://127.0.0.1:{servidor.server_port}"
+        Path(carpeta, "knowledge_orchestrator.json").write_text(json.dumps({"core_url": url, "token": "tok-ko"}))
+
+        vistos: list[str | None] = []
+
+        def broker(request: httpx.Request) -> httpx.Response:
+            vistos.append(request.headers.get("X-Admin-Token"))
+            ok = request.headers.get("X-Admin-Token") == vigente[0]
+            return httpx.Response(200 if ok else 403, json={} if ok else {"detail": "ADMIN_AUTH_REQUIRED"})
+
+        entorno = {"AI_OS_CONNECT_DIR": carpeta}
+        with mock.patch.dict(os.environ, entorno):
+            os.environ.pop("KO_CORE_URL", None)
+            os.environ.pop("KO_CORE_TOKEN", None)
+            settings = BrokerSettings(base_url="http://broker.test", admin_token="pegado-caducado")
+        self.assertEqual((settings.core_url, settings.core_token), (url, "tok-ko"))
+        client = BrokerClient(settings, transport=httpx.MockTransport(broker))
+        self.addAsyncCleanup(client.close)
+        self.assertEqual((await client._request("GET", "/api/v1/capabilities")).status_code, 200)
+        vigente[0] = "broker-2"  # el Broker se reinicia; el runner publica el nuevo en Core
+        self.assertEqual((await client._request("GET", "/api/v1/capabilities")).status_code, 200)
+        self.assertEqual(vistos, ["broker-1", "broker-1", "broker-2"])

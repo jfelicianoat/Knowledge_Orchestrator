@@ -1,6 +1,7 @@
 """Servidor WSGI de loopback. La API también puede montarse en un servidor WSGI externo."""
 from __future__ import annotations
 
+import json
 import threading
 from socketserver import ThreadingMixIn
 from typing import TYPE_CHECKING
@@ -11,6 +12,7 @@ import httpx
 from knowledge_orchestrator.api.application import KnowledgeApi
 from knowledge_orchestrator.api.auth import ApiAuth
 from knowledge_orchestrator.repositories.api_consumer_repository import ApiConsumerRepository
+from knowledge_orchestrator.services.filesystem import atomic_write_json
 
 if TYPE_CHECKING:
     from knowledge_orchestrator.runtime import OrchestratorRuntime
@@ -30,6 +32,10 @@ class QuietHandler(WSGIRequestHandler):
     def log_message(self, format, *args):
         # El evento API_REQUEST evita registrar URLs de consulta, cuerpos y credenciales.
         pass
+
+
+#: Preferencias de la API junto a los datos (como la conexión del Broker): una raíz de pruebas no lee las reales.
+SETTINGS_FILE = 'api_settings.json'
 
 
 class ApiServerController:
@@ -127,6 +133,31 @@ class ApiServerController:
                 self._state, self._error = 'ERROR', 'API_START_FAILED'
                 raise ValueError('No se pudo iniciar la API local') from None
             return self.snapshot()
+
+    def preferences(self) -> dict:
+        """Inicio automático (activado si nunca se tocó) y último puerto usado."""
+        try:
+            payload = json.loads((self.runtime.paths.state / SETTINGS_FILE).read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            payload = {}
+        autostart, port = payload.get('autostart'), payload.get('port')
+        return {'autostart': autostart if isinstance(autostart, bool) else True,
+                'port': port if type(port) is int and 1 <= port <= 65535 else None}
+
+    def save_preferences(self, *, autostart: bool, port: int | None) -> None:
+        atomic_write_json(self.runtime.paths.state / SETTINGS_FILE, {'autostart': autostart, 'port': port})
+
+    def autostart(self, default_port: int) -> dict | None:
+        """Inicia la API al abrir la aplicación si así se quiere y hay consumidores; si no, nada.
+
+        Así otra aplicación (p. ej. ChatyGPT) puede consultar mientras la ventana esté
+        abierta sin que nadie se acuerde de pulsar «Iniciar API». Un fallo (puerto
+        ocupado) se lanza como ValueError, igual que al iniciarla a mano.
+        """
+        preferences = self.preferences()
+        if not preferences['autostart'] or not self.snapshot()['configured']:
+            return None
+        return self.start(port=preferences['port'] or default_port)
 
     def _run(self, server: LocalServer) -> None:
         failed = False

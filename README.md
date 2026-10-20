@@ -283,6 +283,29 @@ recibos llevan como `flow_id` la clave de idempotencia de la tarea, y el envío 
 se cuentan como salto KO → Broker (petición y luego respuesta o error, con su duración). Si el
 monitor no contesta, la tarea no se entera.
 
+**0.4.5 — la ventana sobrevive a un fallo de lectura.** Uso real 19-oct: con la base en Google
+Drive, una lectura falló con `sqlite3.OperationalError: disk I/O error` justo al terminar el
+arranque. Como el siguiente refresco se programaba al final de `_refresh`, esa excepción lo
+cancelaba para siempre: «Documentos» se quedaba vacío y el reloj, parado. Ahora cada paso del
+refresco va protegido, el fallo queda en el registro con su traza, la barra de estado lo dice y
+se reintenta a los 2 s. La causa de fondo sigue siendo la base SQLite en una carpeta sincronizada.
+
+**Copia periódica a otra carpeta.** Si `paths.json` (en `%LOCALAPPDATA%\Knowledge Orchestrator\config`)
+tiene `backup_dir`, el trabajador `periodic-backup` comprueba cada minuto si la última copia tiene más de
+6 horas. Si es así, deja allí una copia integral restaurable (`knowledge-orchestrator-full-<fecha>.zip`,
+la misma de `--full-backup`) y conserva las 10 más recientes. Sirve para tener la base en disco local
+y la copia en Google Drive: un ZIP escrito de una vez no sufre el `disk I/O error` de SQLite. Con
+`--root` o `KO_ROOT` no se activa. Guardar las carpetas desde Ajustes conserva `backup_dir`. Se
+restaura con `--restore <zip> --root <carpeta vacía>`.
+
+**Inicio automático de la API.** Al terminar el arranque de la ventana, si la casilla «Iniciar al
+abrir la aplicación» (Automatización y API) está marcada, que es lo predeterminado, y hay al menos un
+consumidor, la API se inicia sola en el último puerto con el que se inició a mano (si no hay ninguno,
+8766, u 8767 si el puente de Obsidian usa el 8766). La preferencia vive en `state/api_settings.json`, junto a
+los datos: una raíz de pruebas no hereda la real. Un puerto ocupado se muestra en esa pantalla
+igual que al pulsar el botón. No se pasa por AI OS Core: Core solo autoriza envíos al Broker y no
+tiene canal para arrancar procesos.
+
 ## Licencia
 
 MIT

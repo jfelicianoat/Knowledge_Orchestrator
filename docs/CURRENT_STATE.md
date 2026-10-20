@@ -1,5 +1,27 @@
 # Estado vigente de Knowledge Orchestrator
 
+Incremento 32, **19 de octubre de 2026 — 0.4.5, base fuera de Google Drive y copia periódica**.
+Uso real con ChatyGPT consultando la API. Con la raíz de datos en `Y:\Mi unidad\...` (Google Drive)
+pasaba esto:
+- cada llamada a la API tardaba 4–5 s;
+- `GET /documents/{id}` devolvía 500 de vez en cuando;
+- un `sqlite3.OperationalError: disk I/O error` en la primera lectura tras el arranque mató el refresco de
+  la ventana: «Documentos» vacío y reloj parado. El traceback solo estaba en la consola.
+
+| Hallazgo | Corrección |
+|---|---|
+| Un fallo en un paso de `_refresh` cancelaba el siguiente `after()` para siempre | Cada paso del refresco va protegido; el fallo queda en el registro con su traza, la barra de estado lo dice y se reintenta a los 2 s (`test_a_failed_read_does_not_stop_the_periodic_refresh`, que falla con el código anterior) |
+| La seguridad de los datos dependía de tener la base en Drive | `worker/backup_worker.py`: si `paths.json` trae `backup_dir`, cada 6 h deja allí la copia integral restaurable y conserva 10. No se activa con `--root`/`KO_ROOT`. `PipelinePathStore.save` conserva `backup_dir` (`tests/test_copia_periodica.py`) |
+| Traslado de la raíz de datos sin procedimiento | Manual 18.2: `--full-backup` → `--restore --root` (reescribe las rutas) → copiar `failed`, `logs`, `state\credentials` y `broker_connection.json` → `data_root`. Los datos del usuario se trasladaron así a `I:\KO-datos`: 300 rutas reescritas, mismas filas en todas las tablas e `integrity_check` correcto. El origen en Drive queda intacto |
+| La API había que iniciarla a mano en cada sesión; ChatyGPT fallaba con «no responde» con la ventana abierta | `ApiServerController.autostart()`: tras el arranque, si «Iniciar al abrir la aplicación» está marcada (lo predeterminado) y hay consumidores, se inicia en el último puerto usado. Preferencias en `state/api_settings.json` (`tests/test_api_autostart.py`). La propuesta de hacerlo desde AI OS Core se descartó: Core no tiene canal hacia las apps |
+| Papeles de KO, Obsidian y Drive confusos para el usuario | Manual: capítulo 1 «Cómo encajan…», 15.3 ChatyGPT, filas nuevas en 19 y 20. Corregido el flujo «Dar acceso a otra aplicación», que ponía Iniciar API antes de crear el consumidor. `build_pdf.py` toma la versión del código |
+
+Pruebas:
+- Las tres pruebas nuevas pasan y ruff y mypy están limpios.
+- La batería completa da 625–626 de 627. Los 1–2 fallos son distintos en cada ejecución y todos ocurren al
+  crear `tk.Tk()` («couldn't read file …/tk8.6/…tcl»), antes de llegar al código de KO. Repetidas por
+  separado, pasan.
+
 Incremento 31, **17 de octubre de 2026 — 0.4.2, auditoría humana de UI del 14-oct**
 (`D:\Desarrollo\docs\Pruebas\Auditoria_KO_2026-10-14`). Regresiones en `tests/test_auditoria_2026_10_14.py`
 (comprobado que las de estilo, panel vacío y fuentes fallan con el código anterior). Verificado además en la

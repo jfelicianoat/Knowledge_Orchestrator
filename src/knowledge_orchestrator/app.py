@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 import sys
 from pathlib import Path
 
-from knowledge_orchestrator.config import PipelinePaths
+from knowledge_orchestrator.config import ENV_ROOT, PipelinePaths
 from knowledge_orchestrator.runtime import OrchestratorRuntime, build_runtime
 from knowledge_orchestrator.services.operations import (
     RestoreError,
@@ -14,7 +15,7 @@ from knowledge_orchestrator.services.operations import (
     export_diagnostics,
     restore_full_backup,
 )
-from knowledge_orchestrator.services.path_settings import load_pipeline_paths
+from knowledge_orchestrator.services.path_settings import PipelinePathStore, load_pipeline_paths
 from knowledge_orchestrator.ui.desktop_bootstrap import load_dashboard
 
 
@@ -70,9 +71,12 @@ def main() -> None:
               "Vuelva a configurar el Broker y Obsidian en Ajustes.")
         return
     paths = PipelinePaths.under(Path(arguments.root)) if arguments.root else load_pipeline_paths()
+    # La copia periódica solo sigue a la configuración real, nunca a una raíz de pruebas.
+    backup_dir = None if arguments.root or os.environ.get(ENV_ROOT) else PipelinePathStore().backup_dir()
     desktop = arguments.ui or bool(getattr(sys, "frozen", False))
     try:
-        runtime = build_runtime(paths, scan_interval_seconds=arguments.scan_interval, enable_logging=True)
+        runtime = build_runtime(paths, scan_interval_seconds=arguments.scan_interval, enable_logging=True,
+                                backup_dir=backup_dir)
     except (OSError, sqlite3.Error) as error:
         if not desktop:
             raise

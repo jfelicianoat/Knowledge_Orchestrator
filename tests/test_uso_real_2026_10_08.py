@@ -197,6 +197,30 @@ class DashboardInteractionTests(RuntimeCase):
         self.assertEqual(window.topic_form["folder"].get(), "Código/Python")
         self.assertEqual(self.errors, [])
 
+    def test_a_failed_read_does_not_stop_the_periodic_refresh(self) -> None:
+        # Uso real 19-oct: un «disk I/O error» de la base en Google Drive al
+        # terminar el arranque dejó «Documentos» vacío y el reloj parado.
+        import sqlite3
+
+        window = self.window
+        real = window.snapshots.work_items
+        calls = []
+
+        def flaky():
+            calls.append(1)
+            if len(calls) == 1:
+                raise sqlite3.OperationalError("disk I/O error")
+            return real()
+
+        window.snapshots.work_items = flaky
+        with self.assertLogs("knowledge_orchestrator.ui.dashboard", level="ERROR"):
+            window._refresh(force=True)
+        self.assertIsNotNone(window._refresh_job, "el siguiente refresco debe quedar programado")
+        self.assertIn("se reintenta", window.status_var.get())
+        window._refresh_tick()
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.errors, [])
+
     def test_start_api_click_during_a_status_read_is_not_lost(self) -> None:
         from types import SimpleNamespace
 

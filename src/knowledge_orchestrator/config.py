@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from knowledge_orchestrator.core_conexion import core_settings
+
 # Nombres de las variables de entorno que permiten reubicar el pipeline y el
 # vault sin editar código, p.ej. para desplegar en otra máquina o apuntar a un
 # Broker distinto del LAN por defecto.
@@ -14,7 +16,7 @@ ENV_BROKER_URL = "KO_BROKER_URL"
 ENV_BROKER_ADMIN_TOKEN = "KO_BROKER_ADMIN_TOKEN"
 #: Broker en el propio equipo. Antes era una IP concreta de la red del autor
 #: (auditoría H09); cada instalación guarda la suya desde Ajustes.
-DEFAULT_BROKER_URL = "http://127.0.0.1:8765"
+DEFAULT_BROKER_URL = "https://192.168.1.52:8765"
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,5 +141,6 @@ class BrokerSettings:
     max_context_tokens: int = 16_000
     submission_backoff_seconds: tuple[float, ...] = (30.0, 60.0, 120.0)
     #: AI OS Core, el director del ecosistema. Vacío: la app funciona sin él.
-    core_url: str | None = field(default_factory=lambda: os.environ.get("KO_CORE_URL") or None)
-    core_token: str | None = field(default_factory=lambda: os.environ.get("KO_CORE_TOKEN") or None)
+    #: Entorno o, si falta, lo que deja Core al arrancar: no hay que pegar ningún token.
+    core_url: str | None = field(default_factory=lambda: core_settings()[0])
+    core_token: str | None = field(default_factory=lambda: core_settings()[1])

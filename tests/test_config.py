@@ -74,7 +74,7 @@ class BrokerSettingsEnvironmentOverrideTests(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             settings = BrokerSettings()
 
-        self.assertEqual(settings.base_url, "http://127.0.0.1:8765")
+        self.assertEqual(settings.base_url, "https://192.168.1.52:8765")
 
     def test_environment_variable_overrides_broker_base_url(self) -> None:
         with patch.dict("os.environ", {ENV_BROKER_URL: "http://ollama-host.lan:9000"}, clear=True):

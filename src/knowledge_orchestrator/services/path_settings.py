@@ -87,15 +87,22 @@ class PipelinePathStore:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or _settings_path()
 
-    def load(self) -> dict[str, Path]:
+    def _raw(self) -> dict:
         if not self.path.exists():
             return {}
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, TypeError):
             return {}
-        if not isinstance(payload, dict):
-            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def backup_dir(self) -> Path | None:
+        """Carpeta opcional de la copia periódica; solo se configura en paths.json."""
+        value = self._raw().get("backup_dir")
+        return Path(value) if isinstance(value, str) and value.strip() else None
+
+    def load(self) -> dict[str, Path]:
+        payload = self._raw()
         result: dict[str, Path] = {}
         for key in ("data_root", "inbox", "obsidian_vault"):
             value = payload.get(key)
@@ -120,11 +127,10 @@ class PipelinePathStore:
         paths.ensure_directories()
         probe_vault(paths.obsidian_vault)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Conserva lo que no se edita desde Ajustes (como `backup_dir`).
+        payload = {**self._raw(), **{key: str(value) for key, value in locations.items()}}
         temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(
-            json.dumps({key: str(value) for key, value in locations.items()}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(temporary, self.path)
         return paths
 

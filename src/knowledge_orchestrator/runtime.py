@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from knowledge_orchestrator.api.server import ApiServerController
 from knowledge_orchestrator.config import BrokerSettings, PipelinePaths
@@ -52,6 +53,7 @@ from knowledge_orchestrator.services.topic_service import TopicService
 from knowledge_orchestrator.services.workflow_planner import WorkflowPlanner
 from knowledge_orchestrator.ui.event_bridge import UiEventBridge
 from knowledge_orchestrator.worker.automation_worker import AutomationWorker
+from knowledge_orchestrator.worker.backup_worker import BackupWorker
 from knowledge_orchestrator.worker.broker_worker import BrokerWorker
 from knowledge_orchestrator.worker.event_log_worker import EventLogWorker
 from knowledge_orchestrator.worker.inbox_watcher import InboxWatcher
@@ -109,6 +111,7 @@ class OrchestratorRuntime:
     api_server: ApiServerController = field(init=False)
     note_reconciliation: NoteReconciliationService = field(init=False)
     event_log: EventLogWorker = field(init=False)
+    backup_worker: BackupWorker | None = None
 
     def __post_init__(self) -> None:
         self.api_server = ApiServerController(self)
@@ -161,9 +164,13 @@ class OrchestratorRuntime:
         self.source_worker.start()
         self.review_worker.start()
         self.automation_worker.start()
+        if self.backup_worker is not None:
+            self.backup_worker.start()
         return report
 
     def stop(self) -> None:
+        if self.backup_worker is not None:
+            self.backup_worker.stop()
         self.api_server.stop()
         self.automation_worker.stop()
         self.review_worker.stop()
@@ -195,6 +202,7 @@ def build_runtime(
     enable_logging: bool = False,
     note_editor: NoteEditor | None = None,
     system1_settings: System1Settings | None = None,
+    backup_dir: Path | None = None,
 ) -> OrchestratorRuntime:
     """Construye el grafo de dependencias sin arrancar hilos todavia."""
 
@@ -326,4 +334,5 @@ def build_runtime(
         automation_governance=AutomationGovernanceService(automation_simulation),
         maintenance_reversion=MaintenanceReversionService(ReversionRepository(database), semantic_maintenance),
         obsidian_connection=obsidian_connection,
+        backup_worker=BackupWorker(database, pipeline_paths, backup_dir) if backup_dir else None,
     )

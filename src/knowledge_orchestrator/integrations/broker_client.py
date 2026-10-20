@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import os
+import ssl
 from typing import Any
 
 import httpx
 
 from knowledge_orchestrator.config import BrokerSettings
+from knowledge_orchestrator.core_conexion import CoreBrokerToken
 from knowledge_orchestrator.domain.broker_contracts import (
     normalize_capabilities_response,
     validate_accepted_response,
@@ -24,6 +28,20 @@ from knowledge_orchestrator.integrations.ai_os_core import (
 from knowledge_orchestrator.redaction import sanitize
 
 MODELS_TIMEOUT_SECONDS = 30.0
+
+#: CA que firma el certificado HTTPS del Broker (la «AI Broker CA»). Solo se usa para el Broker:
+#: un `SSL_CERT_FILE` global rompería el HTTPS de internet.
+ENV_CA_CERT = "AI_BROKER_CA_CERT"
+DEFAULT_CA_CERT = r"C:\Agora\pki-broker\ca.crt"
+
+
+def broker_ssl_context() -> ssl.SSLContext:
+    """Confianza del sistema más la CA del Broker, si está en el equipo."""
+    context = ssl.create_default_context()
+    ca = os.environ.get(ENV_CA_CERT) or DEFAULT_CA_CERT
+    if os.environ.get(ENV_CA_CERT) or os.path.isfile(ca):
+        context.load_verify_locations(cafile=ca)
+    return context
 
 
 class BrokerClientError(RuntimeError):
@@ -67,6 +85,14 @@ class BrokerClient:
         # petición entera con 422 y se lleva por delante la tarea.
         self._capabilities: dict[str, Any] = {}
         self.core = KoCoreGate(settings.core_url, settings.core_token) if settings.core_url else None
+        self._token_source = self._core_token_source(settings)
+
+    @staticmethod
+    def _core_token_source(settings: BrokerSettings) -> CoreBrokerToken | None:
+        # Con Core, el token del Broker lo da Core (nadie lo pega); el guardado queda de reserva
+        if settings.core_url and settings.core_token:
+            return CoreBrokerToken(settings.core_url, settings.core_token)
+        return None
 
     async def start(self) -> None:
         if self._client is None:
@@ -76,6 +102,7 @@ class BrokerClient:
                 timeout=self.settings.request_timeout_seconds,
                 transport=self.transport,
                 headers=headers,
+                verify=broker_ssl_context(),
             )
 
     async def close(self) -> None:
@@ -92,6 +119,7 @@ class BrokerClient:
         # anterior haría que se le enviasen campos que no admite.
         self._capabilities = {}
         self.core = KoCoreGate(settings.core_url, settings.core_token) if settings.core_url else None
+        self._token_source = self._core_token_source(settings)
 
     async def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_create_task_request(payload)
@@ -248,10 +276,26 @@ class BrokerClient:
         client = self._client
         sent_token = client.headers.get("X-Admin-Token")
         try:
-            return await client.request(method, url, **kwargs)
+            if self._token_source is None:
+                return await client.request(method, url, **kwargs)
+            response = await self._request_with_core_token(client, method, url, False, **kwargs)
+            if response.status_code in (401, 403):
+                # El Broker se reinició y rotó su token: se pide el nuevo a Core y se reintenta una vez
+                response = await self._request_with_core_token(client, method, url, True, **kwargs)
+            return response
         except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as error:
             secrets = tuple(value for value in (sent_token, self.settings.admin_token) if value)
             raise TransientBrokerError(sanitize(str(error), known_secrets=secrets)) from None
+
+    async def _request_with_core_token(
+        self, client: httpx.AsyncClient, method: str, url: str, refresh: bool, **kwargs: Any
+    ) -> httpx.Response:
+        assert self._token_source is not None
+        token = await asyncio.to_thread(self._token_source, refresh) or self.settings.admin_token
+        headers = {**(kwargs.pop("headers", None) or {})}
+        if token:
+            headers["X-Admin-Token"] = token
+        return await client.request(method, url, headers=headers, **kwargs)
 
     def _response_secrets(self, response: httpx.Response) -> tuple[str, ...]:
         # The response may belong to an older request after a live reconfiguration.

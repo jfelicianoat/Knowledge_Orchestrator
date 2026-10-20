@@ -33,6 +33,7 @@ por aquí.
 """
 from __future__ import annotations
 
+import logging
 import tkinter as tk
 from dataclasses import dataclass
 from datetime import datetime
@@ -47,6 +48,8 @@ from knowledge_orchestrator.ui.dashboard.configuracion import (
 )
 from knowledge_orchestrator.ui.dashboard.estilo import FONT, FONT_SEMIBOLD, ICON_FONT, ICONS, TONES
 from knowledge_orchestrator.ui.dashboard.servicios import ServiciosMixin
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "NAVIGATION",
@@ -122,6 +125,7 @@ class OrchestratorDashboard(ServiciosMixin):
             return
         self.status_var.set("Servicio listo. La vista se actualiza sola cada 2 segundos.")
         self._refresh(force=True)
+        self._autostart_api()
 
     # ---------------------------------------------------------- construcción
 
@@ -302,24 +306,25 @@ class OrchestratorDashboard(ServiciosMixin):
             self._refresh_job = None
         self.clock_var.set(datetime.now().strftime("%d/%m/%Y · %H:%M"))
         if force or self._auto_refresh:
-            self._drain_events()
-            self._refresh_dashboard()
-            self._refresh_work()
-            if self._current_page == "library":
-                self._refresh_library()
-            if self._current_page == "sources":
-                self._refresh_sources()
-            if self._current_page == 'knowledge':
-                self._refresh_knowledge()
-            if self._current_page == 'operations':
-                self._refresh_flow()
-            if self._current_page == 'services':
-                self._refresh_services()
-            self._refresh_reviews()
-            self._refresh_topics()
-            self._refresh_profiles()
-            self._refresh_capabilities()
-            self._sync_navigation_badges()
+            pages = {"library": self._refresh_library, "sources": self._refresh_sources,
+                     "knowledge": self._refresh_knowledge, "operations": self._refresh_flow,
+                     "services": self._refresh_services}
+            steps = [self._drain_events, self._refresh_dashboard, self._refresh_work,
+                     *([pages[self._current_page]] if self._current_page in pages else []),
+                     self._refresh_reviews, self._refresh_topics, self._refresh_profiles,
+                     self._refresh_capabilities, self._sync_navigation_badges]
+            failed = []
+            for step in steps:
+                # Un «disk I/O error» suelto (base en una carpeta sincronizada)
+                # mataba el refresco entero y la ventana se quedaba vacía para siempre.
+                try:
+                    step()
+                except Exception:
+                    logger.exception("Falló el refresco de la vista (%s)", step.__name__)
+                    failed.append(step.__name__)
+            if failed:
+                self.status_var.set("No se pudo leer parte de los datos; se reintenta en unos segundos. "
+                                    "El detalle queda en el registro.")
         self._refresh_job = self.after(self.refresh_ms, self._refresh_tick)
 
     def _refresh_tick(self) -> None:

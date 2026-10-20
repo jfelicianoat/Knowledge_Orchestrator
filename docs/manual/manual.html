@@ -73,11 +73,11 @@
 <!-- ============================================================ PORTADA -->
 <section class="cover">
   <div>
-    <div class="brand"><span class="logo">KO</span><div><h1>Knowledge Orchestrator</h1><div class="sub">Manual de uso · versión 0.4.1</div></div></div>
+    <div class="brand"><span class="logo">KO</span><div><h1>Knowledge Orchestrator</h1><div class="sub">Manual de uso · versión 0.4.5</div></div></div>
     <p style="margin-top:10mm;font-size:12pt;max-width:150mm">Convierte vídeos, apuntes y documentos en conocimiento revisado y publicado en tu bóveda de Obsidian, con la ayuda de los modelos de IA de tu AI Broker, sin perder nunca el original.</p>
   </div>
   <figure style="margin:0"><img src="img/m01_inicio.png" alt="Pantalla de inicio"></figure>
-  <div class="meta">Manual elaborado a partir de pruebas reales de la aplicación (ventana real y AI Broker real) realizadas el 8 de octubre de 2026. Las capturas de pantalla proceden de esas pruebas, con documentos de ejemplo.</div>
+  <div class="meta">Manual elaborado a partir de pruebas reales de la aplicación (ventana real y AI Broker real) realizadas el 8 de octubre de 2026. Las capturas de pantalla proceden de esas pruebas, con documentos de ejemplo. Actualizado el 19 de octubre de 2026 (versión 0.4.5): dónde vive cada dato, copia periódica, traslado de la carpeta de datos y consultas desde ChatyGPT.</div>
 </section>
 
 <!-- ============================================================ ÍNDICE -->
@@ -137,8 +137,32 @@
     <tr><td><b>YT Capture Plugin</b></td><td>Extensión del navegador que guarda vídeos de YouTube (metadatos y transcripción) como archivos <code>.md</code> en la carpeta vigilada.</td></tr>
     <tr><td><b>AI Broker</b></td><td>Servidor de tu red local que recibe las peticiones y elige y ejecuta los modelos. Necesita su dirección y, si lo exige, un token de administrador.</td></tr>
     <tr><td><b>Obsidian</b></td><td>Donde lees tus notas. La aplicación escribe en la carpeta de la bóveda; el complemento opcional <i>Knowledge Orchestrator Bridge</i> permite ediciones seguras con Obsidian abierto.</td></tr>
-    <tr><td><b>Otras aplicaciones</b></td><td>Pueden consultar tu conocimiento o enviar documentos a través de la API local, con credenciales que tú creas y revocas.</td></tr>
+    <tr><td><b>Otras aplicaciones</b></td><td>Pueden consultar tu conocimiento o enviar documentos a través de la API local, con credenciales que tú creas y revocas. Por ejemplo, ChatyGPT (capítulo 15.3).</td></tr>
   </table>
+
+  <h3>Cómo encajan Knowledge Orchestrator, Obsidian y Google Drive</h3>
+  <p>Es fácil confundir los papeles, porque hay tres sitios con datos. La idea clave: <b>Knowledge Orchestrator es la fábrica y Obsidian es la biblioteca</b>. La aplicación produce y mantiene el conocimiento; Obsidian es donde lo lees y lo trabajas.</p>
+  <table>
+    <tr><th style="width:24%">Pieza</th><th style="width:26%">Dónde está (instalación de referencia)</th><th>Qué contiene y quién lo usa</th></tr>
+    <tr><td><b>Carpeta vigilada</b></td><td><code>Descargas\YT-Knowledge-Inbox</code></td><td>Las capturas nuevas que esperan a ser procesadas. La aplicación las recoge y las saca de ahí.</td></tr>
+    <tr><td><b>Datos internos</b> (el motor)</td><td>Un disco local, p. ej. <code>I:\KO-datos</code></td><td>La base de datos (estado de cada documento, historial, perfiles, temas, <b>índice de afirmaciones</b>, consumidores de la API), las transcripciones en proceso, las fuentes archivadas, la cuarentena, los fallidos y los registros. Es material de trabajo: <b>no son notas para leer</b> y Obsidian no lo necesita.</td></tr>
+    <tr><td><b>Bóveda de Obsidian</b> (el resultado)</td><td>Puede estar en Google Drive, p. ej. <code>Y:\Mi unidad\Vaults\Conocimiento_Youtube</code></td><td>Las <b>notas publicadas</b> en Markdown, una carpeta por tema (lo que no encaja va a <code>_inbox</code>). Es tu conocimiento propiamente dicho.</td></tr>
+    <tr><td><b>Copias de seguridad</b></td><td>Una carpeta en la nube, p. ej. <code>...\Conocimiento_Youtube\.knowledge-orchestrator\copias-periodicas</code></td><td>ZIP restaurables de los datos internos, cada 6 horas mientras la aplicación está abierta (capítulo 18).</td></tr>
+  </table>
+  <div class="flow keep">
+    <div><b>1 · Bandeja</b>Llega una captura a la carpeta vigilada.</div>
+    <div><b>2 · Motor</b>La aplicación la valida y la procesa en los datos internos.</div>
+    <div><b>3 · Broker</b>Un modelo de IA redacta el apunte.</div>
+    <div><b>4 · Bóveda</b>La aplicación <b>escribe la nota</b> en la carpeta del tema.</div>
+    <div><b>5 · Obsidian</b>Lees, buscas, editas y enlazas la nota.</div>
+    <div><b>6 · Índice</b>La aplicación extrae las afirmaciones de la nota y las guarda en su base.</div>
+  </div>
+  <ul>
+    <li><b>Quién clasifica:</b> la aplicación, no Obsidian. Decide el tema y la carpeta de cada nota y extrae sus afirmaciones.</li>
+    <li><b>Para qué sirve Obsidian:</b> leer y buscar las notas, editarlas a mano, enlazarlas entre sí y verlas en el grafo. Con el complemento <i>Knowledge Orchestrator Bridge</i>, la aplicación también puede modificar notas ya publicadas de forma segura.</li>
+    <li><b>Qué lee quien consulta por la API</b> (por ejemplo ChatyGPT): las notas publicadas de la bóveda. La aplicación las lee de la bóveda y las entrega; los datos internos solo aportan el índice y el estado.</li>
+    <li><b>Por qué los datos internos no van en Google Drive:</b> la base SQLite falla en carpetas sincronizadas («disk I/O error»), y cada lectura se vuelve lenta. Las notas sí pueden estar en Drive: son ficheros sueltos que se escriben de una vez. La seguridad que daba Drive la aporta ahora la copia periódica.</li>
+  </ul>
 </section>
 
 <!-- ============================================================ 2 -->
@@ -170,8 +194,10 @@
   <ol class="steps">
     <li>Copia la carpeta <code>dist\Knowledge-Orchestrator</code> (o instala con <code>Knowledge-Orchestrator-Setup.exe</code> si se generó el instalador).</li>
     <li>Abre <code>Knowledge-Orchestrator.exe</code>. Se abre directamente la ventana.</li>
-    <li>Comprueba la versión bajo el logotipo <b>KO</b>, arriba a la izquierda (debe decir <b>v0.4.1</b>).</li>
+    <li>Comprueba la versión bajo el logotipo <b>KO</b>, arriba a la izquierda (debe decir <b>v0.4.5</b>).</li>
   </ol>
+  <div class="note"><b>El arranque tarda unos minutos</b>Al abrirse, la aplicación recupera los trabajos pendientes y prepara los documentos antes de dar el servicio por listo. Mientras tanto, abajo a la izquierda pone «Servicio iniciando» y la barra inferior «Preparando documentos en segundo plano…». Algunos botones, como <span class="btn">Iniciar API</span>, siguen desactivados hasta que aparece <span class="pill ok">Orquestador activo</span>. Con unas decenas de documentos son alrededor de 4 minutos.</div>
+  <div class="tip"><b>Dos procesos python.exe son una sola aplicación</b>Si arrancas desde el código, el Administrador de tareas muestra dos <code>python.exe</code> por cada ventana. Es normal: el Python del entorno <code>.venv</code> lanza el Python real como proceso hijo.</div>
   <h3>Desde el código fuente</h3>
   <pre>start_orchestrator.bat                      (doble clic)
 python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .venv)</pre>
@@ -182,9 +208,10 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td>Carpeta vigilada</td><td><code>%USERPROFILE%\Downloads\YT-Knowledge-Inbox</code></td></tr>
     <tr><td>Bóveda de resultados (Obsidian)</td><td>La que elijas en Ajustes</td></tr>
     <tr><td>Ajustes de carpetas</td><td><code>%LOCALAPPDATA%\Knowledge Orchestrator\config\paths.json</code></td></tr>
-    <tr><td>Token del Broker</td><td>Dentro de los datos internos, cifrado para tu usuario de Windows</td></tr>
+    <tr><td>Token del Broker</td><td>Dentro de los datos internos (<code>state\credentials</code>), cifrado para tu usuario de Windows</td></tr>
+    <tr><td>Copias periódicas</td><td>La carpeta indicada en <code>backup_dir</code> dentro de <code>paths.json</code> (opcional; capítulo 18)</td></tr>
   </table>
-  <div class="warn"><b>Mantén los datos internos en un disco local</b>La base SQLite falla en carpetas sincronizadas (Google Drive, OneDrive…). Si la ubicas allí, Inicio mostrará un aviso amarillo con el botón <span class="btn">Revisar carpetas</span>. La bóveda sí puede estar en una carpeta sincronizada.</div>
+  <div class="warn"><b>Mantén los datos internos en un disco local</b>La base SQLite falla en carpetas sincronizadas (Google Drive, OneDrive…): aparecen errores «disk I/O error» y cada consulta tarda varios segundos. Si la ubicas allí, Inicio mostrará un aviso amarillo con el botón <span class="btn">Revisar carpetas</span>. La bóveda sí puede estar en una carpeta sincronizada. Para trasladar unos datos que ya existen, sigue el capítulo 18.2: cambiar la carpeta en Ajustes no mueve los datos.</div>
   <div class="tip"><b>Probar sin tocar tus datos</b>Arranca con <code>--root C:\ruta\de\pruebas</code>: todo (datos, bandeja y bóveda) se crea dentro de esa carpeta y no se ingiere tu bandeja real.</div>
   <p>Si al arrancar la carpeta de datos guardada no está disponible (disco desconectado, sin permisos), la aplicación te ofrece arrancar con carpetas locales sin tocar las anteriores; después podrás volver a elegirlas en Ajustes.</p>
 </section>
@@ -461,7 +488,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
   <ol class="steps">
     <li><span class="btn">Nuevo consumidor…</span>: escribe un nombre sin espacios (p. ej. <code>obsidian-lector</code>) y marca solo los permisos necesarios: <b>Lectura</b> (documentos, afirmaciones, búsquedas), <b>Consultas IA</b>, <b>Ingesta</b> (enviar documentos; no publica directamente), <b>Fuentes</b>, <b>Revisión</b> (aprobar o rechazar propuestas) y <b>Gobernanza</b> (automatizaciones y su pausa). Pulsa <span class="btn">Crear y mostrar credencial</span>.</li>
     <li>La credencial se muestra <b>una sola vez</b>: <span class="btn">Copiar credencial</span> y guárdala. La aplicación solo conserva una huella irreversible; si la pierdes, revoca y crea otra.</li>
-    <li>Elige el <b>puerto local</b> (por defecto 8766) y pulsa <span class="btn">Iniciar API</span>. Solo se habilita cuando existe al menos un consumidor, y solo escucha en este equipo. <span class="btn">Copiar dirección</span> copia la URL base; <span class="btn">Detener API</span> la apaga.</li>
+    <li>Elige el <b>puerto local</b> (por defecto 8766) y pulsa <span class="btn">Iniciar API</span>. Solo se habilita cuando existe al menos un consumidor <b>y</b> la aplicación ha terminado de arrancar («Orquestador activo»), y solo escucha en este equipo. <b>Inicio automático:</b> con la casilla <b>Iniciar al abrir la aplicación</b> marcada (lo está de serie), la API se inicia sola en cuanto termina el arranque, si hay al menos un consumidor, en el último puerto que usaste. Si la desmarcas, hay que pulsar «Iniciar API» en cada sesión. La API se detiene siempre al cerrar la aplicación: otras aplicaciones solo pueden consultarte mientras la ventana esté abierta. <span class="btn">Copiar dirección</span> copia la URL base; <span class="btn">Detener API</span> la apaga.</li>
     <li><span class="btn">Probar acceso local</span>: pega una credencial para comprobar que funciona («Acceso correcto como …») o déjalo vacío para comprobar que la API exige credencial.</li>
     <li><span class="btn">Copiar ejemplo de uso</span> copia una orden <code>curl</code> lista para adaptar; <span class="btn">Revocar acceso</span> desactiva un consumidor desde su siguiente petición (su actividad se conserva).</li>
     <li>Abajo se ve la actividad: quién llamó, a qué y con qué resultado.</li>
@@ -483,6 +510,24 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
   <figure><img src="img/s3_32_politica_simulacion.png" alt=""><figcaption>Simulación de una política antes de autorizarla.</figcaption></figure>
   <div class="note"><b>Por qué una política puede no aplicar nada</b>La simulación explica cada exclusión. Las más habituales: la propuesta es una contradicción (siempre exige persona), hay otras contradicciones abiertas sobre las mismas afirmaciones (resuélvelas en Revisión), el tipo de afirmación no está en la lista de la política, la fuente se editó o desactivó después de captar la novedad (la evidencia tiene que venir de la configuración vigente), o varias propuestas tocan la misma nota a la vez.</div>
   <div class="warn"><b>Una fecha reciente no basta</b>Que una afirmación sea más nueva no autoriza a sustituir otra. Hace falta una propuesta respaldada por evidencia que cumpla todas las condiciones de la política, y la vigencia local no garantiza que algo siga siendo cierto en el mundo real.</div>
+
+  <h3>15.3 Consultar tu conocimiento desde ChatyGPT</h3>
+  <p>ChatyGPT (desde su versión 0.4.8) puede responder usando <b>todas</b> tus notas publicadas, no unas pocas frases sueltas.</p>
+  <ol class="steps">
+    <li>En esta aplicación: <span class="btn">Nuevo consumidor…</span> llamado <code>ChatyGPT</code> con permiso <b>Lectura</b>, y copia su credencial.</li>
+    <li>En ChatyGPT → <b>Inicio → Knowledge Orchestrator</b>: pega la credencial, <span class="btn">Guardar credencial</span>.</li>
+    <li>Cada vez que quieras usarlo: abre esta aplicación y espera a «Orquestador activo»: la API se inicia sola (si desmarcaste «Iniciar al abrir la aplicación», pulsa <span class="btn">Iniciar API</span>). En ChatyGPT, <span class="btn">Comprobar</span> debe decir «Conectado».</li>
+    <li>En el chat, marca la casilla <b>Knowledge Orchestrator</b> (junto a «Buscar recuerdos»), o activa «Mochila: conocimiento de Knowledge Orchestrator» en un GPT.</li>
+  </ol>
+  <p>Qué ocurre al preguntar:</p>
+  <ul>
+    <li><b>Qué se envía:</b> ChatyGPT pide a esta aplicación todos los documentos publicados, los junta en un fichero y se lo adjunta al Broker.</li>
+    <li><b>Si no cabe:</b> si el conjunto no entra en el contexto del modelo, el Broker lo trocea y sintetiza.</li>
+    <li><b>Cómo responde el modelo:</b> combina lo que dicen varias notas, señala dónde discrepan y cita cada una como <code>[KO doc N: título]</code>.</li>
+    <li><b>Copia local:</b> ChatyGPT guarda una copia de las notas y solo vuelve a descargar las nuevas o cambiadas. Por eso la primera pregunta tarda más que las siguientes.</li>
+    <li><b>Prioridad en la cola:</b> la pregunta sale con prioridad alta, para no esperar detrás de los lotes de vídeos que esta aplicación envía al mismo Broker.</li>
+  </ul>
+  <div class="note"><b>Si ChatyGPT dice «Knowledge Orchestrator no responde»</b>La ventana puede estar abierta pero la API detenida. Ve a Automatización y API y comprueba que pone «Escuchando en este equipo» (no «Detenida»). Si «Iniciar API» está desactivado, espera a que termine el arranque o crea un consumidor. Si el puerto estaba ocupado al abrir, el inicio automático falla y lo dice en esa pantalla.</div>
 </section>
 
 <!-- ============================================================ 16 -->
@@ -531,6 +576,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
   <p>Dirección y token. El campo del token se vacía al guardar (se guarda cifrado para tu usuario); déjalo vacío para conservar el guardado. <span class="btn">Eliminar token</span> lo borra. Si el Broker exige token y no está, la barra lateral mostrará «Broker con incidencia».</p>
   <h3>Carpetas del proceso</h3>
   <p>Datos internos, carpeta vigilada y bóveda, con <span class="btn">Elegir…</span>. Se validan al guardar: la bandeja y la bóveda no pueden coincidir ni estar una dentro de otra; la bandeja no puede estar dentro de los datos; la bóveda no puede ser la carpeta de datos. Se aplican al reabrir la aplicación.</p>
+  <div class="warn"><b>Cambiar «Datos internos» no traslada los datos</b>Si eliges otra carpeta de datos, la aplicación arrancará con una base nueva y vacía en ese sitio: «Documentos» y «Biblioteca» aparecerán vacíos, aunque los datos antiguos sigan intactos donde estaban. Para mover tus datos a otro disco usa el procedimiento del capítulo 18.2. Guardar las carpetas desde aquí conserva la copia periódica configurada (<code>backup_dir</code>).</div>
   <h3>Edición segura en Obsidian (necesaria para aplicar cambios)</h3>
   <p>Publicar notas nuevas no necesita nada más: se escriben directamente en la carpeta de la bóveda. Pero <b>modificar una nota ya publicada</b> (aplicar una propuesta o revertirla) se hace a través del complemento <i>Knowledge Orchestrator Bridge</i>, que comprueba dentro de Obsidian que la nota no ha cambiado.</p>
   <ol class="steps">
@@ -559,6 +605,36 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td><code>--root carpeta</code></td><td>Usa otra raíz para todo (pruebas sin tocar tus datos).</td></tr>
   </table>
   <div class="tip"><b>Rutina recomendada</b>Haz <code>--full-backup</code> antes de actualizar la aplicación o de cambiar de equipo, y guarda el ZIP fuera del disco de datos.</div>
+
+  <h3>18.1 Copia periódica automática</h3>
+  <p>Si <code>%LOCALAPPDATA%\Knowledge Orchestrator\config\paths.json</code> contiene la clave <code>backup_dir</code>, la aplicación guarda allí copias automáticas:</p>
+  <pre>{
+  "data_root": "I:\\KO-datos",
+  "inbox": "C:\\Users\\...\\Downloads\\YT-Knowledge-Inbox",
+  "obsidian_vault": "Y:\\Mi unidad\\Vaults\\Conocimiento_Youtube",
+  "backup_dir": "Y:\\Mi unidad\\Vaults\\Conocimiento_Youtube\\.knowledge-orchestrator\\copias-periodicas"
+}</pre>
+  <ul>
+    <li><b>Cuándo:</b> mientras la ventana está abierta, se comprueba cada minuto. Si la última copia tiene más de 6 horas, se hace otra. La primera se hace al poco de abrir la aplicación.</li>
+    <li><b>Qué es cada copia:</b> el mismo ZIP restaurable que <code>--full-backup</code>, llamado <code>knowledge-orchestrator-full-AAAAMMDDTHHMMSSZ.zip</code> (fecha y hora en UTC). Ocupa unos pocos MB.</li>
+    <li><b>Cuántas se guardan:</b> las 10 más recientes. Las anteriores se borran solas; ningún otro fichero de esa carpeta se toca.</li>
+    <li><b>Puede estar en Google Drive:</b> un ZIP se escribe de una vez y no sufre los fallos de SQLite en carpetas sincronizadas.</li>
+    <li><b>Si la carpeta no está disponible</b> (Drive desconectado): la copia falla, se anota en el registro y se vuelve a intentar al minuto siguiente. La aplicación sigue funcionando.</li>
+    <li><b>Restaurar:</b> <code>--restore &lt;zip&gt; --root &lt;carpeta vacía&gt;</code> y apunta «Datos internos» a esa carpeta.</li>
+    <li><b>Con <code>--root</code></b> (pruebas) la copia periódica no se activa.</li>
+  </ul>
+
+  <h3>18.2 Trasladar los datos internos a otro disco</h3>
+  <p>Por ejemplo, de Google Drive a un disco local. La copia integral no incluye los fallidos, los registros ni la credencial del Broker, así que se copian aparte:</p>
+  <ol class="steps">
+    <li><b>Cierra la aplicación</b> y cualquier otra que la esté usando.</li>
+    <li><code>--full-backup</code>: crea el ZIP de los datos actuales. Si los datos están en Drive y da «disk I/O error», repite la orden.</li>
+    <li><code>--restore &lt;zip&gt; --root &lt;carpeta nueva y vacía&gt;</code>: restaura en el destino y <b>reescribe las rutas internas</b> que apuntaban a la carpeta antigua.</li>
+    <li>Copia de la carpeta antigua a la nueva <code>failed\</code>, <code>logs\</code>, <code>state\credentials\</code> y <code>state\broker_connection.json</code>. Así conservas la conexión con el Broker sin volver a configurarla.</li>
+    <li>Cambia <code>data_root</code> en <code>paths.json</code> a la carpeta nueva (o en Ajustes → Carpetas del proceso) y abre la aplicación.</li>
+    <li>Comprueba que <b>Documentos</b> y <b>Biblioteca</b> muestran lo de siempre. <b>No borres la carpeta antigua</b> hasta haberlo verificado: sirve de copia adicional.</li>
+  </ol>
+  <div class="note"><b>Rutas de entrada que «faltan»</b>Tras un traslado es normal que muchas capturas apunten a un fichero de entrada que ya no existe: es el original de la bandeja, que la aplicación retiró al procesarlo. Ya faltaba antes del traslado y no se pierde nada.</div>
 </section>
 
 <!-- ============================================================ 19 -->
@@ -574,7 +650,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td>Formato no válido / Sin transcripción</td><td>El archivo de la bandeja no es una captura. Está en cuarentena: corrígelo o impórtalo como documento normal, y cierra la incidencia.</td></tr>
     <tr><td>Archivo bloqueado / inestable</td><td>Otro programa lo tenía abierto. Ciérralo y pulsa Reintentar.</td></tr>
     <tr><td>«Ya estaban importados»</td><td>Ese documento ya está en la aplicación. Búscalo en Documentos o Biblioteca; para procesarlo de nuevo usa «Volver a procesar».</td></tr>
-    <tr><td>Aviso «La carpeta de datos no es un buen sitio para la base de datos»</td><td>Está en una carpeta sincronizada. Elige un disco local en Ajustes → Carpetas del proceso y reinicia.</td></tr>
+    <tr><td>Aviso «La carpeta de datos no es un buen sitio para la base de datos»</td><td>Está en una carpeta sincronizada. Traslada los datos a un disco local con el procedimiento del capítulo 18.2: si solo cambias la carpeta en Ajustes, arrancarás con una base vacía.</td></tr>
     <tr><td>Una nota publicada no se actualiza / la API devuelve 409</td><td>Se editó fuera de la aplicación. Resuélvelo en Biblioteca → Notas cambiadas fuera de la app.</td></tr>
     <tr><td>Pocas afirmaciones «respaldadas por la fuente»</td><td>El modelo extractor parafrasea en vez de señalar frases. Prueba otro modelo en «Modelo que extrae afirmaciones» y usa Actividad → Reintentar análisis.</td></tr>
     <tr><td>«Aplicar cambio» desactivado: «hace falta el puente de Obsidian»</td><td>Configura Ajustes → Edición segura en Obsidian, abre Obsidian con el complemento Knowledge Orchestrator Bridge y vuelve a seleccionar la propuesta.</td></tr>
@@ -584,7 +660,12 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td>Una propuesta no aparece aunque el documento nuevo contradice a otro</td><td>Solo proponen cambios las afirmaciones <b>respaldadas por la fuente</b>. Si el modelo que redacta parafrasea mucho, la aplicación no puede comprobar el respaldo y la afirmación queda como «enlazada por el modelo» (consúltala en Afirmaciones). Un modelo que redacte más pegado al texto ayuda.</td></tr>
     <tr><td>Una consulta por API devuelve 409 <code>KNOWLEDGE_CHANGED</code></td><td>El conocimiento cambió mientras se respondía (se aplicó o descartó algo). Repite la pregunta con una clave nueva.</td></tr>
     <tr><td>Una fuente muestra «Dirección no pública»</td><td>Por seguridad solo se vigilan direcciones públicas de Internet, en los puertos 80 o 443. Una dirección local o de tu red no se puede vigilar.</td></tr>
-    <tr><td>«Iniciar API» no se puede pulsar</td><td>No hay consumidores: crea uno con «Nuevo consumidor…».</td></tr>
+    <tr><td>«Iniciar API» no se puede pulsar</td><td>Puede haber dos causas. (1) Aún no ha terminado el arranque: abajo a la izquierda pone «Servicio iniciando»; espera a «Orquestador activo» (unos minutos). (2) No hay consumidores: crea uno con «Nuevo consumidor…». «Detener API» y «Copiar dirección» solo se activan con la API en marcha.</td></tr>
+    <tr><td>Otra aplicación dice que Knowledge Orchestrator «no responde»</td><td>La ventana está abierta pero la API no. Comprueba en Automatización y API: si aún pone «Servicio iniciando», espera; si «Iniciar al abrir la aplicación» está desmarcado o el puerto estaba ocupado, pulsa «Iniciar API». La API se detiene al cerrar la aplicación.</td></tr>
+    <tr><td>«Documentos» vacío, contadores a 0 y el reloj de la barra lateral parado</td><td>Una lectura de la base falló (típico con los datos en una carpeta sincronizada: «disk I/O error») y, hasta la versión 0.4.4, eso detenía el refresco de la ventana. Desde la 0.4.5 se reintenta solo cada 2 s y la barra de estado avisa. Con una versión anterior, pulsa <b>F5</b> o reinicia. Si se repite, traslada los datos a un disco local (capítulo 18.2).</td></tr>
+    <tr><td>Una consulta por API devuelve 500 de vez en cuando</td><td>Fallo momentáneo de lectura mientras los procesos internos escriben en la base, casi siempre con los datos en una carpeta sincronizada. Repetir la petición suele bastar. ChatyGPT ya reintenta solo y, si un documento sigue fallando, lo omite y lo indica.</td></tr>
+    <tr><td>Cada llamada a la API tarda varios segundos</td><td>Los datos internos están en una unidad sincronizada o de red. Trasládalos a un disco local (capítulo 18.2).</td></tr>
+    <tr><td>Las respuestas de otras aplicaciones tardan mucho en el Broker</td><td>La aplicación envía al Broker muchas tareas (trozos de vídeo, análisis de notas) y el Broker atiende una a la vez. Lo que otra aplicación pida con la misma prioridad espera detrás. Las peticiones interactivas deben ir con prioridad alta (en el Broker, número menor = antes).</td></tr>
     <tr><td>Hace falta ayuda técnica</td><td>Genera <code>--diagnostics</code> y compártelo: no contiene tus notas ni tus credenciales.</td></tr>
   </table>
 </section>
@@ -599,7 +680,9 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td>Revisar cada apunte antes de publicar</td><td>Ajustes → Exigir revisión humana → Guardar política</td></tr>
     <tr><td>Ajustar cómo se redactan los apuntes</td><td>Ajustes → Editar instrucciones de extracción… → Aplicar → Guardar política</td></tr>
     <tr><td>Rehabilitar un modelo apartado</td><td>Ajustes → Modelos apartados por fallos… → Rehabilitar seleccionado</td></tr>
-    <tr><td>Cambiar carpetas</td><td>Ajustes → Carpetas del proceso → Elegir… → Guardar carpetas → reabrir</td></tr>
+    <tr><td>Cambiar carpetas</td><td>Ajustes → Carpetas del proceso → Elegir… → Guardar carpetas → reabrir (no traslada los datos)</td></tr>
+    <tr><td>Trasladar los datos a otro disco</td><td>Cerrar → <code>--full-backup</code> → <code>--restore &lt;zip&gt; --root &lt;nueva&gt;</code> → copiar failed, logs y credenciales → cambiar <code>data_root</code> (capítulo 18.2)</td></tr>
+    <tr><td>Copia de seguridad automática</td><td>Clave <code>backup_dir</code> en <code>paths.json</code>: un ZIP cada 6 h, se guardan 10 (capítulo 18.1)</td></tr>
     <tr><td>Crear, editar u ordenar temas</td><td>Organización → Nuevo tema / seleccionar → Guardar tema; Subir/Bajar prioridad</td></tr>
     <tr><td>Saber a qué tema irá un título</td><td>Organización → Probar clasificación</td></tr>
     <tr><td>Añadir documentos</td><td>+ Importar documentos (Ctrl+O), carpeta vigilada, Fuentes o API</td></tr>
@@ -617,7 +700,8 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td>Deshacer un cambio aplicado</td><td>Revisión → Publicadas y reversión → Preparar vista previa → Confirmar reversión</td></tr>
     <tr><td>Vigilar una web o feed</td><td>Fuentes → Añadir fuente → Comprobar ahora → Incorporar novedad</td></tr>
     <tr><td>Repetir un análisis fallido</td><td>Actividad → Análisis / Con incidencias → Reintentar análisis</td></tr>
-    <tr><td>Dar acceso a otra aplicación</td><td>Automatización y API → Iniciar API → Nuevo consumidor… → Copiar credencial</td></tr>
+    <tr><td>Dar acceso a otra aplicación</td><td>Automatización y API → Nuevo consumidor… → Copiar credencial → al reabrir, la API se inicia sola («Iniciar al abrir la aplicación»)</td></tr>
+    <tr><td>Consultar el conocimiento desde ChatyGPT</td><td>Consumidor con Lectura → credencial en ChatyGPT (Inicio → Knowledge Orchestrator) → abrir esta aplicación (la API se inicia sola) → casilla «Knowledge Orchestrator» en el chat</td></tr>
     <tr><td>Quitar acceso</td><td>Automatización y API → seleccionar consumidor → Revocar acceso</td></tr>
     <tr><td>Automatizar cambios de una fuente fiable</td><td>Automatización → Políticas → Nueva → Guardar → Simular → Autorizar → Reanudar</td></tr>
     <tr><td>Parar toda automatización</td><td>Automatización → Políticas → Pausar autoaprobación</td></tr>

@@ -77,7 +77,10 @@ class ServiciosMixin(OperacionesMixin):
         actions.grid(row=1, column=0, sticky='ew', padx=12)
         ttk.Label(actions, text='Puerto local').pack(side='left', padx=4)
         bridge_port = urlsplit(self.runtime.obsidian_connection.configured_url()).port
-        self.api_port_var = tk.StringVar(value='8767' if bridge_port == 8766 else '8766')
+        self._api_default_port = 8767 if bridge_port == 8766 else 8766
+        preferences = self.runtime.api_server.preferences()
+        self.api_port_var = tk.StringVar(value=str(preferences['port'] or self._api_default_port))
+        self.api_autostart_var = tk.BooleanVar(value=preferences['autostart'])
         self.api_port_entry = ttk.Entry(actions, textvariable=self.api_port_var, width=7)
         self.api_port_entry.pack(side='left', padx=4)
         self.api_start_button = ttk.Button(actions, text='Iniciar API', command=lambda: self._change_api(True))
@@ -86,6 +89,8 @@ class ServiciosMixin(OperacionesMixin):
         self.api_stop_button.pack(side='left', padx=4)
         self.api_copy_button = ttk.Button(actions, text='Copiar dirección', command=self._copy_api_address)
         self.api_copy_button.pack(side='left', padx=4)
+        ttk.Checkbutton(actions, text='Iniciar al abrir la aplicación', variable=self.api_autostart_var,
+                        command=self._save_api_autostart).pack(side='left', padx=12)
         ttk.Button(actions, text='Actualizar estado', command=self._refresh_services).pack(side='right', padx=4)
         self.api_hint_var = tk.StringVar(value='')
         ttk.Label(page, textvariable=self.api_hint_var, wraplength=940, justify='left').grid(
@@ -194,8 +199,27 @@ class ServiciosMixin(OperacionesMixin):
         except ValueError:
             self.status_var.set('Introduce un puerto entre 1 y 65535.')
             return
-        operation = (lambda: self.runtime.api_server.start(port=port)) if start else self.runtime.api_server.stop
-        self._read_services(operation)
+        controller, autostart = self.runtime.api_server, self.api_autostart_var.get()
+
+        def start_and_remember() -> None:
+            controller.start(port=port)
+            # El inicio automático usará el último puerto que funcionó.
+            controller.save_preferences(autostart=autostart, port=port)
+
+        self._read_services(start_and_remember if start else controller.stop)
+
+    def _save_api_autostart(self) -> None:
+        try:
+            port: int | None = int(self.api_port_var.get())
+        except ValueError:
+            port = None
+        controller = self.runtime.api_server
+        controller.save_preferences(
+            autostart=self.api_autostart_var.get(), port=port or controller.preferences()['port'])
+
+    def _autostart_api(self) -> None:
+        """Tras el arranque: inicia la API si está marcado «Iniciar al abrir» y hay consumidores."""
+        self._read_services(lambda: self.runtime.api_server.autostart(self._api_default_port))
 
     def _copy_api_address(self):
         address = self._services_snapshot.get('api', {}).get('address')

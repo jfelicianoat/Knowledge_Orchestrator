@@ -28,6 +28,9 @@ BROWSERS = (r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
 FONT = r"C:\Windows\Fonts\segoeui.ttf"
 TITLE = "Knowledge Orchestrator · Manual de uso"
+# Se corre con el Python del sistema, sin el paquete instalado: la versión se lee del código.
+VERSION = re.search(r'__version__ = "([^"]+)"',
+                    (HERE.parents[1] / "src" / "knowledge_orchestrator" / "__init__.py").read_text(encoding="utf-8"))[1]
 SIDEBAR_PX = 236            # ancho de la barra lateral en las capturas de 1440 px
 KEEP_SIDEBAR = {"m01_inicio.png", "s1_01_inicio_primer_arranque.png"}  # se comenta la barra lateral
 MM = 72 / 25.4
@@ -197,7 +200,7 @@ def stamp(doc: fitz.Document, marks: list[tuple[int, int, str, float]]) -> None:
         label_width = SEGOE.text_length(label, fontsize=8.5)
         page.insert_text((right - label_width, PAGE_H - 9 * MM), label, fontname="segoe", fontsize=8.5,
                          color=(0.35, 0.4, 0.46))
-        page.insert_text((left, PAGE_H - 9 * MM), "Versión 0.4.1", fontname="segoe", fontsize=8,
+        page.insert_text((left, PAGE_H - 9 * MM), f"Versión {VERSION}", fontname="segoe", fontsize=8,
                          color=(0.45, 0.5, 0.56))
 
 
@@ -233,7 +236,7 @@ def main() -> None:
         marks = headings(doc)
         stamp(doc, marks)
         doc.set_toc([[1, "Portada", 1]] + [[level, text, page] for level, page, text, _ in marks])
-        doc.set_metadata({"title": "Knowledge Orchestrator — Manual de uso 0.4.1", "author": "Knowledge Orchestrator",
+        doc.set_metadata({"title": f"Knowledge Orchestrator — Manual de uso {VERSION}", "author": "Knowledge Orchestrator",
                           "subject": "Manual de uso", "keywords": "Knowledge Orchestrator, Obsidian, AI Broker"})
         doc.save(OUTPUT, garbage=4, deflate=True)
         print(f"{OUTPUT} · {doc.page_count} páginas · {len(overrides)} capturas ajustadas · {len(breaks)} capítulos a página nueva")
