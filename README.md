@@ -290,6 +290,24 @@ cancelaba para siempre: «Documentos» se quedaba vacío y el reloj, parado. Aho
 refresco va protegido, el fallo queda en el registro con su traza, la barra de estado lo dice y
 se reintenta a los 2 s. La causa de fondo sigue siendo la base SQLite en una carpeta sincronizada.
 
+**0.5.0 — índice de notas y recuperación para otras apps (Broker 2.12).** Hasta ahora ChatyGPT
+mandaba al Broker todas las notas en cada pregunta: con 89 notas eran ~240k tokens y unos 20 minutos.
+Ahora KO parte cada nota publicada en fragmentos y los indexa por palabras (FTS5) y por significado.
+Los vectores los calcula el Broker en lotes de hasta `embedding_batch_max` textos y en su carril de
+embeddings, con el modelo local que se elige en Ajustes → «Índice para preguntas». `POST /retrievals`
+devuelve todas las notas relevantes, sin tope, más las que aún no están indexadas, para que el cliente
+las mande enteras. Arreglos de paso:
+- 18 extracciones de afirmaciones murieron el 19-oct por un `disk I/O error` pasajero; ahora se reintentan.
+- Una fecha opcional inválida (el modelo escribió «S6») ya no tumba una extracción de 25 afirmaciones.
+- La petición de embedding de KO no había funcionado nunca: 422 por `json_schema: null`.
+- El espejo del contrato rechazaba `kind: "embedding"`.
+
+**0.5.1 — un fallo de consenso ya no se disfraza de error de contrato.** Uso real 21-oct: la síntesis de
+«El Quant que Se Pasa al Discrecional» falló con `CONSENSUS_QUORUM_NOT_REACHED`. Los tres proponentes fallaron:
+`lfm2:24b` devolvió su propio prompt y los dos `nemotron` agotaron la salida razonando. El Broker 2.12 mandó
+ese error sin `message` ni `retryable`, aunque su contrato los promete, y KO lo rechazaba como
+`CONTRACT_VALIDATION_FAILED`. Ahora basta con el código, y el mensaje guardado explica qué le pasó a cada proponente.
+
 **Copia periódica a otra carpeta.** Si `paths.json` (en `%LOCALAPPDATA%\Knowledge Orchestrator\config`)
 tiene `backup_dir`, el trabajador `periodic-backup` comprueba cada minuto si la última copia tiene más de
 6 horas. Si es así, deja allí una copia integral restaurable (`knowledge-orchestrator-full-<fecha>.zip`,

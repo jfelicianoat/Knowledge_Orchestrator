@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 from knowledge_orchestrator.domain.broker_contracts import BrokerContractError
 from knowledge_orchestrator.integrations.broker_client import BrokerClient, PermanentBrokerError, TransientBrokerError
@@ -10,6 +11,11 @@ from knowledge_orchestrator.services.model_selection import record_analysis_fail
 
 from .broker_submission import attempt_broker_submission
 from .semantic_maintenance import SemanticContractError, SemanticMaintenanceService
+
+
+def _transient_database_error(error: sqlite3.OperationalError) -> bool:
+    message = str(error).casefold()
+    return any(text in message for text in ("disk i/o error", "database is locked", "database is busy"))
 
 
 class SemanticBrokerProcessor:
@@ -73,6 +79,17 @@ class SemanticBrokerProcessor:
                 if result_text is not None:
                     self.service.process_job_result(persisted, result_text)
                     self.repository.complete_job(job.job_id)
+            except sqlite3.OperationalError as error:
+                # «disk I/O error» o base bloqueada: con los datos en Google Drive
+                # tumbó 18 extracciones válidas el 19-oct. El resultado sigue en el
+                # Broker y la integración no duplica afirmaciones (ON CONFLICT), así
+                # que se reintenta en el ciclo siguiente.
+                if not _transient_database_error(error):
+                    self.repository.fail_job(
+                        job.job_id, "SEMANTIC_PROCESSING_FAILED", f"{type(error).__name__}: {error}"
+                    )
+                    updated += 1
+                continue
             except (SemanticContractError, ValueError, TypeError, KeyError, AttributeError) as error:
                 # Cualquier respuesta que no cumple el contrato termina el
                 # trabajo como incidencia recuperable; nunca lo deja en

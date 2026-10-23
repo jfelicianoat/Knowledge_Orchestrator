@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -62,7 +63,7 @@ class BrokerContractIssue:
     boundary: str
     field: str
     reason: str
-    contract_version: str | None = "2.10"
+    contract_version: str | None = "2.12"
     code: str = "CONTRACT_VALIDATION_FAILED"
 
 
@@ -118,9 +119,21 @@ def validate_create_task_request(payload: Mapping[str, Any]) -> Mapping[str, Any
         _fail(boundary, "inference_kind", "debe ser chat o embedding")
 
     content = _mapping(payload.get("content"), boundary, "content")
-    prompt = _string(content.get("prompt"), boundary, "content.prompt")
-    if UNRESOLVED_PLACEHOLDER.search(prompt):
-        _fail(boundary, "content.prompt", "contiene placeholders sin resolver")
+    # Contrato 2.12 (5.10): un lote de embeddings va en `inputs` y excluye `prompt`.
+    if "inputs" in content:
+        if inference_kind != "embedding":
+            _fail(boundary, "content.inputs", "solo se admite con inference_kind embedding")
+        if "prompt" in content:
+            _fail(boundary, "content.inputs", "es excluyente con content.prompt")
+        inputs = content["inputs"]
+        if not isinstance(inputs, list) or not inputs:
+            _fail(boundary, "content.inputs", "debe ser una lista no vacía")
+        for index, item in enumerate(inputs):
+            _string(item, boundary, f"content.inputs[{index}]")
+    else:
+        prompt = _string(content.get("prompt"), boundary, "content.prompt")
+        if UNRESOLVED_PLACEHOLDER.search(prompt):
+            _fail(boundary, "content.prompt", "contiene placeholders sin resolver")
     if not isinstance(content.get("attachments", []), list):
         _fail(boundary, "content.attachments", "debe ser una lista")
     _mapping(content.get("metadata", {}), boundary, "content.metadata")
@@ -281,9 +294,9 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
     _string(payload.get("updated_at"), boundary, "updated_at")
     progress = _mapping(payload.get("progress", {}), boundary, "progress")
     _string(progress.get("phase"), boundary, "progress.phase")
-    kind = payload.get("kind", "inference")
-    if kind not in {"inference", "ingestion"}:
-        _fail(boundary, "kind", "tipo de tarea no permitido")
+    # El carril es aditivo: 2.12 trajo `embedding` y vendrán otros. Un `kind`
+    # desconocido se acepta y solo se validan a fondo los que conocemos.
+    kind = _string(payload.get("kind", "inference"), boundary, "kind")
     strategy = payload.get("execution_strategy")
     if kind == "inference" and strategy not in BROKER_STRATEGIES:
         _fail(boundary, "execution_strategy", "estrategia no permitida")
@@ -314,7 +327,11 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
                 _fail(boundary, "result.agent.final_turn", "debe ser boolean")
             if "stop_reason" in agent:
                 _string(agent["stop_reason"], boundary, "result.agent.stop_reason")
-        if kind == "inference":
+        # Un embedding no trae texto sino vectores, en su carril o, con el carril
+        # apagado, en el de inferencia.
+        if kind == "embedding" or result.get("inference_kind") == "embedding":
+            embedding_vectors(result)
+        elif kind == "inference":
             assistant_content = result.get("assistant_content", result.get("result_markdown"))
             _string(assistant_content, boundary, "result.assistant_content")
         if kind == "inference" and strategy == "mixture_of_agents":
@@ -365,9 +382,12 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
     elif status == "failed":
         error = _mapping(payload.get("error"), boundary, "error")
         _string(error.get("code"), boundary, "error.code")
-        if not isinstance(error.get("message"), str):
+        # El contrato promete `{code, message, retryable}`, pero el Broker 2.12
+        # manda CONSENSUS_QUORUM_NOT_REACHED sin los dos últimos (21-oct). Rechazarlo
+        # escondía la causa real tras un «error de contrato»: basta con el código.
+        if error.get("message") is not None and not isinstance(error.get("message"), str):
             _fail(boundary, "error.message", "debe ser string")
-        if not isinstance(error.get("retryable"), bool):
+        if error.get("retryable") is not None and not isinstance(error.get("retryable"), bool):
             _fail(boundary, "error.retryable", "debe ser boolean")
     elif status == "waiting_for_tools":
         result = _mapping(payload.get("result"), boundary, "result")
@@ -389,6 +409,49 @@ def validate_task_status_response(payload: Mapping[str, Any], expected_task_id: 
     elif status == "cancelled" and payload.get("result") is not None:
         _fail(boundary, "result", "debe ser null en cancelled")
     return payload
+
+
+def failure_message(error: Mapping[str, Any]) -> str | None:
+    """El mensaje de un fallo, o el de cada proponente descartado si no lo trae."""
+
+    message = error.get("message")
+    if isinstance(message, str) and message.strip():
+        return message
+    skipped = error.get("skipped_proposers")
+    if isinstance(skipped, list):
+        reasons = [
+            f"{item.get('model')}: {item.get('code')} — {item.get('message')}"
+            for item in skipped if isinstance(item, Mapping)
+        ]
+        if reasons:
+            return "Ningún proponente respondió. " + " | ".join(reasons)
+    return None
+
+
+def embedding_vectors(result: Mapping[str, Any]) -> list[list[float]]:
+    """Los vectores de un embedding completado, en el orden de los textos (2.12, 5.10).
+
+    `embeddings` responde a un lote (`content.inputs`); `embedding`, a un solo
+    texto. Todos deben tener la misma dimensión: mezclar dimensiones es señal
+    de que se mezclaron modelos, y eso da búsquedas basura sin error visible.
+    """
+    boundary = "broker_to_orchestrator_v2"
+    raw = result.get("embeddings")
+    if raw is None and result.get("embedding") is not None:
+        raw = [result.get("embedding")]
+    if not isinstance(raw, list) or not raw:
+        _fail(boundary, "result.embeddings", "debe traer al menos un vector")
+    vectors: list[list[float]] = []
+    for index, vector in enumerate(raw):
+        if not isinstance(vector, list) or not vector or any(
+            isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+            for value in vector
+        ):
+            _fail(boundary, f"result.embeddings[{index}]", "debe ser una lista de números finitos")
+        vectors.append([float(value) for value in vector])
+    if len({len(vector) for vector in vectors}) != 1:
+        _fail(boundary, "result.embeddings", "los vectores no tienen la misma dimensión")
+    return vectors
 
 
 def normalize_capabilities_response(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -459,6 +522,15 @@ def normalize_capabilities_response(payload: Mapping[str, Any]) -> dict[str, Any
     # default seguro es `True` y no `False` (Client_API.md, 8.4).
     auxiliares = source.get("auxiliary_invocations")
     normalized["auxiliary_invocations"] = auxiliares if isinstance(auxiliares, bool) else True
+
+    # Contrato 2.12 (5.10): sin `embedding_batch_max` el Broker no acepta lotes
+    # y hay que mandar un texto por tarea.
+    batch_max = source.get("embedding_batch_max")
+    normalized["embedding_batch_max"] = (
+        batch_max if isinstance(batch_max, int) and not isinstance(batch_max, bool) and batch_max >= 1 else None
+    )
+    lane = source.get("embedding_lane")
+    normalized["embedding_lane"] = dict(lane) if isinstance(lane, Mapping) else None
 
     max_active = source.get("max_active_workflows")
     normalized["max_active_workflows"] = (

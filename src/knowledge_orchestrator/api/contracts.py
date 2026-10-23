@@ -14,6 +14,10 @@ QUERY: dict = {
     'type': 'object', 'additionalProperties': False, 'required': ['question'],
     'properties': {'question': {'type': 'string', 'minLength': 1, 'maxLength': 4000}, 'state': STATE},
 }
+RETRIEVAL: dict = {
+    'type': 'object', 'additionalProperties': False, 'required': ['question'],
+    'properties': {'question': {'type': 'string', 'minLength': 1, 'maxLength': 4000}},
+}
 DOCUMENT = {
     'type': 'object', 'additionalProperties': False, 'required': ['title', 'content'],
     'properties': {'title': {'type': 'string', 'minLength': 1, 'maxLength': 500},

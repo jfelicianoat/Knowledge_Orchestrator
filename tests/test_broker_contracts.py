@@ -160,7 +160,7 @@ class BrokerContractTests(unittest.TestCase):
         request["generation"]["temperature"] = 9
         with self.assertRaises(BrokerContractError) as capturado:
             validate_create_task_request(request)
-        self.assertEqual(capturado.exception.issue.contract_version, "2.10")
+        self.assertEqual(capturado.exception.issue.contract_version, "2.12")
 
     def test_accepts_v27_waiting_for_tools_and_slow_preset(self) -> None:
         waiting = {
@@ -253,6 +253,10 @@ class BrokerContractTests(unittest.TestCase):
             "execution_strategy": "single", "progress": {"phase": "failed"},
             "result": None, "error": {"code": "PROVIDER_UNAVAILABLE", "message": "caído"},
         }
+        # Sin `retryable` se acepta (el Broker 2.12 lo omite en CONSENSUS_QUORUM_NOT_REACHED);
+        # con un tipo equivocado, no.
+        validate_task_status_response(failed, "broker_task_1")
+        failed["error"]["retryable"] = "sí"
         with self.assertRaisesRegex(BrokerContractError, "error.retryable"):
             validate_task_status_response(failed, "broker_task_1")
 

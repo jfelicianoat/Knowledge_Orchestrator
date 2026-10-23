@@ -312,7 +312,7 @@ class OrchestratorDashboard(ServiciosMixin):
             steps = [self._drain_events, self._refresh_dashboard, self._refresh_work,
                      *([pages[self._current_page]] if self._current_page in pages else []),
                      self._refresh_reviews, self._refresh_topics, self._refresh_profiles,
-                     self._refresh_capabilities, self._sync_navigation_badges]
+                     self._refresh_capabilities, self._refresh_index, self._sync_navigation_badges]
             failed = []
             for step in steps:
                 # Un «disk I/O error» suelto (base en una carpeta sincronizada)

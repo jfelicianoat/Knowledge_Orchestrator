@@ -170,6 +170,33 @@ debe aportar un vector del mismo espacio. Si el índice no dispone de ese modelo
 la lista está vacía. No se sustituye la operación por búsqueda léxica ni se simula un vector.
 La generación de embeddings desde texto no forma parte de este endpoint.
 
+## Recuperación de notas relevantes (0.5.0)
+
+```json
+{"question": "Explícame cómo usar MCP"}
+```
+
+`POST /retrievals` (permiso `read`, con `Idempotency-Key`) busca la pregunta entre los fragmentos
+de las notas publicadas. Si hay modelo de embeddings elegido en Ajustes, responde `202` con
+`retrieval_id` y se consulta en `GET /retrievals/{retrieval_id}` hasta `SUCCESS`: el Broker vectoriza
+la pregunta con prioridad 1 en su carril de embeddings. Sin modelo responde `200` al momento, solo con
+búsqueda por palabras.
+
+- **`documents`**: todas las notas con algún fragmento relevante, de la más a la menos relevante,
+  cada una con sus fragmentos. Por palabras cuenta un término que salga en menos del 20 % de los
+  fragmentos («cómo», «usar» no distinguen nada). Por significado cuenta un fragmento cuya similitud
+  destaque sobre el resto del índice (media + 2 desviaciones). Las dos listas se combinan por rango
+  recíproco. **No hay un número máximo de notas.**
+- **`unindexed_document_ids`**: notas publicadas que aún no tienen vectores del modelo vigente. El
+  cliente debe incluirlas enteras: no se han podido buscar por significado.
+- **`degraded: true`**: faltó la búsqueda por significado (sin modelo, o falló la vectorización de la
+  pregunta). Un «no encontrado» entonces no significa «no está en el conocimiento»; ChatyGPT manda todo.
+- `GET /index` da el modelo, las notas indexadas y los lotes pendientes o fallidos.
+
+El índice se mantiene solo: el worker trocea las notas nuevas o cambiadas, manda los lotes y, si el
+Broker dice `EMBEDDING_INPUT_TOO_LONG`, parte el fragmento en dos y lo reenvía sin perder texto.
+Cambiar de modelo borra los vectores anteriores (son de otro espacio) y reindexa todo.
+
 ## Evaluación individual por políticas
 
 El detalle individual `GET /review-tasks/{id}` incluye en `review.automation_review`

@@ -135,14 +135,17 @@ def _validated_fields(raw: Mapping[str, Any], index: int) -> dict[str, Any]:
     manual_lock = raw.get("manual_lock", False)
     if not isinstance(manual_lock, bool):
         raise SemanticContractError(f"Claim {index} tiene manual_lock inválido")
-    for field in ("observed_at", "source_date"):
-        value = raw.get(field)
-        if value is not None and not (isinstance(value, str) and AnalisisMixin._valid_date(value)):
-            raise SemanticContractError(f"Claim {index} tiene {field} inválido")
+    # Son fechas opcionales: un valor que no es fecha se descarta en vez de
+    # tumbar la extracción entera. Visto el 20/21-oct: el modelo copió aquí
+    # identificadores de frase («S6», «N4») y se perdían 25 afirmaciones válidas.
+    dates = {
+        field: value if isinstance(value, str) and AnalisisMixin._valid_date(value) else None
+        for field in ("observed_at", "source_date")
+        for value in (raw.get(field),)
+    }
     return {
         "claim_type": claim_type.strip(), "volatility": volatility, "entities": tuple(entities),
-        "observed_at": raw.get("observed_at"), "source_date": raw.get("source_date"),
-        "manual_lock": manual_lock,
+        **dates, "manual_lock": manual_lock,
     }
 
 

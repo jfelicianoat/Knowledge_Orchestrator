@@ -79,7 +79,7 @@ class KnowledgeApi:
             ids: dict = match.groupdict()
             for name, value in list(ids.items()):
                 if name not in {'query_id', 'ingestion_id', 'change_id', 'batch_id', 'simulation_id', 'run_id',
-                                'reversion_id'}:
+                                'reversion_id', 'retrieval_id'}:
                     if not value.isdecimal() or not 1 <= int(value) <= 2**63 - 1:
                         raise ValueError('Identificador inválido')
                     ids[name] = int(value)
@@ -184,7 +184,7 @@ class KnowledgeApi:
             return 200, {'api_version': 'v1', 'authentication': 'required',
                          'capabilities': ['documents', 'claims', 'entities', 'history', 'fts_search',
                                           'vector_search', 'grounded_query', 'controlled_ingestion',
-                                          'source_monitoring'],
+                                          'source_monitoring', 'retrieval'],
                          'broker': {'contract_version': capabilities.get('contract_version'),
                                     'capabilities_observed': bool(capabilities)}}, {}
         if route == '/vaults':
@@ -241,6 +241,18 @@ class KnowledgeApi:
                 result['error'] = {'code': result['error_code'],
                                    'message': 'El conocimiento cambió' if status == 409 else 'La consulta IA falló'}
             return status, result, {'Location': '/api/v1/queries/' + result['query_id']}
+        if route in {'/retrievals', '/retrievals/{retrieval_id}'}:
+            note_index = runtime.note_index
+            if method == 'POST':
+                result = note_index.create_retrieval(body['question'], owner=owner, key=key)
+            else:
+                result = note_index.get_retrieval(ids['retrieval_id'], owner=owner)
+            status = 200 if result['status'] == 'SUCCESS' else 502 if result['status'] == 'ERROR' else 202
+            if status >= 400:
+                result['error'] = {'code': result['error_code'], 'message': 'La recuperación falló'}
+            return status, result, {'Location': '/api/v1/retrievals/' + result['retrieval_id']}
+        if route == '/index':
+            return 200, runtime.note_index.status(), {}
         sources = runtime.sources.repository
         if route == '/sources':
             if method == 'POST':

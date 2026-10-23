@@ -13,6 +13,7 @@ from knowledge_orchestrator.api.contracts import (
     DOCUMENT,
     PAGINATION,
     QUERY,
+    RETRIEVAL,
     REVIEW_ACTION,
     REVIEW_BATCH_CONFIRM,
     REVIEW_BATCH_PREVIEW,
@@ -76,6 +77,9 @@ ROUTES: list[tuple[str, str, str, str, dict | None, dict]] = [
     ('POST', '/search/semantic', 'read', 'Búsqueda por vector en el espacio del modelo declarado', SEMANTIC, {}),
     ('POST', '/query', 'query', 'Consulta IA durable con citas exactas', QUERY, {}),
     ('GET', '/queries/{query_id}', 'query', 'Resultado o progreso de una consulta propia', None, {}),
+    ('POST', '/retrievals', 'read', 'Notas relevantes a una pregunta (palabras y significado)', RETRIEVAL, {}),
+    ('GET', '/retrievals/{retrieval_id}', 'read', 'Resultado o progreso de una recuperación propia', None, {}),
+    ('GET', '/index', 'read', 'Estado del índice de notas y su modelo de embeddings', None, {}),
     ('GET', '/review-tasks', 'read', 'Propuestas revisables existentes', None, PAGINATION),
     ('GET', '/review-tasks/{candidate_id}', 'read', 'Detalle de propuesta y evidencia', None, {}),
     ('PATCH', '/review-tasks/{candidate_id}', 'review', 'Editar o regenerar propuesta con revisión optimista',
@@ -114,7 +118,7 @@ def specification() -> dict:
                 name = segment[1:-1]
                 kind = 'string' if name in {
                     'ingestion_id', 'query_id', 'change_id', 'batch_id', 'simulation_id', 'run_id',
-                    'reversion_id'} else 'integer'
+                    'reversion_id', 'retrieval_id'} else 'integer'
                 parameters.append({'name': name, 'in': 'path', 'required': True, 'schema': {'type': kind}})
         if method == 'POST' and path != '/search/semantic':
             parameters.append({'name': 'Idempotency-Key', 'in': 'header', 'required': True,
@@ -140,7 +144,8 @@ def specification() -> dict:
         }
         if body:
             operation['requestBody'] = {'required': True, 'content': {'application/json': {'schema': body}}}
-        if method == 'POST' and path != '/search/semantic' or path == '/queries/{query_id}':
+        if method == 'POST' and path != '/search/semantic' or path in {'/queries/{query_id}',
+                                                                        '/retrievals/{retrieval_id}'}:
             operation['responses']['202'] = {'description': 'Trabajo durable aceptado; consultar Location',
                                              'content': {'application/json': {'schema': response_schema(method, path)}},
                                              'headers': {'Location': {'schema': {'type': 'string'}}}}

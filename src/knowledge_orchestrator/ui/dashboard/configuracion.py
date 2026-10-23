@@ -16,6 +16,7 @@ from knowledge_orchestrator.services.broker_connection import (
     BrokerConnectionError,
     load_broker_settings,
 )
+from knowledge_orchestrator.services.note_index import EmbeddingModel
 from knowledge_orchestrator.services.path_settings import PipelinePathStore, load_pipeline_paths, storage_warnings
 from knowledge_orchestrator.ui.dashboard.temas import TemasMixin
 from knowledge_orchestrator.ui.dialogos import windows_paths_accept_slashes
@@ -199,6 +200,7 @@ class ConfiguracionMixin(TemasMixin):
 
         self.obsidian_connection_panel = ObsidianConnectionPanel(page, self.runtime.obsidian_connection)
         self.obsidian_connection_panel.grid(row=5, column=0, sticky='ew', padx=24, pady=(0, 14))
+        self._build_index_panel(page)
         content = tk.PanedWindow(page, orient="horizontal", bg=self.colors["border"], sashwidth=2, bd=0)
         content.grid(row=2, column=0, sticky="nsew", padx=24, pady=(0, 24))
         list_frame = tk.Frame(content, bg=self.colors["surface"])
@@ -328,6 +330,75 @@ class ConfiguracionMixin(TemasMixin):
         for profile_variable in self.profile_form.values():
             profile_variable.trace_add("write", self._mark_profile_dirty)
         editor.columnconfigure(1, weight=1)
+
+    def _build_index_panel(self, page: tk.Frame) -> None:
+        """Modelo de embeddings con el que se indexan las notas para las preguntas de otras apps."""
+
+        panel = tk.Frame(page, bg=self.colors["raised"], highlightbackground=self.colors["border"],
+                         highlightthickness=1)
+        panel.grid(row=6, column=0, sticky="ew", padx=24, pady=(0, 14))
+        panel.columnconfigure(1, weight=1)
+        tk.Label(panel, text="Índice para preguntas", bg=self.colors["raised"], fg=self.colors["text"],
+                 font=("Segoe UI Semibold", 10)).grid(row=0, column=0, columnspan=3, sticky="w", padx=14,
+                                                      pady=(12, 8))
+        tk.Label(panel, text="Modelo de embeddings", bg=self.colors["raised"], fg=self.colors["muted"],
+                 font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w", padx=(14, 8), pady=5)
+        self._index_models: dict[str, EmbeddingModel] = {}
+        self.index_model_var = tk.StringVar(value="")
+        self.index_model_combo = ttk.Combobox(panel, textvariable=self.index_model_var, state="readonly",
+                                              style="Dark.TCombobox", postcommand=self._load_index_models)
+        self.index_model_combo.grid(row=1, column=1, sticky="ew", pady=5)
+        ttk.Button(panel, text="Usar este modelo", style="Accent.TButton", command=self._save_index_model).grid(
+            row=1, column=2, padx=10, pady=5)
+        self.index_status_var = tk.StringVar(value="")
+        tk.Label(panel, textvariable=self.index_status_var, bg=self.colors["raised"], fg=self.colors["muted"],
+                 font=("Segoe UI", 9), wraplength=1050, justify="left", anchor="w").grid(
+            row=2, column=0, columnspan=3, sticky="ew", padx=14, pady=(5, 12))
+        self._load_index_models()
+        self._refresh_index()
+
+    @staticmethod
+    def _index_label(model: EmbeddingModel) -> str:
+        return f"{model.model} · {model.provider}"
+
+    def _load_index_models(self) -> None:
+        current = self.runtime.note_index.model()
+        models = self.runtime.note_index.available_models()
+        if current is not None and current not in models:
+            models.insert(0, current)
+        self._index_models = {self._index_label(model): model for model in models}
+        self.index_model_combo.configure(values=tuple(self._index_models))
+        if current is not None and not self.index_model_var.get():
+            self.index_model_var.set(self._index_label(current))
+
+    def _save_index_model(self) -> None:
+        chosen = self._index_models.get(self.index_model_var.get())
+        if chosen is None:
+            self.index_status_var.set("Elige un modelo de embeddings de la lista.")
+            return
+        if chosen == self.runtime.note_index.model():
+            return
+        if self.runtime.note_index.model() is not None and not messagebox.askyesno(
+            "Cambiar el modelo del índice",
+            "Los vectores del modelo anterior no sirven con otro y se borrarán. Todas las notas se volverán a "
+            "indexar con el nuevo; mientras tanto, las preguntas incluyen enteras las que falten. ¿Continuar?",
+            parent=self,
+        ):
+            return
+        self.runtime.note_index.set_model(chosen)
+        self._refresh_index()
+
+    def _refresh_index(self) -> None:
+        status = self.runtime.note_index.status()
+        if status["model"] is None:
+            self.index_status_var.set(
+                "Sin modelo elegido: las preguntas solo buscan por palabras y reciben todas las notas. "
+                "Solo se ofrecen modelos locales: el índice contiene todo tu conocimiento.")
+            return
+        failed = f" · {status['jobs_failed']} lotes fallidos" if status["jobs_failed"] else ""
+        self.index_status_var.set(
+            f"Notas indexadas: {status['notes_indexed']} de {status['notes_published']} · "
+            f"Lotes pendientes: {status['jobs_pending']}{failed}. Las que falten van enteras en cada pregunta.")
 
     def _refresh_profiles(self) -> None:
         profiles = self.snapshots.profiles()

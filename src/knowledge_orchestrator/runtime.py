@@ -37,6 +37,7 @@ from knowledge_orchestrator.services.knowledge_access import KnowledgeAccess
 from knowledge_orchestrator.services.knowledge_query import KnowledgeQueryProcessor, KnowledgeQueryService
 from knowledge_orchestrator.services.maintenance_reversion import MaintenanceReversionService
 from knowledge_orchestrator.services.model_discovery import ModelDiscoveryService
+from knowledge_orchestrator.services.note_index import NoteIndexProcessor, NoteIndexService
 from knowledge_orchestrator.services.note_reconciliation import NoteReconciliationService
 from knowledge_orchestrator.services.obsidian_connection import ObsidianConnection
 from knowledge_orchestrator.services.operations import configure_logging
@@ -95,6 +96,7 @@ class OrchestratorRuntime:
     knowledge: KnowledgeService
     knowledge_access: KnowledgeAccess
     knowledge_queries: KnowledgeQueryService
+    note_index: NoteIndexService
     api_ingestion: ApiIngestionService
     sources: SourceMonitoringService
     source_worker: SourceWorker
@@ -223,6 +225,8 @@ def build_runtime(
     broker_client = BrokerClient(settings)
     system1 = System1Service(broker_client, system1_settings or load_system1_settings(pipeline_paths.state))
     knowledge_queries = KnowledgeQueryService(knowledge_access, QueryRepository(database), system1)
+    # Las capacidades del Broker (lotes de embeddings) las conoce el worker, que se crea después.
+    note_index = NoteIndexService(database, knowledge_access, capabilities=dict)
     api_ingestion = ApiIngestionService(database, pipeline_paths)
     sources = SourceMonitoringService(SourceRepository(database), api_ingestion)
     profiles = ProfileService(domain_repository)
@@ -296,7 +300,9 @@ def build_runtime(
         semantic_processor=semantic_broker,
         query_processor=KnowledgeQueryProcessor(knowledge_queries, broker_client),
         api_ingestion=api_ingestion,
+        index_processor=NoteIndexProcessor(note_index, broker_client),
     )
+    note_index.capabilities = broker_worker.capabilities_snapshot
     return OrchestratorRuntime(
         paths=pipeline_paths,
         database=database,
@@ -321,6 +327,7 @@ def build_runtime(
         knowledge=knowledge,
         knowledge_access=knowledge_access,
         knowledge_queries=knowledge_queries,
+        note_index=note_index,
         api_ingestion=api_ingestion,
         sources=sources,
         source_worker=SourceWorker(sources),

@@ -14,6 +14,7 @@ import json
 import sqlite3
 from typing import Any
 
+from knowledge_orchestrator.domain.broker_contracts import failure_message
 from knowledge_orchestrator.domain.broker_models import TaskStatus
 from knowledge_orchestrator.repositories.workflow_repository.base import fallback_eligible
 from knowledge_orchestrator.repositories.workflow_repository.control import ControlMixin
@@ -330,8 +331,8 @@ class EstadoMixin(ControlMixin):
                 json.dumps(payload, ensure_ascii=False),
                 json.dumps(result, ensure_ascii=False) if result is not None else None,
                 error.get("code"),
-                error.get("message"),
-                int(error["retryable"]) if "retryable" in error else None,
+                failure_message(error),
+                int(error["retryable"]) if isinstance(error.get("retryable"), bool) else None,
                 modelo_usado(broker_result),
                 payload.get("created_at") if target is TaskStatus.PROCESSING else None,
                 payload.get("updated_at") if terminal else None,

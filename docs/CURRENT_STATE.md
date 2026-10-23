@@ -1,5 +1,29 @@
 # Estado vigente de Knowledge Orchestrator
 
+Incremento 33, **21 de octubre de 2026 — 0.5.0, índice de notas y recuperación (Broker 2.12)**.
+ChatyGPT mandaba al Broker todas las notas en cada pregunta (89 notas, ~240k tokens, 20 min y
+`TASK_TIMEOUT`). El Broker 2.12 trae lotes de embeddings (`content.inputs`, hasta 64) y un carril
+propio que no espera al chat. KO ahora indexa y recupera.
+
+| Hallazgo | Corrección |
+|---|---|
+| Sin forma de saber qué notas tocan una pregunta | `services/note_index.py` + migración 028: fragmentos de ≤1.200 caracteres (FTS5) y vectores float32 del modelo elegido en Ajustes → «Índice para preguntas» (solo locales). `POST /retrievals` + `GET /retrievals/{id}` + `GET /index` (permiso `read`). Sin tope de notas: por palabras (término en ≤5 % de los fragmentos, y con similitud ≥ media+1σ), por significado (≥ media+2σ), fusión por rango recíproco; las notas sin indexar van aparte (`tests/test_note_index.py`) |
+| `kind: "embedding"` rechazado por el espejo del contrato | Se acepta cualquier carril y un embedding se valida por sus vectores (`embedding_vectors`), no por `assistant_content` |
+| La petición de embedding de KO nunca funcionó (`json_schema: null` → 422 del Broker) | Sin `json_schema` (2.12) y constructor de lotes `embedding_batch_request` con `target_model` exacto |
+| 18 extracciones del 19-oct murieron por `disk I/O error` (base en Drive) y quedaron como fallo definitivo | `OperationalError` pasajero deja el trabajo para el ciclo siguiente; la reintegración no duplica (ON CONFLICT) |
+| 2 extracciones de 25 afirmaciones tumbadas porque el modelo puso «S6»/«N4» en `observed_at` | La fecha opcional inválida se descarta y el prompt explica el campo |
+
+Prueba real con una copia de la base (103 notas):
+- **Indexado:** 1.755 fragmentos con `bge-m3` en ~3,5 min, en lotes de 64, sin un solo fallo.
+- **Recuperación:** 3–5 s por pregunta. «Explícame cómo usar MCP» → 11 notas con «¿Usas MCP?» la primera
+  (con el primer umbral del 20 % salían 66; medido y corregido).
+- **De punta a punta:** ChatyGPT 0.4.18 → `/retrievals` → 11 notas → Broker, `map_reduce` en 2 trozos (antes 7)
+  y respuesta completa y citada.
+- **Extracciones:** las 22 fallidas se reintentaron en la base real, con copia previa en
+  `I:\KO-datos\backups\antes-reintento-extracciones-20261021-203621.db`.
+
+Pruebas: la batería completa da 649 de 650. La única que fallaba fijaba la versión del contrato en 2.10. Ruff y mypy limpios.
+
 Incremento 32, **19 de octubre de 2026 — 0.4.5, base fuera de Google Drive y copia periódica**.
 Uso real con ChatyGPT consultando la API. Con la raíz de datos en `Y:\Mi unidad\...` (Google Drive)
 pasaba esto:

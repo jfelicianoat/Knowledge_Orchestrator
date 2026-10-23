@@ -104,6 +104,18 @@ SCHEMAS = {
         'insufficient_evidence': {'type': 'boolean'}, 'uncertainties': {'type': 'array', 'items': {'type': 'string'}},
         'generated_at': {'type': 'string'}, 'error_code': {'type': ['string', 'null']},
     }, ['query_id', 'status', 'knowledge_state', 'created_at', 'error_code']),
+    'IndexStatus': object_schema({
+        'model': {'type': ['object', 'null']}, 'notes_published': {'type': 'integer'},
+        'notes_indexed': {'type': 'integer'}, 'jobs_pending': {'type': 'integer'}, 'jobs_failed': {'type': 'integer'},
+    }, ['model', 'notes_published', 'notes_indexed', 'jobs_pending', 'jobs_failed']),
+    'Retrieval': object_schema({
+        'retrieval_id': {'type': 'string'}, 'status': {'enum': ['READY', 'QUEUED', 'SUCCESS', 'ERROR']},
+        'created_at': {'type': 'string'}, 'error_code': {'type': ['string', 'null']},
+        'documents': {'type': 'array', 'items': {'type': 'object'}},
+        'unindexed_document_ids': {'type': 'array', 'items': {'type': 'integer'}},
+        'method': {'enum': ['hybrid', 'lexical']}, 'degraded': {'type': 'boolean'},
+        'warnings': {'type': 'array', 'items': {'type': 'string'}}, 'index': ref('IndexStatus'),
+    }, ['retrieval_id', 'status', 'created_at', 'error_code']),
 }
 
 
@@ -134,6 +146,10 @@ def response_schema(method: str, path: str) -> dict:
         return ref('SourceChange')
     if path in {'/query', '/queries/{query_id}'}:
         return ref('Query')
+    if path in {'/retrievals', '/retrievals/{retrieval_id}'}:
+        return ref('Retrieval')
+    if path == '/index':
+        return ref('IndexStatus')
     if path.startswith('/ingestions') or (path == '/documents' and method == 'POST'):
         return ref('Ingestion')
     if path in {'/claims', '/search'}:

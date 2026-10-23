@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from contextlib import closing
 
+from knowledge_orchestrator.domain.broker_contracts import failure_message
 from knowledge_orchestrator.domain.semantic_models import (
     SemanticJob,
 )
@@ -143,7 +144,7 @@ class TrabajosMixin(CandidatosMixin):
                     "PROCESSING" if target == "SUCCESS" else target,
                     json.dumps(payload.get("result"), ensure_ascii=False) if target == "SUCCESS" else None,
                     error.get("code") if target == "ERROR" else None,
-                    error.get("message") if target == "ERROR" else None,
+                    failure_message(error) if target == "ERROR" else None,
                     job_id,
                 ),
             )

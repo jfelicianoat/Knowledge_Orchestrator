@@ -17,6 +17,7 @@ from knowledge_orchestrator.services.api_ingestion import ApiIngestionService
 from knowledge_orchestrator.services.broker_dispatch import BrokerDispatcher, BrokerPoller
 from knowledge_orchestrator.services.knowledge_query import KnowledgeQueryProcessor
 from knowledge_orchestrator.services.model_discovery import ModelDiscoveryService
+from knowledge_orchestrator.services.note_index import NoteIndexProcessor
 from knowledge_orchestrator.services.publication import PublicationService
 from knowledge_orchestrator.services.semantic_broker import SemanticBrokerProcessor
 from knowledge_orchestrator.services.workflow_planner import WorkflowPlanner
@@ -40,6 +41,7 @@ class BrokerWorker:
         semantic_processor: SemanticBrokerProcessor | None = None,
         query_processor: KnowledgeQueryProcessor | None = None,
         api_ingestion: ApiIngestionService | None = None,
+        index_processor: NoteIndexProcessor | None = None,
     ) -> None:
         self.planner = planner
         self.dispatcher = dispatcher
@@ -51,6 +53,7 @@ class BrokerWorker:
         self.semantic_processor = semantic_processor
         self.query_processor = query_processor
         self.api_ingestion = api_ingestion
+        self.index_processor = index_processor
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._broker_online: bool | None = None
@@ -201,6 +204,8 @@ class BrokerWorker:
                         next_discovery = now + self.settings.discovery_interval_seconds
                 if self._broker_online is True and self.query_processor is not None:
                     await self._stage("consultas", self._query_cycle)
+                if self._broker_online is True and self.index_processor is not None:
+                    await self._stage("índice de notas", self._index_cycle)
             except BrokerClientError as error:
                 self._emit("BROKER_OFFLINE", str(error))
                 # La salud solo se anuncia al cambiar: sin esto, tras un fallo
@@ -247,6 +252,10 @@ class BrokerWorker:
         assert self.query_processor is not None
         await self._interruptible(self.query_processor.dispatch_once())
         await self.query_processor.poll_once()
+
+    async def _index_cycle(self) -> None:
+        assert self.index_processor is not None
+        await self.index_processor.cycle()
 
     async def _interruptible(self, action):
         """Los nuevos juicios pueden esperar 75 s; detener la app cancela esa espera."""
