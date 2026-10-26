@@ -114,6 +114,58 @@ class BudgetTests(unittest.TestCase):
             self.assertEqual(final.error_code, "INVALID_PROVIDER_RESPONSE")
 
 
+    def test_a_completed_answer_cut_at_the_output_limit_is_retried_with_more_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            paths = PipelinePaths.under(Path(folder))
+            runtime = build_runtime(paths)
+            source = paths.inbox / "cortado.md"
+            source.write_bytes(generic_markdown(capture_id="cortado", title="Documento cortado"))
+            self.assertTrue(runtime.ingestion.ingest(source).accepted)
+            workflow_id = runtime.workflow_planner.plan_capture("cortado")
+            repository = runtime.workflow_repository
+            task = repository.list_workflow_tasks(workflow_id)[0]
+            self.assertIn("## Cobertura", task.request_json)
+            budget = json.loads(task.request_json)["generation"]["max_output_tokens"]
+
+            def completed(tokens: int) -> dict[str, object]:
+                return {"task_id": task.task_id, "status": "completed", "result": {
+                    "assistant_content": "# Apuntes\n\n## Resumen ejecutivo\nTexto del resumen.\n\n## Desarrollo\n"
+                                         + "Contenido de estudio con detalle. " * 20 + "Se cor",
+                    "usage": {"tokens_output": tokens}}}
+
+            # Sin llegar al límite (ventana del modelo agotada): falla visible, sin ampliar.
+            self.assertTrue(repository.apply_status(task.task_id, completed(866)))
+            self.assertEqual(repository.get_task(task.task_id).error_code, "TRUNCATED_OUTPUT")
+
+            self.assertTrue(repository.retry_failed_task(task.task_id))
+            # Llegó justo al límite: se reabre sola con el doble.
+            self.assertTrue(repository.apply_status(task.task_id, completed(budget)))
+            reopened = repository.get_task(task.task_id)
+            self.assertEqual(reopened.status.value, "READY")
+            self.assertEqual(json.loads(reopened.request_json)["generation"]["max_output_tokens"], budget * 2)
+
+    def test_an_answer_that_fills_the_whole_budget_is_cut_even_with_the_closing_section(self) -> None:
+        # Caso real (25-oct): lfm2 repitió el formato tres veces hasta 7500/7500 tokens.
+        with tempfile.TemporaryDirectory() as folder:
+            paths = PipelinePaths.under(Path(folder))
+            runtime = build_runtime(paths)
+            source = paths.inbox / "bucle.md"
+            source.write_bytes(generic_markdown(capture_id="bucle", title="Documento en bucle"))
+            self.assertTrue(runtime.ingestion.ingest(source).accepted)
+            workflow_id = runtime.workflow_planner.plan_capture("bucle")
+            repository = runtime.workflow_repository
+            task = repository.list_workflow_tasks(workflow_id)[0]
+            budget = json.loads(task.request_json)["generation"]["max_output_tokens"]
+            looped = ("# Apuntes\n\n## Resumen ejecutivo\n" + "Texto de estudio. " * 40
+                      + "\n\n## Cobertura\nTodo.\n\n## Resumen ejecutivo\nOtra vez el mis")
+            self.assertTrue(repository.apply_status(task.task_id, {
+                "task_id": task.task_id, "status": "completed",
+                "result": {"assistant_content": looped, "usage": {"tokens_output": budget}}}))
+            reopened = repository.get_task(task.task_id)
+            self.assertEqual(reopened.status.value, "READY")
+            self.assertEqual(json.loads(reopened.request_json)["generation"]["max_output_tokens"], budget * 2)
+
+
 class RetryPolicyTests(unittest.TestCase):
     """Reintentar usa la configuración de ahora, no la que ya falló."""
 

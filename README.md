@@ -302,6 +302,11 @@ las mande enteras. Arreglos de paso:
 - La petición de embedding de KO no había funcionado nunca: 422 por `json_schema: null`.
 - El espejo del contrato rechazaba `kind: "embedding"`.
 
+**0.5.2 — el título del vídeo viaja en `<titulo>`, fuera de las instrucciones.** El Broker devolvía
+`IMAGE_GENERATION_UNSUPPORTED` (27 casos) porque leía el título dentro de `<user_request>`: «…crea vídeos,
+imágenes…» o «Pinta así la pared…» parecían peticiones de imagen. Ahora `{title}` en las plantillas se
+sustituye por una referencia y el título real va en su propia etiqueta, que el Broker ignora al clasificar.
+
 **0.5.1 — un fallo de consenso ya no se disfraza de error de contrato.** Uso real 21-oct: la síntesis de
 «El Quant que Se Pasa al Discrecional» falló con `CONSENSUS_QUORUM_NOT_REACHED`. Los tres proponentes fallaron:
 `lfm2:24b` devolvió su propio prompt y los dos `nemotron` agotaron la salida razonando. El Broker 2.12 mandó

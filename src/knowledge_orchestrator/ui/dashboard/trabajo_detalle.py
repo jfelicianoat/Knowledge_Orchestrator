@@ -94,8 +94,9 @@ class DetalleMixin(InicioMixin):
             # Lo apartado a cuarentena no se reintenta: hay que corregir el fichero.
             item.category == "attention" and item.incident_id is not None and item.retryable
         ) or (
-            # Falló antes de tener tareas (p. ej. perfil desactivado): se replanifica.
-            item.category == "attention" and not item.task_id and item.status == "FAILED"
+            # Documento fallido: se reenvían sus fragmentos fallidos o se replanifica,
+            # aunque su última tarea sea un fragmento que salió bien.
+            item.category == "attention" and item.incident_id is None and item.status == "FAILED"
         ) or (
             # Cancelado: el archivo se conserva y se puede volver a procesar.
             item.status == "CANCELLED" and item.incident_id is None
@@ -316,7 +317,7 @@ class DetalleMixin(InicioMixin):
         if self._can_cancel_item(item):
             self.ignore_button.configure(text="Cancelar procesamiento")
             self.ignore_button.state(["!disabled"])
-        elif item.category == "attention" and item.status in {"ERROR", "INGESTION_ERROR"}:
+        elif item.category == "attention" and item.status in {"ERROR", "FAILED", "INGESTION_ERROR"}:
             self.ignore_button.configure(
                 text="Cerrar incidencia" if item.incident_id is not None and not item.retryable
                 else "Ignorar este archivo")

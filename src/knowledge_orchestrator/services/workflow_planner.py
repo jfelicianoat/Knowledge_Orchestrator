@@ -155,6 +155,7 @@ class WorkflowPlanner:
                 system=system,
                 user=user,
                 input_text=transcript,
+                title=metadata.get("title"),
             )
             tasks.append(task)
             total_steps = 1
@@ -190,6 +191,7 @@ class WorkflowPlanner:
                     system=self.renderer.render(profile.system_prompt, chunk_context),
                     user=self.renderer.render(profile.chunk_prompt, chunk_context),
                     input_text=chunk,
+                    title=metadata.get("title"),
                 ))
             total_steps = chunk_count + 1
 
@@ -361,6 +363,7 @@ class WorkflowPlanner:
                 capture_id=capture.capture_id, workflow_id=workflow.workflow_id, revision=workflow.revision,
                 profile=final_profile, step_id=FINAL_SYNTHESIS_STEP, step_kind=StepKind.SYNTHESIS,
                 sequence_index=sequence, system=system, user=user, input_text=joined,
+                title=metadata.get("title"),
             ), dependency_ids)
             return
 
@@ -380,6 +383,7 @@ class WorkflowPlanner:
                 profile=reduction_profile, step_id=f"{REDUCTION_PREFIX}{level}_{index}",
                 step_kind=StepKind.SYNTHESIS, sequence_index=sequence + index - 1,
                 system=system, user=user, input_text=joined,
+                title=metadata.get("title"),
             ), dependency_ids)
         self.workflows.record_workflow_event(
             workflow.workflow_id, "SYNTHESIS_REDUCTION_PLANNED",
@@ -493,6 +497,7 @@ class WorkflowPlanner:
         system: str,
         user: str,
         input_text: str,
+        title: str | None,
     ) -> PlannedTask:
         task_id = f"proc_{capture_id}_r{revision}_{step_id}"
         request = build_chat_request(
@@ -504,6 +509,7 @@ class WorkflowPlanner:
             system_content=system,
             user_content=user,
             execution_step=step_kind.value.lower(),
+            title=title,
         )
         # Frontera Orchestrator -> Broker: no se guarda una tarea que el Broker no pueda aceptar.
         validate_create_task_request(request)

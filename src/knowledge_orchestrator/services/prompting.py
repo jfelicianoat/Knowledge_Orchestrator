@@ -11,6 +11,11 @@ from knowledge_orchestrator.services.broker_shield import shield_prompt
 #: Plazo de la redacción con un solo modelo; el de consenso es del perfil.
 DIRECT_TIMEOUT_SECONDS = 1800
 
+#: Lo que ven las plantillas en {title}. El título real viaja en <titulo>: el
+#: Broker lee las instrucciones como petición y un título como «Pinta así la
+#: pared» o «…crea vídeos, imágenes…» daba IMAGE_GENERATION_UNSUPPORTED.
+TITLE_REFERENCE = "(el título indicado en <titulo>)"
+
 
 class PromptRenderError(ValueError):
     pass
@@ -72,7 +77,7 @@ class TextChunker:
 
 def prompt_context(metadata: Mapping[str, Any], transcript: str, **extra: Any) -> dict[str, Any]:
     context = {
-        "title": metadata.get("title"),
+        "title": TITLE_REFERENCE,
         "channel": metadata.get("channel"),
         "transcript": transcript,
         "published_date": metadata.get("published_date"),
@@ -98,6 +103,7 @@ def build_chat_request(
     system_content: str,
     user_content: str,
     execution_step: str,
+    title: str | None = None,
 ) -> dict[str, Any]:
     # Los pasos elegibles para estrategias pesadas son los mismos para mixture
     # y para auto: el resto (chunks del map, embeddings) siempre viaja single.
@@ -116,7 +122,9 @@ def build_chat_request(
     prompt = shield_prompt(
         "<system_instructions>\n"
         + system_content
-        + "\n</system_instructions>\n\n<user_request>\n"
+        + "\n</system_instructions>\n\n"
+        + (f"<titulo>\n{title}\n</titulo>\n\n" if title else "")
+        + "<user_request>\n"
         + user_content
         + "\n</user_request>"
     )

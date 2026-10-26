@@ -17,6 +17,7 @@ from typing import Any
 from knowledge_orchestrator.runtime import OrchestratorRuntime
 from knowledge_orchestrator.services.broker_connection import BrokerConnectionStore
 from knowledge_orchestrator.ui.dashboard.estilo import STATUS_GLYPHS, EstiloMixin
+from knowledge_orchestrator.ui.lecturas_fondo import BackgroundSnapshots
 from knowledge_orchestrator.ui.snapshots import LibraryItem, ProfileItem, ReviewItem, UiSnapshotService, WorkItem
 from knowledge_orchestrator.ui.startup import RuntimeStartup
 
@@ -226,7 +227,7 @@ class DashboardBase(EstiloMixin):
         super().__init__()
         self.runtime = runtime
         self._startup = RuntimeStartup(runtime)
-        self.snapshots = UiSnapshotService(runtime.database)
+        self.snapshots = BackgroundSnapshots(UiSnapshotService(runtime.database))
         self.connection_store = BrokerConnectionStore(runtime.paths)
         self.title("Knowledge Orchestrator")
         self.geometry("1440x900")
@@ -501,6 +502,9 @@ class DashboardBase(EstiloMixin):
     def destroy(self) -> None:
         if self.__dict__.get('_released'):
             return  # segunda llamada (limpieza de pruebas, cierre repetido): ya no queda nada
+        snapshots = self.__dict__.get('snapshots')
+        if isinstance(snapshots, BackgroundSnapshots):
+            snapshots.close()
         # Tk removes commands on destruction but leaves their timers registered.
         # Cancel only callbacks owned by this root; child panels cancel their own.
         commands = set(getattr(self, '_tclCommands', None) or ())

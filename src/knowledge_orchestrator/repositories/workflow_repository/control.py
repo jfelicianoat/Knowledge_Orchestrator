@@ -19,6 +19,9 @@ from knowledge_orchestrator.repositories.workflow_repository.envio import EnvioM
 POLICY_FIELDS = ("model_requirements", "generation", "execution", "risk", "prompt_compression",
                  "auxiliary_invocations")
 
+#: Fallos causados por el prompt congelado: solo se arreglan replanificando.
+REPLAN_ERROR_CODES = frozenset({"IMAGE_GENERATION_UNSUPPORTED"})
+
 
 def refreshed_policy(
     connection: sqlite3.Connection, task: sqlite3.Row, request: dict[str, Any],
@@ -251,6 +254,40 @@ class ControlMixin(EnvioMixin):
                 ),
             )
             return True
+
+    def retry_failed_capture(self, capture_id: str) -> list[str] | None:
+        """Vuelve a enviar un documento que necesita atención.
+
+        Devuelve las tareas que hay que despachar (lista vacía si se replanificó
+        entero) o `None` si no había nada que reenviar. Antes la ventana
+        reintentaba la última tarea del documento, que en un documento troceado
+        suele ser un fragmento que salió bien: el botón quedaba apagado y los
+        fragmentos fallidos no tenían forma de reenviarse (prueba real 25-oct).
+        """
+        with closing(self.database.connect()) as connection:
+            workflow = connection.execute(
+                "SELECT workflow_id, status FROM workflows WHERE capture_id = ? ORDER BY revision DESC LIMIT 1",
+                (capture_id,),
+            ).fetchone()
+            if workflow is None:
+                return [] if self.reopen_failed_capture(capture_id) else None
+            failed = connection.execute(
+                "SELECT task_id, error_code FROM tasks WHERE workflow_id = ? AND status = 'ERROR' "
+                "ORDER BY sequence_index, task_id",
+                (workflow["workflow_id"],),
+            ).fetchall()
+            ready = [row["task_id"] for row in connection.execute(
+                "SELECT task_id FROM tasks WHERE workflow_id = ? AND status = 'READY'", (workflow["workflow_id"],)
+            )]
+        # El prompt se congela al planificar: si lo que falló es el propio prompt
+        # (p. ej. el Broker lo lee como petición de imagen), reintentar lo repite.
+        if failed and not any(row["error_code"] in REPLAN_ERROR_CODES for row in failed):
+            retried = [row["task_id"] for row in failed if self.retry_failed_task(row["task_id"])]
+            return retried or None
+        if self.reopen_failed_capture(capture_id):
+            return []
+        # Envío interrumpido en un documento aún vivo: basta con despacharlo.
+        return ready if ready and workflow["status"] in {"PLANNED", "RUNNING"} else None
 
     def ignore_failed_capture(self, capture_id: str) -> bool:
         """Cierra una incidencia fallida sin borrar su historial."""

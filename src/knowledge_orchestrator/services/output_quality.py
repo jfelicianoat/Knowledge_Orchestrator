@@ -18,8 +18,12 @@ _SPANISH_WORDS = {"el", "la", "los", "las", "que", "de", "para", "con", "una", "
 _ENGLISH_WORDS = {"the", "and", "that", "for", "with", "this", "from", "are", "to", "of", "in", "you"}
 
 
-def study_notes_quality_error(text: str, *, final: bool) -> str | None:
-    """Devuelve un código solo para defectos inequívocos, evitando falsos positivos."""
+def study_notes_quality_error(text: str, *, final: bool, closing_heading: str | None = None) -> str | None:
+    """Devuelve un código solo para defectos inequívocos, evitando falsos positivos.
+
+    `closing_heading` es la última sección que exige el formato pedido: si no
+    aparece, la respuesta se cortó (el Broker la da por `completed` igual).
+    """
 
     normalized = text.strip()
     lowered = normalized.casefold()
@@ -34,6 +38,13 @@ def study_notes_quality_error(text: str, *, final: bool) -> str | None:
         return "WRONG_LANGUAGE"
     last_line = next((line.strip() for line in reversed(normalized.splitlines()) if line.strip()), "")
     if (len(normalized) >= 500 and re.fullmatch(r"#{1,6}\s+.+", last_line)) or normalized.count("```") % 2:
+        return "TRUNCATED_OUTPUT"
+    # Los modelos varían el título («### 21. Cobertura», «**## Cobertura**», «## Cobertura de…»).
+    title = re.escape(closing_heading.lstrip("# ")) if closing_heading else ""
+    # shortcut: por debajo de 500 caracteres no se exige (respuestas mínimas de las pruebas);
+    # un apunte real con las 13 secciones nunca es tan corto.
+    closing = rf"^[*\s]*#{{1,6}}\s*\**\s*(?:\d+\.\s*)?{title}\b"
+    if title and len(normalized) >= 500 and not re.search(closing, normalized, re.MULTILINE):
         return "TRUNCATED_OUTPUT"
     return None
 

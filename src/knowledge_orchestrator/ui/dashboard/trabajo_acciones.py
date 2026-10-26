@@ -269,7 +269,7 @@ class AccionesMixin(DetalleMixin):
         failures: list[str] = []
         for item in items:
             try:
-                if item.task_id and item.status == "READY":
+                if item.task_id and item.status == "READY" and item.category != "attention":
                     changed = True
                 elif item.status == "CANCELLED":
                     changed = self.runtime.workflow_repository.reopen_failed_capture(item.capture_id)
@@ -279,15 +279,15 @@ class AccionesMixin(DetalleMixin):
                         failures.append(f"{item.title}: el archivo ya no está disponible")
                         continue
                     changed = self.runtime.worker.retry(path)
-                elif item.task_id:
-                    changed = self.runtime.workflow_repository.retry_failed_task(item.task_id)
                 else:
-                    changed = self.runtime.workflow_repository.reopen_failed_capture(item.capture_id)
+                    resent = self.runtime.workflow_repository.retry_failed_capture(item.capture_id)
+                    changed = resent is not None
+                    task_ids.extend(resent or ())
             except OSError as error:
                 failures.append(f"{item.title}: {error}")
             else:
                 sent += int(changed)
-                if changed and item.task_id:
+                if changed and item.task_id and item.status == "READY" and item.category != "attention":
                     task_ids.append(item.task_id)
                 if not changed:
                     failures.append(f"{item.title}: el estado cambió antes del envío")

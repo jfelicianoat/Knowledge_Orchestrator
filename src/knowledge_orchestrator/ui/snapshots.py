@@ -11,6 +11,22 @@ from knowledge_orchestrator.repositories.database import Database
 ACTIVE_CAPTURE_STATUSES = ("STAGED", "PENDING", "SUBMITTING", "QUEUED", "PROCESSING")
 ACTIVE_TASK_STATUSES = ("READY", "SUBMITTING", "QUEUED", "PROCESSING", "CANCEL_REQUESTED")
 RETRYABLE_INCIDENTS = frozenset({"FILE_LOCKED", "FILE_UNSTABLE"})
+# La subconsulta de la última tarea depende de idx_tasks_capture_latest (migración 029).
+WORK_ITEMS_SQL = (
+    "SELECT c.capture_id, c.title, c.original_filename, c.status AS capture_status, "
+    "c.source_path, c.staging_path, c.processing_path, c.archive_path, "
+    "c.rejected_source_path, c.last_error_code, c.last_error_message, c.created_at, "
+    "c.updated_at, t.task_id, t.status AS task_status, t.progress_json, t.model_used, "
+    "t.error_code AS task_error_code, t.error_message AS task_error_message, "
+    "t.error_retryable, t.attempt, t.created_at AS task_created_at, "
+    "t.queued_at, t.started_at, "
+    "(SELECT w.review_status FROM workflows w WHERE w.capture_id = c.capture_id "
+    "ORDER BY w.revision DESC LIMIT 1) AS review_status "
+    "FROM captures c LEFT JOIN tasks t ON t.task_id = ("
+    "SELECT latest.task_id FROM tasks latest WHERE latest.capture_id = c.capture_id "
+    "ORDER BY latest.updated_at DESC, latest.created_at DESC, latest.task_id DESC LIMIT 1"
+    ") ORDER BY c.updated_at DESC, c.created_at DESC, c.capture_id DESC"
+)
 #: Latidos que se repiten solos y taparían la actividad real de los documentos.
 ACTIVITY_NOISE = (
     "BROKER_ONLINE", "KNOWLEDGE_RECONCILED", "API_REQUEST", "BROKER_QUEUE_UPDATED", "BROKER_TASKS_UPDATED",
@@ -279,21 +295,7 @@ class UiSnapshotService:
 
     def work_items(self) -> list[WorkItem]:
         with closing(self.database.connect(readonly=True)) as connection:
-            rows = connection.execute(
-                "SELECT c.capture_id, c.title, c.original_filename, c.status AS capture_status, "
-                "c.source_path, c.staging_path, c.processing_path, c.archive_path, "
-                "c.rejected_source_path, c.last_error_code, c.last_error_message, c.created_at, "
-                "c.updated_at, t.task_id, t.status AS task_status, t.progress_json, t.model_used, "
-                "t.error_code AS task_error_code, t.error_message AS task_error_message, "
-                "t.error_retryable, t.attempt, t.created_at AS task_created_at, "
-                "t.queued_at, t.started_at, "
-                "(SELECT w.review_status FROM workflows w WHERE w.capture_id = c.capture_id "
-                "ORDER BY w.revision DESC LIMIT 1) AS review_status "
-                "FROM captures c LEFT JOIN tasks t ON t.task_id = ("
-                "SELECT latest.task_id FROM tasks latest WHERE latest.capture_id = c.capture_id "
-                "ORDER BY latest.updated_at DESC, latest.created_at DESC, latest.task_id DESC LIMIT 1"
-                ") ORDER BY c.updated_at DESC, c.created_at DESC, c.capture_id DESC"
-            ).fetchall()
+            rows = connection.execute(WORK_ITEMS_SQL).fetchall()
             incidents = connection.execute(
                 "SELECT incident_id, path, filename, error_code, message, created_at, updated_at "
                 "FROM ingestion_incidents WHERE status = 'OPEN' ORDER BY updated_at DESC, incident_id DESC"

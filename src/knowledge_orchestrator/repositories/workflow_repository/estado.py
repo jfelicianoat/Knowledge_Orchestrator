@@ -56,7 +56,10 @@ STATUS_MAP = {
 #: El proveedor devolvió una respuesta vacía por quedarse sin presupuesto. Con
 #: un modelo que razona, el razonamiento se come `max_output_tokens` y no queda
 #: nada para la respuesta; el Broker lo dice con `done_reason=length`.
-BUDGET_EXHAUSTED_CODES = frozenset({"INVALID_PROVIDER_RESPONSE"})
+BUDGET_EXHAUSTED_CODES = frozenset({"INVALID_PROVIDER_RESPONSE", "TRUNCATED_OUTPUT"})
+#: Última sección del formato de apuntes. Si el Broker responde `completed` sin
+#: ella, el texto se cortó (límite de salida o ventana del modelo).
+CLOSING_HEADING = "## Cobertura"
 #: Techo del reintento automático. No se sube sin límite: un presupuesto enorme
 #: convierte un fallo rápido en una espera larguísima con el mismo final.
 BUDGET_CEILING = 16_000
@@ -72,6 +75,21 @@ def presupuesto_agotado(error: dict[str, Any]) -> bool:
         return False
     mensaje = str(error.get("message") or "").lower()
     return "done_reason=length" in mensaje or "max_output_tokens" in mensaje
+
+
+def salida_agotada(broker_result: dict[str, Any] | None, request_json: str | None) -> bool:
+    """El modelo escribió exactamente los tokens que permitía `max_output_tokens`.
+
+    Igualdad, no `>=`: con algunos modelos el Broker informa más tokens que el
+    límite (cuenta el razonamiento o no aplica el tope) y esas notas salen enteras.
+    """
+
+    try:
+        usados = (broker_result or {}).get("usage", {}).get("tokens_output")
+        limite = json.loads(request_json or "{}").get("generation", {}).get("max_output_tokens")
+    except (AttributeError, ValueError):
+        return False
+    return isinstance(usados, int) and isinstance(limite, int) and usados == limite
 
 
 def ampliar_presupuesto(request: dict[str, Any], *, ceiling: int = BUDGET_CEILING) -> dict[str, Any] | None:
@@ -203,14 +221,25 @@ class EstadoMixin(ControlMixin):
             error = error_de(payload) if target is TaskStatus.ERROR else {}
             if target is TaskStatus.SUCCESS and current["step_kind"] in {"SINGLE", "SYNTHESIS"}:
                 result = resultado_de(broker_result)
-                quality_code = study_notes_quality_error(result["assistant_content"], final=True)
+                # Las reducciones intermedias («reduce_*», REDUCTION_PREFIX del planner) no son el apunte final.
+                final_step = not str(current["step_id"] or "").startswith("reduce_")
+                closing = (CLOSING_HEADING if final_step and CLOSING_HEADING in str(current["request_json"] or "")
+                           else None)
+                quality_code = study_notes_quality_error(
+                    result["assistant_content"], final=True, closing_heading=closing,
+                )
+                agotada = salida_agotada(broker_result, current["request_json"])
+                if agotada and not quality_code:
+                    # Escribir justo hasta el límite es cortarse, aunque haya «Cobertura»: el
+                    # caso real repetía el formato entero tres veces y se cortaba en la tercera.
+                    quality_code = "TRUNCATED_OUTPUT"
                 if quality_code:
                     target = TaskStatus.ERROR
-                    error = {
-                        "code": quality_code,
-                        "message": study_notes_quality_message(quality_code),
-                        "retryable": True,
-                    }
+                    message = study_notes_quality_message(quality_code)
+                    if quality_code == "TRUNCATED_OUTPUT" and agotada:
+                        # Así entra en el reintento con el doble de presupuesto.
+                        message += " Agotó max_output_tokens."
+                    error = {"code": quality_code, "message": message, "retryable": True}
             if target is TaskStatus.ERROR and self._reintentar_con_mas_presupuesto(
                 connection, current, task_id, error
             ):

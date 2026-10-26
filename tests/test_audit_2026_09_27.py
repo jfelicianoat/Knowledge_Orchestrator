@@ -305,7 +305,7 @@ class LongDocumentContextTests(AuditBase):
                 request = json.loads(task.request_json)
                 used = estimate_tokens(request["content"]["prompt"]) + request["generation"]["max_output_tokens"]
                 self.assertLessEqual(used, window, task.step_id)
-                self.succeed(task.task_id, "Síntesis parcial. " * 400)
+                self.succeed(task.task_id, "Síntesis parcial. " * 400 + "\n\n## Cobertura\nSe cubrió la fuente.")
             planner.advance_workflow(workflow_id)
             if repository.get_workflow(workflow_id).status is WorkflowStatus.SUCCESS:
                 break
@@ -531,6 +531,24 @@ class ImageIntentShieldTests(unittest.TestCase):
         self.assertIn(WORD_JOINER, semantic["content"]["prompt"])
         cleaned = resultado_de({"assistant_content": "Sirve para generar i" + WORD_JOINER + "mágenes."})
         self.assertNotIn(WORD_JOINER, cleaned["assistant_content"])
+
+    def test_title_travels_in_its_own_tag_outside_the_instructions(self) -> None:
+        # El Broker leía el título dentro de <user_request> como petición de imagen (25-oct).
+        from knowledge_orchestrator.domain.models import ProfileDefinition
+        from knowledge_orchestrator.services.prompting import PromptRenderer, build_chat_request, prompt_context
+
+        title = "Pinta así la pared: crea vídeos, imágenes"
+        context = prompt_context({"title": title}, "texto")
+        user = PromptRenderer().render("Crea apuntes de la fuente titulada {title}.\n{transcript}", context)
+        profile = ProfileDefinition(name="p", system_prompt="s", user_prompt="u", chunk_prompt="c",
+                                    synthesis_prompt="y", preferred_model="")
+        prompt = build_chat_request(task_id="t", idempotency_key="k", workflow_id="w", step_id="single",
+                                    profile=profile, system_content="Resume {title}.", user_content=user,
+                                    execution_step="single", title=title)["content"]["prompt"]
+        before, _, request_part = prompt.partition("<user_request>")
+        self.assertNotIn("Pinta", request_part)
+        self.assertIn("<titulo>\nPinta así la pared", before)
+        self.assertNotIn("Pinta", before.split("<titulo>")[0])
 
 
 class StorageWarningTests(unittest.TestCase):

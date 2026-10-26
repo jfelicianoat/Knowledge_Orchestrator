@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import tkinter as tk
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
@@ -314,14 +315,16 @@ class OrchestratorDashboard(ServiciosMixin):
                      self._refresh_reviews, self._refresh_topics, self._refresh_profiles,
                      self._refresh_capabilities, self._refresh_index, self._sync_navigation_badges]
             failed = []
-            for step in steps:
-                # Un «disk I/O error» suelto (base en una carpeta sincronizada)
-                # mataba el refresco entero y la ventana se quedaba vacía para siempre.
-                try:
-                    step()
-                except Exception:
-                    logger.exception("Falló el refresco de la vista (%s)", step.__name__)
-                    failed.append(step.__name__)
+            # El refresco periódico pinta lecturas hechas en segundo plano; F5 y las acciones leen en el acto.
+            with self.snapshots.periodic() if not force else nullcontext():
+                for step in steps:
+                    # Un «disk I/O error» suelto (base en una carpeta sincronizada)
+                    # mataba el refresco entero y la ventana se quedaba vacía para siempre.
+                    try:
+                        step()
+                    except Exception:
+                        logger.exception("Falló el refresco de la vista (%s)", step.__name__)
+                        failed.append(step.__name__)
             if failed:
                 self.status_var.set("No se pudo leer parte de los datos; se reintenta en unos segundos. "
                                     "El detalle queda en el registro.")

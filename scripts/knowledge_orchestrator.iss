@@ -1,5 +1,5 @@
 #define MyAppName "Knowledge Orchestrator"
-#define MyAppVersion "0.4.9"
+#define MyAppVersion "0.5.4"
 #define MyAppExeName "Knowledge-Orchestrator.exe"
 
 [Setup]

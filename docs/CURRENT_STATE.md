@@ -1,5 +1,20 @@
 # Estado vigente de Knowledge Orchestrator
 
+Incremento 34, **25 de octubre de 2026 — 0.5.4, apuntes cortados que el Broker daba por buenos**.
+El Broker devuelve `completed` sin `done_reason` cuando el modelo agota `max_output_tokens`
+(ornith, nemotron-lightning) o su ventana (modelos de LM Studio de 8192). `study_notes_quality_error`
+solo veía cortes que acababan en un título. Ahora, si la petición pide «## Cobertura» y el paso es
+final (no `reduce_*`), un texto de ≥500 caracteres sin esa sección es `TRUNCATED_OUTPUT`. También lo
+es una respuesta con `tokens_output == max_output_tokens` aunque tenga «Cobertura» (lfm2 repetía el
+formato entero 3–4 veces hasta el tope); en ese caso entra en el reintento con el doble de presupuesto.
+Igualdad y no `>=`: el Broker informa a menudo más tokens que el límite (p. ej. 21182/7500 con
+qwen3-coder-next) en notas completas. Medido sobre las 382 notas publicadas: 44 detectadas, ninguna
+con su sección final (se admiten «### 21. Cobertura», «**## Cobertura**», «## Cobertura de…»).
+Las 46 cortadas y 3 bucles se rechazaron y replanificaron con `PublicationService.reject` + `reprocess`.
+Rechazar una nota publicada no cierra sus propuestas de mantenimiento: se cerraron 15 a mano con
+`semantic_maintenance.reject` (la UI de Revisión no filtra por estado de nota). No hay botón para
+reprocesar una nota publicada. Pruebas en `test_output_quality.py` y `test_model_budget.py`.
+
 Incremento 33, **21 de octubre de 2026 — 0.5.0, índice de notas y recuperación (Broker 2.12)**.
 ChatyGPT mandaba al Broker todas las notas en cada pregunta (89 notas, ~240k tokens, 20 min y
 `TASK_TIMEOUT`). El Broker 2.12 trae lotes de embeddings (`content.inputs`, hasta 64) y un carril

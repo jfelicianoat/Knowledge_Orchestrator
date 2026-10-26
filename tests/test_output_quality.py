@@ -35,6 +35,29 @@ class StudyNotesOutputQualityTests(unittest.TestCase):
             "1. ¿Qué se procesa? La entrada.\n\n## Cobertura\nSe cubrieron los conceptos relevantes."
         )
         self.assertIsNone(study_notes_quality_error(answer, final=True))
+        self.assertIsNone(study_notes_quality_error(answer, final=True, closing_heading="## Cobertura"))
+
+    def test_answer_without_the_closing_section_is_truncated(self) -> None:
+        # Caso real (25-oct): el Broker dio por `completed` un apunte cortado en una fórmula.
+        cut = (
+            "# Drawdown\n\n## Resumen ejecutivo\nUna caída del 50 % exige un 100 % para volver.\n\n"
+            "## Desarrollo\n" + "La pérdida y la recuperación no son simétricas. " * 12
+            + "\n- **Fórmula general**:\n  \\[\n  \\text{Capital"
+        )
+        self.assertIsNone(study_notes_quality_error(cut, final=True))
+        self.assertEqual(study_notes_quality_error(cut, final=True, closing_heading="## Cobertura"),
+                         "TRUNCATED_OUTPUT")
+
+    def test_closing_section_title_variants_are_accepted(self) -> None:
+        body = "# Título\n\n## Resumen ejecutivo\n" + "Texto del apunte con contenido de estudio. " * 15 + "\n\n"
+        for heading in ("## Cobertura", "### Cobertura", "**## Cobertura**", "### 21. Cobertura  ",
+                        "## Cobertura de datos faltantes"):
+            with self.subTest(heading=heading):
+                self.assertIsNone(study_notes_quality_error(
+                    body + heading + "\nSe cubrió todo.", final=True, closing_heading="## Cobertura"))
+        self.assertEqual(study_notes_quality_error(
+            body + "- **Cobertura cambiaria**: usar euros.", final=True, closing_heading="## Cobertura"),
+            "TRUNCATED_OUTPUT")
 
 
 if __name__ == "__main__":
