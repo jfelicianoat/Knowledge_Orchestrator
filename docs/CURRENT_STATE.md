@@ -1,5 +1,15 @@
 # Estado vigente de Knowledge Orchestrator
 
+Incremento 35, **26 de octubre de 2026 — 0.5.5, la ventana se quedaba bloqueada**.
+Medido con py-spy sobre la app en uso: el 96 % del hilo de Tk estaba en `UiSnapshotService.work_items`,
+que tardaba 6–12 s con la base real (765 documentos, ~2000 tareas de ~75 KB) y el refresco repetía cada 2 s.
+La subconsulta «última tarea del documento» recorría `tasks` entera por cada documento (`SCAN latest`).
+(A) Migración 029: índice `idx_tasks_capture_latest`; la consulta baja a 0,07 s con el mismo resultado
+(comprobado sobre copia de la base real). (C) `ui/lecturas_fondo.BackgroundSnapshots` envuelve el servicio
+de lecturas: en el refresco periódico devuelve el último resultado y lo renueva en un hilo aparte; arranque,
+F5 y las acciones siguen leyendo en el acto. Un fallo en segundo plano se anuncia una vez y se sigue
+mostrando lo último bueno. Pruebas en `test_fluidez_ui_2026_10_26.py` (fallan sin cada arreglo).
+
 Incremento 34, **25 de octubre de 2026 — 0.5.4, apuntes cortados que el Broker daba por buenos**.
 El Broker devuelve `completed` sin `done_reason` cuando el modelo agota `max_output_tokens`
 (ornith, nemotron-lightning) o su ventana (modelos de LM Studio de 8192). `study_notes_quality_error`
