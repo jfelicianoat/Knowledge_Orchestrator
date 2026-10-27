@@ -14,6 +14,10 @@ from knowledge_orchestrator.repositories.knowledge_repository import KnowledgeRe
 from knowledge_orchestrator.services.knowledge import KnowledgeService
 from knowledge_orchestrator.services.provenance import source_provenance
 
+#: Un apunte propio no tiene más respaldo que su autor: a igual parecido con la
+#: pregunta, sus claims salen detrás de los de documentos con fuente.
+OWN_NOTE_WEIGHT = 0.5
+
 
 class KnowledgeAccess:
     def __init__(self, knowledge: KnowledgeService, vault: Path) -> None:
@@ -153,8 +157,9 @@ class KnowledgeAccess:
             ids = [r[0] for r in connection.execute(
                 'SELECT k.claim_id FROM knowledge_claims_fts JOIN knowledge_claims k '
                 'ON k.claim_id = knowledge_claims_fts.rowid WHERE knowledge_claims_fts MATCH ? AND ' +
-                ' AND '.join(clauses or ['1=1']) + ' ORDER BY bm25(knowledge_claims_fts), k.claim_id LIMIT ? OFFSET ?',
-                [expression, *args, limit, offset],
+                ' AND '.join(clauses or ['1=1']) + ' ORDER BY bm25(knowledge_claims_fts) * '
+                "(CASE k.claim_origin WHEN 'OWN_NOTE' THEN ? ELSE 1.0 END), k.claim_id LIMIT ? OFFSET ?",
+                [expression, *args, OWN_NOTE_WEIGHT, limit, offset],
             )]
         return [self.claim_payload(claim_id, state=state) for claim_id in ids]
 
@@ -174,7 +179,7 @@ class KnowledgeAccess:
         clauses, args = self.repository.state_filter(state)
         with closing(self.database.connect(readonly=True)) as connection:
             rows = connection.execute(
-                'SELECT k.claim_id, e.vector_json FROM claim_embeddings e '
+                'SELECT k.claim_id, k.claim_origin, e.vector_json FROM claim_embeddings e '
                 'JOIN knowledge_claims k ON k.claim_id = e.claim_id WHERE e.model = ? AND e.dimensions = ? AND ' +
                 ' AND '.join(clauses or ['1=1']), [model, len(vector), *args],
             ).fetchall()
@@ -186,6 +191,8 @@ class KnowledgeAccess:
             other_norm = math.hypot(*other)
             if other_norm and math.isfinite(other_norm):
                 score = sum((a / norm) * (b / other_norm) for a, b in zip(vector, other, strict=True))
+                if row['claim_origin'] == 'OWN_NOTE' and score > 0:  # rebajar un negativo lo subiría
+                    score *= OWN_NOTE_WEIGHT
                 ranked.append((score, row['claim_id']))
         return [{'score': score, 'claim': self.claim_payload(claim_id, state=state)}
                 for score, claim_id in sorted(ranked, key=lambda item: (-item[0], item[1]))[:limit]]

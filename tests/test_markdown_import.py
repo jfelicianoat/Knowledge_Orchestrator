@@ -85,6 +85,15 @@ class MarkdownImportTests(unittest.TestCase):
         long_paragraph = "Una frase muy larga " * 10
         self.assertEqual(detect_title(long_paragraph, None, "notas"), "notas")
 
+    def test_title_label_heading_takes_the_line_below(self) -> None:
+        from knowledge_orchestrator.services.markdown_import import detect_title
+
+        # Apuntes de plantilla (27-oct-2026): los 9 se llamaban «Título».
+        body = "## Título\n\nRoles en Data Science: perfiles\n\n## Resumen\n\nTexto.\n"
+        self.assertEqual(detect_title(body, None, "09 Roles"), "Roles en Data Science: perfiles")
+        self.assertEqual(detect_title("# Título:\n\n## Resumen\n", None, "09 Roles"), "Resumen")
+        self.assertEqual(detect_title("## Título\n", None, "09 Roles"), "09 Roles")
+
     def test_capture_id_is_deterministic_and_frontmatter_title_wins(self) -> None:
         text = "---\ntitle: Nota de Obsidian\ntags: [x]\n---\n\nCuerpo sin encabezado.\n"
         first = self._write("a.md", text)

@@ -130,16 +130,23 @@ class AccionesMixin(DetalleMixin):
             )
             compatible = [item for item in compatible if item not in already]
             ordinary = [item for item in ordinary if item not in already]
-        if ordinary and not self._confirm_conversion(ordinary):
+        choice = self._confirm_conversion(ordinary) if ordinary else ""
+        if not choice:
             ordinary = []
         if not compatible and not ordinary:
             self.status_var.set("No se añadió ningún documento.")
             return
+        own_notes = choice == "own_notes"
         self.status_var.set("Añadiendo documentos a la carpeta vigilada…")
-        self._run_import_step(lambda: self._deliver_imports(compatible, ordinary), self._finish_import)
+        self._run_import_step(lambda: self._deliver_imports(compatible, ordinary, own_notes=own_notes),
+                              self._finish_import)
 
-    def _confirm_conversion(self, ordinary: list[ImportCandidate]) -> bool:
-        """Un único diálogo para todos los documentos que hay que convertir."""
+    def _confirm_conversion(self, ordinary: list[ImportCandidate]) -> str:
+        """Un único diálogo para todos los documentos que hay que convertir.
+
+        Devuelve "summarize" (resumirlos con el Broker), "own_notes" (son apuntes
+        ya hechos: publicarlos tal cual) o "" si la persona cancela.
+        """
 
         c = self.colors
         dialog = tk.Toplevel(self)
@@ -167,10 +174,20 @@ class AccionesMixin(DetalleMixin):
         if len(ordinary) > 8:
             tk.Label(listing, bg=c["raised"], fg=c["muted"], font=(FONT, 9), anchor="w",
                      text=f"… y {len(ordinary) - 8} más").pack(fill="x", padx=12, pady=3)
-        answer = {"convert": False}
+        own_notes = tk.BooleanVar(master=dialog, value=False)
+        ttk.Checkbutton(
+            dialog, variable=own_notes, style="Dark.TCheckbutton",
+            text="Ya son apuntes míos: publicarlos tal cual, sin resumirlos con el Broker",
+        ).pack(fill="x", padx=20, pady=(12, 0))
+        tk.Label(
+            dialog, bg=c["surface"], fg=c["muted"], font=(FONT, 9), anchor="w", justify="left", wraplength=520,
+            text="Sus afirmaciones se extraen igual, marcadas como «Apunte propio»: pesan menos que las "
+                 "respaldadas por un documento y no proponen cambios en otras notas.",
+        ).pack(fill="x", padx=40, pady=(2, 0))
+        answer = {"choice": ""}
 
         def accept() -> None:
-            answer["convert"] = True
+            answer["choice"] = "own_notes" if own_notes.get() else "summarize"
             dialog.destroy()
 
         actions = tk.Frame(dialog, bg=c["surface"])
@@ -181,10 +198,10 @@ class AccionesMixin(DetalleMixin):
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
         dialog.grab_set()
         self.wait_window(dialog)
-        return answer["convert"]
+        return answer["choice"]
 
     def _deliver_imports(
-        self, compatible: list[ImportCandidate], ordinary: list[ImportCandidate],
+        self, compatible: list[ImportCandidate], ordinary: list[ImportCandidate], *, own_notes: bool = False,
     ) -> tuple[list[Path], list[str]]:
         """Copia y conversión, en segundo plano: solo toca disco, nunca widgets."""
 
@@ -202,7 +219,7 @@ class AccionesMixin(DetalleMixin):
                 failures.append(f"{item.path.name}: {error}")
         for item in ordinary:
             try:
-                targets.append(write_converted(item.path, inbox))
+                targets.append(write_converted(item.path, inbox, own_notes=own_notes))
             except (OSError, ValueError, CaptureContractError) as error:
                 failures.append(f"{item.path.name}: {error}")
         return targets, failures

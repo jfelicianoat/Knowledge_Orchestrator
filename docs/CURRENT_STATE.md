@@ -1,5 +1,62 @@
 # Estado vigente de Knowledge Orchestrator
 
+Incremento 41, **27 de octubre de 2026 — 0.5.11, KO deja el control de coste al Broker**. A petición del usuario se elimina la bolsa de presupuesto por documento: `claim_submission` ya no rechaza envíos con `DOCUMENT_BUDGET_EXHAUSTED`, el planificador ya no reparte el tope entre fragmentos, reducciones y síntesis (`split_budget` y `_remaining_budget` eliminados) y cada petición lleva el `max_cost_usd` del perfil, que hace cumplir el Broker. Ajustes lo llama ahora «Coste máximo por petición (USD)». Las columnas `budget_usd`/`budget_reserved_usd` siguen escribiéndose pero ya no deciden nada. Pruebas ajustadas en `test_audit_2026_09_27.py` y `test_presupuesto_2026_10_26.py`.
+
+Incremento 40, **27 de octubre de 2026 — 0.5.10, «presupuesto agotado» sigue tras 0.5.6**. Tres documentos
+de «Necesitan atención» fallaban en cada reintento. (A) Dos de una sola petición: `TASK_TIMEOUT` sin
+`progress` (el Broker NO informa coste en ese fallo; 0.5.6 lo suponía), así que la reserva prudente de
+0,05 USD ocupaba la bolsa entera para siempre. Su petición lleva `cloud_allowed: false` y solo `ollama`:
+no puede costar nada. `request_cost` trata ya `cloud_allowed: false` como `local_only` (coste 0); con nube
+la prudencia no cambia. (B) Uno troceado: su alternativa (`…:fallback`) al reintentarse cortaba la clave por
+`:manual-`, perdía el sufijo y repetía la clave de la original → HTTP 409 `IDEMPOTENCY_CONFLICT`.
+`retry_failed_task` conserva ahora `:fallback`. Pruebas en `test_presupuesto_2026_10_26.py` (3 nuevas, fallan
+sin el arreglo); `test_split_document_never_reserves_more_than_its_budget` pasa a perfil con nube.
+(C) **Proveedores configurables.** `allowed_providers` y `cloud_allowed` eran los valores por defecto del
+código (`("ollama",)`, sin nube) y no salían en Ajustes: «Privacidad: público» no abría nada. Ajustes tiene
+ahora «Proveedores permitidos», una casilla por proveedor del catálogo (`UiSnapshotService.providers()`, local
+si `deployment == "local"`); `cloud_allowed` se deduce de si hay alguno de nube marcado (`provider_policy`,
+que también impide nube con «Solo local»/«Confidencial» y un modelo fijado de un proveedor no marcado). El
+`PanedWindow` se reajusta al rellenar las casillas (si no, cortaba «Modelos apartados por fallos…»). La
+extracción de afirmaciones sigue con ollama y `local_only` (`JSON_TASK_PROVIDERS`): no se ha tocado.
+Manual (cap. 17) y su captura actualizados.
+
+Incremento 39 (anterior), **27 de octubre de 2026 — 0.5.9, la Biblioteca busca sin tildes**. Buscar «Què es el Data
+Scienc» no encontraba «Qué es el Data Science…»: el `LIKE` de SQLite distingue tildes. `_library_filter`
+compara ahora con `normalize_search_text` (sin tildes, mayúsculas ni signos) registrada como `ko_fold`
+en la conexión de lectura; de paso `%` y `_` dejan de actuar como comodines.
+
+Incremento 38 (anterior), **27 de octubre de 2026 — 0.5.8, título de apuntes con plantilla**. Los apuntes que
+empiezan con un encabezado «## Título» y el título real en la línea siguiente se importaban todos como
+«Título». `markdown_import.detect_title` toma ahora la línea de debajo cuando el primer encabezado es solo
+«Título»/«Title». Los 9 apuntes ya cargados se retitularon (captura, nombre del fichero, cabecera y hash)
+y su análisis en cola se rehízo; copia previa en `I:/KO-datos/backups/antes-retitular-apuntes-20261027.db`.
+
+Incremento 37 (anterior), **26 de octubre de 2026 — 0.5.7, apuntes propios publicados tal cual**.
+Importar unos apuntes ya hechos los mandaba al Broker para resumirlos otra vez. El diálogo «Convertir
+documentos» tiene ahora la casilla «Ya son apuntes míos: publicarlos tal cual»: la captura lleva
+`own_notes: true` (`domain/sources.is_own_note`), el planificador crea un workflow sin tareas
+(`plan.strategy = own_note`; la tabla sigue diciendo `single` con 1 paso por sus CHECK) y lo cierra con el
+texto original; la nota sale con `note_origin: own_note`. Si se corta entre crear y cerrar,
+`advance_workflow` lo cierra al recuperar. Las afirmaciones se extraen igual pero sin fuente (la fuente
+sería la propia nota y todo saldría «respaldado»), y la migración 030 añade `knowledge_claims.claim_origin`
+(`DOCUMENT` | `OWN_NOTE`). Pesan menos: no generan candidatos de cambio en otras notas, `OWN_NOTE_WEIGHT`
+(0,5) rebaja su bm25 y su similitud por vectores, y el prompt de consulta prefiere el claim del documento
+si se contradicen. La UI de Afirmaciones las etiqueta «Apunte propio». Pruebas en
+`test_apuntes_propios_2026_10_26.py` (las de peso y fuente fallan sin el arreglo).
+
+Incremento 36, **26 de octubre de 2026 — 0.5.6, documentos rechazados «por coste» con modelos gratuitos**.
+Siete documentos con perfil `public` murieron al reintentarlos con `DOCUMENT_BUDGET_EXHAUSTED`, aunque el Broker
+informó coste 0,0 en los 6502 registros de la base. No lo rechazaba el Broker: era la bolsa del documento
+(auditoría H08), que no recuperaba lo reservado. (A) Tras un fallo ejecutado (`TASK_TIMEOUT`, `BUDGET_EXCEEDED`),
+`coste_real` solo leía `result.usage.cost_usd`, que es `null` al fallar; ahora usa también
+`progress.cost_actual_usd`, que el Broker informa en toda tarea. Sin ningún dato sigue reservando con prudencia
+(garantía para proveedores de pago intacta). (B) El reintento automático por tokens reabría la tarea sin liquidar
+el intento cortado. (C) «Reintentar documento» reabría a la vez una tarea y la alternativa que ya la sustituía, y
+ambas se disputaban la bolsa; ahora solo se reabre la última de la cadena. Pruebas en
+`test_presupuesto_2026_10_26.py` (5 de 6 fallan sin el arreglo; la de prudencia pasa en ambos casos). Los 5
+documentos de una sola petición se liberaron y se reenviaron con el propio `release_reservation`, con una copia
+previa de la base. Los dos troceados esperan a que su síntesis original, aún en cola del Broker, termine.
+
 Incremento 35, **26 de octubre de 2026 — 0.5.5, la ventana se quedaba bloqueada**.
 Medido con py-spy sobre la app en uso: el 96 % del hilo de Tk estaba en `UiSnapshotService.work_items`,
 que tardaba 6–12 s con la base real (765 documentos, ~2000 tareas de ~75 KB) y el refresco repetía cada 2 s.

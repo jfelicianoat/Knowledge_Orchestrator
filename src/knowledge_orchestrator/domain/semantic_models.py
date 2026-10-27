@@ -61,6 +61,8 @@ class KnowledgeClaim:
     revision: int = 1
     derived_from_claim_id: int | None = None
     source_support: str = "UNVERIFIED"
+    #: DOCUMENT | OWN_NOTE: un apunte propio publicado tal cual no tiene más fuente que él mismo (migración 030).
+    claim_origin: str = "DOCUMENT"
 
 
 @dataclass(frozen=True, slots=True)

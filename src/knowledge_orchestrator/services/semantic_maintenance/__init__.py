@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import difflib
 import json
+import sqlite3
 import uuid
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -24,6 +25,7 @@ from typing import Any
 
 from knowledge_orchestrator.domain.knowledge import KnowledgeConflict
 from knowledge_orchestrator.domain.semantic_models import KnowledgeClaim, UpdateCandidate
+from knowledge_orchestrator.domain.sources import is_own_note
 from knowledge_orchestrator.integrations.obsidian_bridge import (
     NoteEditor,
     ObsidianBridgeUnavailable,
@@ -121,6 +123,17 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             raise SemanticContractError("La nota ya tiene afirmaciones; no se vuelve a analizar")
         return self._create_extraction_job(note_id, attempt=len(attempts) + 1)
 
+    @staticmethod
+    def _analysis_source(context: sqlite3.Row) -> str:
+        """La fuente contra la que se respaldan los claims.
+
+        Un apunte propio se publicó tal cual: su «fuente» es la propia nota, y
+        cotejarla consigo misma daría por respaldado todo. Sin fuente, sus
+        claims quedan como lo que son (ver migración 030).
+        """
+
+        return "" if is_own_note(context["metadata_json"]) else str(context["transcript_content"] or "")
+
     def _segments_sha(self, document: str, transcript: str) -> str:
         notes = note_segments(document, body_start=self._body_start(document), body_end=history_boundary(document))
         return segmentation_fingerprint(notes, source_segments(transcript))
@@ -141,7 +154,7 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         request = self.broker_json_request(
             request_id=job_id,
             prompt=self.extraction_prompt(
-                document, source_id=context["capture_id"], transcript=str(context["transcript_content"] or ""),
+                document, source_id=context["capture_id"], transcript=self._analysis_source(context),
             ),
             schema=EXTRACTION_SCHEMA,
             max_output_tokens=TASK_BUDGETS["extraction"],
@@ -149,9 +162,7 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
             allow_substitution=not policy.exact,
             allowed_providers=policy.providers,
         )
-        request["content"]["metadata"]["segments_sha"] = self._segments_sha(
-            document, str(context["transcript_content"] or ""),
-        )
+        request["content"]["metadata"]["segments_sha"] = self._segments_sha(document, self._analysis_source(context))
         self.repository.create_job(
             job_id=job_id,
             kind="EXTRACT",
@@ -259,7 +270,7 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         document = self._read_checked_note(path)
         if self._hash_text(document) != context['content_hash']:
             raise SemanticContractError('La nota cambió externamente; requiere reconciliación')
-        transcript = str(context["transcript_content"] or "")
+        transcript = self._analysis_source(context)
         if expected_segments and self._segments_sha(document, transcript) != expected_segments:
             raise SemanticContractError(
                 "La numeración de frases cambió desde que se envió el análisis; reintenta el análisis"
@@ -284,8 +295,9 @@ class SemanticMaintenanceService(PromptsMixin, AnalisisMixin):
         # Solo lo que la fuente original respalda puede proponer cambios en
         # otras notas. Una frase que únicamente consta en el resumen generado
         # (o que el modelo enlazó sin que se pudiera verificar) se conserva y se
-        # consulta, pero no reescribe conocimiento ajeno (auditoría H07).
-        if new_claim.source_support not in {"SOURCE"}:
+        # consulta, pero no reescribe conocimiento ajeno (auditoría H07). Un
+        # apunte propio tampoco: no tiene más respaldo que su autor.
+        if new_claim.source_support not in {"SOURCE"} or new_claim.claim_origin == "OWN_NOTE":
             return []
         related = self.repository.find_related(new_claim)
         related_by_id = {claim.claim_id: (claim, reason) for claim, reason in related}

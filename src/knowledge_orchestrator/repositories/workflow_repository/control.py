@@ -216,6 +216,10 @@ class ControlMixin(EnvioMixin):
             policy = refreshed_policy(connection, task, request)
             retry_number = int(task["attempt"] or 0) + 1
             base_key = str(task["idempotency_key"]).split(":manual-", 1)[0]
+            if task["replacement_for_task_id"] and not base_key.endswith(":fallback"):
+                # La alternativa nace con «<clave original>:fallback»; al cortar por
+                # «:manual-» perdía el sufijo y repetía la clave de la original (HTTP 409).
+                base_key += ":fallback"
             idempotency_key = f"{base_key}:manual-{retry_number}"
             request["idempotency_key"] = idempotency_key
             encoded = json.dumps(request, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -271,8 +275,12 @@ class ControlMixin(EnvioMixin):
             ).fetchone()
             if workflow is None:
                 return [] if self.reopen_failed_capture(capture_id) else None
+            # Una tarea ya sustituida por su alternativa no se reabre: reintentar
+            # las dos a la vez duplicaba el trabajo y ambas se disputaban la bolsa
+            # del documento (DOCUMENT_BUDGET_EXHAUSTED, incidencia real 26-oct).
             failed = connection.execute(
-                "SELECT task_id, error_code FROM tasks WHERE workflow_id = ? AND status = 'ERROR' "
+                "SELECT task_id, error_code FROM tasks t WHERE workflow_id = ? AND status = 'ERROR' "
+                "AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.replacement_for_task_id = t.task_id) "
                 "ORDER BY sequence_index, task_id",
                 (workflow["workflow_id"],),
             ).fetchall()

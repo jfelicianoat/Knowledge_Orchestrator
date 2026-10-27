@@ -284,13 +284,21 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <li>La aplicación los examina sin bloquear la ventana y los clasifica:
       <ul>
         <li><b>Captura válida</b> (del plugin): se copia a la carpeta vigilada tal cual.</li>
-        <li><b>Texto o Markdown normal</b>: te pregunta una sola vez si quieres <span class="btn">Convertir y añadir</span>. Se crea una captura nueva con el texto completo; el título sale de la cabecera, del primer encabezado o de la primera línea.</li>
+        <li><b>Texto o Markdown normal</b>: te pregunta una sola vez si quieres <span class="btn">Convertir y añadir</span>. Se crea una captura nueva con el texto completo; el título sale de la cabecera, del primer encabezado o de la primera línea (si el primer encabezado es solo «Título», se usa la línea que va debajo). Si marcas <b>«Ya son apuntes míos: publicarlos tal cual, sin resumirlos con el Broker»</b>, el texto no se manda a resumir: se publica en la bóveda exactamente como está (ver más abajo).</li>
         <li><b>Parece una captura pero está rota</b>: no se añade y se explica el motivo (p. ej. «falta la sección ## Transcripción»).</li>
         <li><b>Ya importado antes</b>: se avisa con «Ya estaban importados» y no se duplica.</li>
       </ul></li>
     <li>Los añadidos aparecen en <b>Documentos → En proceso</b>.</li>
   </ol>
-  <figure class="half"><img src="img/s1_08_dialogo_convertir.png" alt=""><figcaption>Conversión de un Markdown normal: el original no se modifica.</figcaption></figure>
+  <figure class="half"><img src="img/s1_08_dialogo_convertir.png" alt=""><figcaption>Conversión de un Markdown normal: el original no se modifica. La casilla publica apuntes ya hechos sin resumirlos.</figcaption></figure>
+  <h3>Apuntes o resúmenes que ya traes hechos</h3>
+  <p>Si el documento ya es un apunte tuyo, marca la casilla <b>«Ya son apuntes míos…»</b> antes de pulsar <span class="btn">Convertir y añadir</span>. La casilla vale para todos los documentos de ese diálogo.</p>
+  <ul>
+    <li><b>No se gasta el Broker en resumirlo</b>: el documento pasa por Recibido → Validado → Publicado sin ninguna petición de resumen. Si el perfil exige revisión humana, queda como borrador igual que los demás.</li>
+    <li>La nota publicada lleva <code>note_origin: own_note</code> en su cabecera y su texto es idéntico al original (sin la cabecera YAML que tuviera).</li>
+    <li><b>Sus afirmaciones se extraen igual</b> (esto sí usa el Broker, una petición por nota), pero se marcan como <span class="pill">Apunte propio</span>: no hay otro documento con el que cotejarlas.</li>
+    <li>Por eso <b>pesan menos</b>: nunca proponen cambios en otras notas, en las búsquedas y en las consultas desde ChatyGPT salen detrás de las afirmaciones de documentos con fuente, y si se contradicen el modelo prefiere la del documento. En cambio, un documento con fuente sí puede proponer corregir tus apuntes.</li>
+  </ul>
   <h3>7.2 Carpeta vigilada</h3>
   <p>Deja archivos en la carpeta vigilada (o deja que lo haga el plugin de YouTube). La aplicación espera a que el archivo deje de cambiar, lo valida, guarda una copia con huella SHA-256 y lo saca de la bandeja. Si el archivo está bloqueado por otro programa o sigue cambiando, queda una incidencia reintentable. Si no tiene el formato de captura, se aparta a cuarentena y aparece en <b>Necesitan atención</b> como <span class="pill warn">Formato no válido</span> (ver capítulo 8).</p>
   <div class="note"><b>Solo capturas en la carpeta vigilada</b>A la carpeta vigilada solo deben llegar capturas del plugin. Un Markdown normal dejado ahí irá a cuarentena; para esos usa «Importar documentos», que los convierte.</div>
@@ -379,7 +387,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
   <h2>10. Biblioteca</h2>
   <figure><img src="img/m04_biblioteca.png" alt=""></figure>
   <ul>
-    <li><b>Buscar</b> por texto y filtrar por <b>tema</b> con los botones de la parte superior. La lista se pagina de 100 en 100 (<span class="btn">‹ Anterior</span> <span class="btn">Siguiente ›</span>).</li>
+    <li><b>Buscar</b> por texto (título, tema o ruta; no distingue tildes ni mayúsculas: «que es» encuentra «Qué es») y filtrar por <b>tema</b> con los botones de la parte superior. Los apuntes importados sin tema quedan en <b>_inbox</b>. La lista se pagina de 100 en 100 (<span class="btn">‹ Anterior</span> <span class="btn">Siguiente ›</span>).</li>
     <li>Al seleccionar una nota ves su tema, revisión, fecha de publicación, ruta en la bóveda y una <b>vista previa</b> del texto.</li>
     <li><span class="btn">Abrir en Obsidian</span> (o doble clic) la abre en Obsidian; <span class="btn">Abrir carpeta</span> muestra el archivo en el Explorador; <span class="btn">Ver documento de origen</span> te lleva al documento en la pantalla Documentos.</li>
   </ul>
@@ -401,7 +409,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
   <p>Cada nota publicada se analiza en segundo plano: el modelo que extrae afirmaciones elige frases de la nota y tramos del documento original, y la aplicación <b>comprueba</b> que la evidencia existe en el texto. Así una afirmación inventada no puede colarse con una cita válida.</p>
   <ul>
     <li><b>Estado</b>: <i>Vigente</i>, <i>Histórica</i>, etc. Busca por entidad o texto y pulsa <span class="btn">Buscar</span>.</li>
-    <li><b>Vigencia · respaldo</b>: si sigue en vigor y si la fuente original la respalda.</li>
+    <li><b>Vigencia · respaldo</b>: si sigue en vigor y si la fuente original la respalda. <i>Apunte propio</i> indica que viene de un apunte tuyo publicado tal cual (capítulo 7.1): no tiene otra fuente y pesa menos.</li>
     <li>El detalle muestra la afirmación, su evidencia literal, su origen, sus entidades y su evolución (qué la sustituyó o amplió).</li>
   </ul>
   <div class="note"><b>Elegir bien el modelo que extrae</b>Extraer afirmaciones exige devolver una estructura exacta: conviene un modelo que <b>no razone</b> antes de responder. Si un modelo devuelve respuestas inservibles, la aplicación lo aparta 14 días para la elección automática (puedes rehabilitarlo en Ajustes → <span class="btn">Modelos apartados por fallos…</span>).</div>
@@ -558,7 +566,8 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td>Privacidad</td><td><b>Solo procesamiento local</b> (no sale de tu red; sin coste), confidencial, uso interno o contenido público.</td></tr>
     <tr><td>Uso del contexto</td><td>Compresión del prompt (lo decide el Broker por defecto).</td></tr>
     <tr><td>Longitud máxima de la respuesta</td><td>Tokens de salida (por defecto 8000). Los modelos que razonan necesitan más; si eliges uno con poco margen, se te avisa.</td></tr>
-    <tr><td>Presupuesto por documento (USD)</td><td>Límite de gasto para todo el documento (partes, síntesis y reintentos). Con privacidad «Solo procesamiento local» no se gasta nada.</td></tr>
+    <tr><td>Coste máximo por petición (USD)</td><td>Tope de gasto que se envía con cada petición; lo hace cumplir el Broker. Si solo marcas proveedores locales no se gasta nada.</td></tr>
+    <tr><td>Proveedores permitidos</td><td>Una casilla por cada proveedor que anuncia el Broker, con «(local)» o «(nube)». Solo se usan los marcados: la privacidad dice dónde <i>puede</i> ir el contenido, y esto, qué modelos se usan de verdad. Marcar uno de nube permite modelos remotos, que pueden cobrar; las privacidades «Solo procesamiento local» y «Confidencial» no admiten ninguno de nube.</td></tr>
     <tr><td>Usar solo el modelo elegido</td><td>Prohíbe al Broker sustituir el modelo por otro.</td></tr>
     <tr><td>Exigir revisión humana</td><td>Cada apunte queda como borrador hasta aprobarlo.</td></tr>
   </table>
@@ -646,7 +655,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td>Solo aparece «Automático (Broker)» en los modelos</td><td>El catálogo aún no ha llegado (tarda unos segundos tras conectar; si el Broker está ocupado se reintenta cada 30 s). Vuelve a seleccionar el perfil al poco.</td></tr>
     <tr><td>Error «El Broker cortó la tarea porque el modelo no terminó a tiempo» (<code>TASK_TIMEOUT</code>)</td><td>Un modelo local grande tardó demasiado (a menudo, cargando). Pulsa Reintentar. Si se repite, en Ajustes elige un modelo concreto más pequeño o el método «Respuesta directa». El plazo actual es de 30 minutos.</td></tr>
     <tr><td>«El modelo agotó su presupuesto de respuesta razonando»</td><td>El modelo pensó tanto que no llegó a escribir. Se reintenta solo una vez con el doble de margen; si vuelve a fallar, elige un modelo sin razonamiento o sube la longitud máxima.</td></tr>
-    <tr><td>«Presupuesto agotado» (<code>DOCUMENT_BUDGET_EXHAUSTED</code>)</td><td>Con proveedores de pago, el documento gastó su presupuesto. Sube el presupuesto en Ajustes y reintenta. Con «Solo procesamiento local» ya no se reserva dinero: si un documento quedó así con la versión 0.4.0, basta con pulsar Reintentar.</td></tr>
+    <tr><td>«Presupuesto agotado» (<code>DOCUMENT_BUDGET_EXHAUSTED</code>)</td><td>Error de versiones anteriores a la 0.5.11, que llevaban un control de presupuesto propio. Desde la 0.5.11 el coste lo controla solo el Broker: basta con pulsar Reintentar.</td></tr>
     <tr><td>Formato no válido / Sin transcripción</td><td>El archivo de la bandeja no es una captura. Está en cuarentena: corrígelo o impórtalo como documento normal, y cierra la incidencia.</td></tr>
     <tr><td>Archivo bloqueado / inestable</td><td>Otro programa lo tenía abierto. Ciérralo y pulsa Reintentar.</td></tr>
     <tr><td>«Ya estaban importados»</td><td>Ese documento ya está en la aplicación. Búscalo en Documentos o Biblioteca; para procesarlo de nuevo usa «Volver a procesar».</td></tr>
@@ -686,6 +695,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td>Crear, editar u ordenar temas</td><td>Organización → Nuevo tema / seleccionar → Guardar tema; Subir/Bajar prioridad</td></tr>
     <tr><td>Saber a qué tema irá un título</td><td>Organización → Probar clasificación</td></tr>
     <tr><td>Añadir documentos</td><td>+ Importar documentos (Ctrl+O), carpeta vigilada, Fuentes o API</td></tr>
+    <tr><td>Añadir apuntes ya hechos sin resumirlos</td><td>+ Importar documentos → casilla «Ya son apuntes míos…» → Convertir y añadir</td></tr>
     <tr><td>Ver cómo va un documento</td><td>Documentos → seleccionarlo → pasos y línea de tiempo</td></tr>
     <tr><td>Reenviar uno o varios</td><td>Documentos → seleccionar (Ctrl/Mayús) → Enviar ahora / Reintentar / Enviar N seleccionados</td></tr>
     <tr><td>Parar un documento</td><td>Documentos → Cancelar procesamiento</td></tr>

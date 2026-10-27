@@ -66,6 +66,28 @@ def _value_for(mapping: dict[str, str], label: str) -> str:
     return next((value for value, visible in mapping.items() if visible == label), label)
 
 
+def provider_policy(
+    checked: list[str], local: dict[str, bool], classification: str, model_provider: str | None,
+) -> tuple[tuple[str, ...], bool]:
+    """Traduce las casillas de proveedores a `allowed_providers` y `cloud_allowed`.
+
+    La nube se permite si hay algún proveedor marcado que no es local; antes ambos
+    valores eran fijos en el código (`("ollama",)`, sin nube) y «Privacidad: público»
+    no abría nada. Un proveedor que el catálogo no conoce cuenta como nube.
+    """
+
+    if not checked:
+        raise ValueError("Marca al menos un proveedor de modelos.")
+    cloud = [name for name in checked if not local.get(name, False)]
+    if cloud and classification in {"confidential", "local_only"}:
+        raise ValueError(f"Con privacidad «{_label_for(CLASSIFICATION_LABELS, classification)}» solo se "
+                         f"admiten proveedores locales; desmarca {', '.join(cloud)}.")
+    if model_provider and model_provider not in checked:
+        raise ValueError(f"El modelo que redacta el apunte es de «{model_provider}», que no está marcado "
+                         "en «Proveedores permitidos».")
+    return tuple(checked), bool(cloud)
+
+
 def data_root_label(runtime: OrchestratorRuntime) -> str:
     """Devuelve una raíz humana estable aunque PipelinePaths no exponga `root`."""
     paths = runtime.paths
@@ -210,6 +232,7 @@ class ConfiguracionMixin(TemasMixin):
         # izquierda y el formulario apretado contra el borde derecho.
         content.add(list_frame, minsize=360, stretch="never")
         content.add(editor, minsize=560, stretch="always")
+        self._profile_panes = (content, editor)
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(0, weight=1)
         columns = ("nombre", "modelo", "estrategia", "datos", "activo")
@@ -274,36 +297,45 @@ class ConfiguracionMixin(TemasMixin):
         ttk.Entry(editor, textvariable=self.profile_form["max_output_tokens"], width=27, style="Dark.TEntry").grid(
             row=6, column=1, sticky="ew", padx=(12, 0), pady=6
         )
-        tk.Label(editor, text="Presupuesto por documento (USD)", bg=self.colors["surface"], fg=self.colors["muted"],
+        tk.Label(editor, text="Coste máximo por petición (USD)", bg=self.colors["surface"], fg=self.colors["muted"],
                  font=("Segoe UI", 9)).grid(row=7, column=0, sticky="w", pady=6)
         ttk.Entry(editor, textvariable=self.profile_form["max_cost"], width=27, style="Dark.TEntry").grid(
             row=7, column=1, sticky="ew", padx=(12, 0), pady=6
         )
+        # Qué proveedores puede usar el Broker. Las casillas se rellenan con el
+        # catálogo al elegir perfil (`_fill_provider_checks`).
+        tk.Label(editor, text="Proveedores permitidos", bg=self.colors["surface"], fg=self.colors["muted"],
+                 font=("Segoe UI", 9)).grid(row=8, column=0, sticky="nw", pady=6)
+        self.providers_frame = tk.Frame(editor, bg=self.colors["surface"])
+        self.providers_frame.grid(row=8, column=1, sticky="ew", padx=(12, 0), pady=6)
+        self._provider_vars: dict[str, tk.BooleanVar] = {}
+        self._provider_local: dict[str, bool] = {}
         # Sin esto el Broker podía responder con otro modelo distinto del
         # elegido (sustituyó gemma4:12b por nemotron, que también razona), y
         # entonces elegir bien en esta pantalla no servía de nada.
         ttk.Checkbutton(editor, text="Usar solo el modelo elegido (sin sustituciones del Broker)",
                         variable=self.profile_form["only_chosen_model"], style="Dark.TCheckbutton").grid(
-            row=8, column=0, columnspan=2, sticky="w", pady=(10, 0)
+            row=9, column=0, columnspan=2, sticky="w", pady=(10, 0)
         )
         ttk.Checkbutton(editor, text="Exigir revisión humana antes de publicar",
                         variable=self.profile_form["human_review"], style="Dark.TCheckbutton").grid(
-            row=9, column=0, columnspan=2, sticky="w", pady=(4, 6)
+            row=10, column=0, columnspan=2, sticky="w", pady=(4, 6)
         )
         tk.Label(
             editor,
             text=(
                 "El primero escribe el apunte en prosa. El segundo extrae afirmaciones y tiene que devolver "
                 "una estructura exacta, así que conviene uno que no razone; si falla, deja de proponerse solo. "
-                "La privacidad determina dónde puede procesarse el contenido. El presupuesto es para el "
-                "documento entero: se reparte entre sus partes y la síntesis, y los reintentos gastan de él. "
+                "La privacidad determina dónde puede procesarse el contenido y los proveedores marcados, "
+                "qué modelos se usan de verdad: uno de nube puede cobrar. El coste máximo va en cada "
+                "petición y lo controla el Broker. "
                 "El consenso se aplica al documento o a su síntesis; las partes de un documento extenso van "
                 "siempre con un solo modelo. Los cambios afectan a documentos nuevos; «Reintentar» reenvía "
                 "con la configuración completa vigente."
             ),
             bg=self.colors["surface"], fg=self.colors["muted"], font=("Segoe UI", 9), wraplength=520,
             justify="left", anchor="w",
-        ).grid(row=10, column=0, columnspan=2, sticky="w", padx=(0, 12), pady=(8, 14))
+        ).grid(row=11, column=0, columnspan=2, sticky="w", padx=(0, 12), pady=(8, 14))
         self.save_profile_button = ttk.Button(
             editor, text="Guardar política", style="Accent.TButton", command=self._save_profile
         )
@@ -311,15 +343,15 @@ class ConfiguracionMixin(TemasMixin):
             editor, text="Editar instrucciones de extracción…", style="Secondary.TButton",
             command=self._open_prompt_editor,
         )
-        self.edit_prompt_button.grid(row=11, column=0, sticky="w")
-        self.save_profile_button.grid(row=11, column=1, sticky="e")
+        self.edit_prompt_button.grid(row=12, column=0, sticky="w")
+        self.save_profile_button.grid(row=12, column=1, sticky="e")
         # Memoria de fallos visible y reversible (auditoría H10): un veto
         # eterno excluía modelos por causas que ya se habían corregido.
         self.vetoed_models_button = ttk.Button(
             editor, text="Modelos apartados por fallos…", style="Secondary.TButton",
             command=self._open_vetoed_models,
         )
-        self.vetoed_models_button.grid(row=12, column=0, sticky="w", pady=(8, 0))
+        self.vetoed_models_button.grid(row=13, column=0, sticky="w", pady=(8, 0))
         self.save_profile_button.state(["disabled"])
         self.edit_prompt_button.state(["disabled"])
         self._loading_profile = False
@@ -556,6 +588,7 @@ class ConfiguracionMixin(TemasMixin):
         self.profile_form["max_output_tokens"].set(str(current.max_output_tokens))
         self.profile_form["human_review"].set(item.human_review_required)
         self.profile_form["only_chosen_model"].set(not current.fallback_allowed)
+        self._fill_provider_checks(current.allowed_providers)
         self._profile_prompts = {
             "system_prompt": current.system_prompt,
             "user_prompt": current.user_prompt,
@@ -566,6 +599,28 @@ class ConfiguracionMixin(TemasMixin):
         self._profile_dirty = False
         self._sync_profile_buttons()
         self.edit_prompt_button.state(["!disabled"])
+
+    def _fill_provider_checks(self, allowed: tuple[str, ...]) -> None:
+        """Una casilla por proveedor del catálogo (y por los que ya tenga el perfil)."""
+
+        for child in self.providers_frame.winfo_children():
+            child.destroy()
+        self._provider_local = self.snapshots.providers()
+        names = list(self._provider_local) + [name for name in allowed if name not in self._provider_local]
+        self._provider_vars = {}
+        for index, name in enumerate(names):
+            variable = tk.BooleanVar(value=name in allowed)
+            variable.trace_add("write", self._mark_profile_dirty)
+            self._provider_vars[name] = variable
+            kind = "local" if self._provider_local.get(name, False) else "nube"
+            ttk.Checkbutton(self.providers_frame, text=f"{name} ({kind})", variable=variable,
+                            style="Dark.TCheckbutton").grid(row=index // 2, column=index % 2, sticky="w",
+                                                            padx=(0, 12))
+        # El PanedWindow conserva la altura con la que se construyó: sin esto, las
+        # casillas añadidas después dejaban cortado el último botón del formulario.
+        content, editor = self._profile_panes
+        editor.update_idletasks()
+        content.paneconfigure(editor, height=editor.winfo_reqheight())
 
     def _sync_path_summary(self, source: tk.StringVar, summary: tk.StringVar, *_args: object) -> None:
         summary.set(self._middle_ellipsis(source.get(), 72))
@@ -639,7 +694,7 @@ class ConfiguracionMixin(TemasMixin):
             max_cost = float(self.profile_form["max_cost"].get().strip().replace(",", "."))
         except ValueError:
             messagebox.showerror("No se pudo guardar la política",
-                                 "El presupuesto por documento debe ser un número en dólares, por ejemplo 0.05.",
+                                 "El coste máximo por petición debe ser un número en dólares, por ejemplo 0.05.",
                                  parent=self)
             return
         try:
@@ -668,6 +723,13 @@ class ConfiguracionMixin(TemasMixin):
             strategy = _value_for(STRATEGY_LABELS, self.profile_form["strategy"].get())
             if capabilities and strategy not in available_profile_strategies(capabilities):
                 raise ValueError(f"El Broker actual no ofrece la estrategia {strategy}")
+            classification = _value_for(CLASSIFICATION_LABELS, self.profile_form["classification"].get())
+            model_provider = next((option.provider for option in self.snapshots.models()
+                                   if option.name == chosen_model), None) if chosen_model else None
+            allowed_providers, cloud_allowed = provider_policy(
+                [name for name, variable in self._provider_vars.items() if variable.get()],
+                self._provider_local, classification, model_provider,
+            )
             # La división la hace siempre la aplicación: se guarda el modo local.
             long_context = "fail"
             updated = replace(
@@ -681,9 +743,9 @@ class ConfiguracionMixin(TemasMixin):
                 # (auditoría H21): cambiar la estrategia ajusta los pasos.
                 multitasking_steps=(("single", "synthesis") if strategy in {"mixture_of_agents", "auto"}
                                     else current.multitasking_steps),
-                data_classification=_value_for(
-                    CLASSIFICATION_LABELS, self.profile_form["classification"].get()
-                ),
+                data_classification=classification,
+                allowed_providers=allowed_providers,
+                cloud_allowed=cloud_allowed,
                 long_context=long_context,
                 prompt_compression=(
                     None

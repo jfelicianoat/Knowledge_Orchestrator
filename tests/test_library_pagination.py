@@ -113,6 +113,17 @@ class LibraryPaginationTests(unittest.TestCase):
         self.assertEqual(self.snapshots.library_page("00001", topic="Tema raro").total, 1)
         self.assertEqual(self.snapshots.library_page("00001", topic="Tema común").total, 0)
 
+    def test_search_ignores_accents_and_case(self) -> None:
+        # 27-oct-2026: «Què es el Data Scienc» no encontraba «Qué es el Data Science…».
+        self.seed(3, rare_topic_notes=0)
+        with self.runtime.database.transaction(immediate=True) as connection:
+            connection.execute("UPDATE captures SET title = 'Qué es el Data Science y por qué es necesario' "
+                               "WHERE capture_id = 'lib_00001'")
+        for query in ("Què es el Data Scienc", "QUE ES EL data", "data science y por"):
+            page = self.snapshots.library_page(query)
+            self.assertEqual([item.capture_id for item in page.items], ["lib_00001"], query)
+        self.assertEqual(self.snapshots.library_page("100%").total, 0)
+
     def test_library_page_widgets_page_through_and_filter(self) -> None:
         try:
             probe = tk.Tk()

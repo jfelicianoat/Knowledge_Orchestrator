@@ -17,7 +17,7 @@ from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.runtime import build_runtime
 from knowledge_orchestrator.ui.dashboard import NAVIGATION
 from knowledge_orchestrator.ui.dashboard.base import DashboardBase, ingestion_status_text
-from knowledge_orchestrator.ui.dashboard.configuracion import ConfiguracionMixin
+from knowledge_orchestrator.ui.dashboard.configuracion import ConfiguracionMixin, provider_policy
 from knowledge_orchestrator.ui.dashboard.inicio import event_tone
 from knowledge_orchestrator.ui.dashboard.temas import topic_order_label
 from knowledge_orchestrator.ui.dashboard.trabajo_detalle import STEPS, humane_phase, work_progress
@@ -143,6 +143,39 @@ class ProfileFormTests(unittest.TestCase):
         ConfiguracionMixin._select_profile(view)  # type: ignore[arg-type]
 
         self.assertTrue(view._profile_dirty)
+
+    def test_providers_are_configurable_and_cloud_follows_them(self) -> None:
+        """27-oct: «Privacidad: público» no abría nada porque proveedores y nube eran fijos en el código."""
+
+        local = {"ollama": True, "lmstudio": True, "FreeLLMapi": False}
+        self.assertEqual(provider_policy(["ollama", "lmstudio"], local, "public", None),
+                         (("ollama", "lmstudio"), False))
+        self.assertEqual(provider_policy(["ollama", "FreeLLMapi"], local, "public", "ollama"),
+                         (("ollama", "FreeLLMapi"), True))
+        # Un proveedor que el catálogo no conoce cuenta como nube (puede cobrar).
+        self.assertTrue(provider_policy(["desconocido"], local, "public", None)[1])
+        with self.assertRaisesRegex(ValueError, "al menos un proveedor"):
+            provider_policy([], local, "public", None)
+        with self.assertRaisesRegex(ValueError, "FreeLLMapi"):
+            provider_policy(["ollama", "FreeLLMapi"], local, "local_only", None)
+        with self.assertRaisesRegex(ValueError, "lmstudio"):
+            provider_policy(["ollama"], local, "public", "lmstudio")
+
+    def test_catalog_lists_providers_with_local_or_cloud(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            runtime = build_runtime(PipelinePaths.under(Path(folder)))
+            runtime.workflow_repository.upsert_models([
+                {"name": "a", "provider": "ollama", "deployment": "local", "status": "available",
+                 "capabilities": ["completion"]},
+                {"name": "b", "provider": "FreeLLMapi", "deployment": "cloud", "status": "online",
+                 "capabilities": ["completion"]},
+                {"name": "c", "provider": "nvidia", "deployment": "api", "status": "online",
+                 "capabilities": ["completion"]},
+                {"name": "roto", "provider": "unsloth", "deployment": "cloud", "status": "online",
+                 "capabilities": ["completion"], "compatibility": "incompatible"},
+            ], "2026-10-27T08:00:00Z")
+            providers = UiSnapshotService(runtime.database).providers()
+        self.assertEqual(providers, {"ollama": True, "FreeLLMapi": False, "nvidia": False})
 
 
 class RecentActivityTests(unittest.TestCase):

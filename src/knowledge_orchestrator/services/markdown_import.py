@@ -28,6 +28,7 @@ import yaml
 
 from knowledge_orchestrator.domain.contracts import MAX_CAPTURE_BYTES, TRANSCRIPT_HEADING, parse_capture_bytes
 from knowledge_orchestrator.domain.errors import CaptureContractError
+from knowledge_orchestrator.domain.sources import OWN_NOTES_KEY
 
 from .filesystem import write_synced
 
@@ -37,6 +38,7 @@ TITLE_LINE_MAX = 120
 #: Claves que delatan que el autor quería escribir una captura contractual.
 _CONTRACT_MARKERS = ("contract_version", "capture_id")
 _HEADING = re.compile(r"(?m)^#{1,6}[ \t]+(.+?)[ \t#]*$")
+_TITLE_LABELS = {"título", "titulo", "title"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +135,13 @@ def detect_title(body: str, metadata: dict | None, fallback: str) -> str:
     if isinstance(declared, str) and declared.strip():
         return declared.strip()[:500]
     heading = _HEADING.search(body)
+    if heading and heading.group(1).strip().rstrip(":").casefold() in _TITLE_LABELS:
+        # Plantillas de apuntes con «## Título» y el título real en la línea siguiente.
+        following = next((line.strip().lstrip("#").strip() for line in body[heading.end():].splitlines()
+                          if line.strip()), "")
+        if 3 <= len(following) <= TITLE_LINE_MAX * 2:
+            return following[:500]
+        return fallback[:500]
     if heading and heading.group(1).strip():
         return heading.group(1).strip()[:500]
     # Un .txt no suele tener encabezados, pero su primera línea casi siempre es
@@ -143,8 +152,11 @@ def detect_title(body: str, metadata: dict | None, fallback: str) -> str:
     return fallback[:500]
 
 
-def build_capture(path: Path, *, now: datetime | None = None) -> tuple[str, str]:
+def build_capture(path: Path, *, now: datetime | None = None, own_notes: bool = False) -> tuple[str, str]:
     """Envuelve un documento normal en una captura válida. Devuelve (capture_id, markdown).
+
+    Con `own_notes` el documento es un apunte que la persona ya trae hecho: se
+    publicará tal cual, sin pedir al Broker que lo resuma.
 
     El `capture_id` sale del contenido: importar dos veces el mismo texto da la
     misma captura y la ingesta la reconoce como duplicada en vez de procesarla
@@ -171,6 +183,8 @@ def build_capture(path: Path, *, now: datetime | None = None) -> tuple[str, str]
         "status": "pending",
         "imported_from": source.name,
     }
+    if own_notes:
+        envelope[OWN_NOTES_KEY] = True
     # La sección empieza en el primer encabezado: todo lo que sigue, incluido
     # otro «## Transcripción» del propio texto, es contenido y llega intacto.
     markdown = (
@@ -181,10 +195,10 @@ def build_capture(path: Path, *, now: datetime | None = None) -> tuple[str, str]
     return capture_id, markdown
 
 
-def write_converted(path: Path, inbox: Path) -> Path:
+def write_converted(path: Path, inbox: Path, *, own_notes: bool = False) -> Path:
     """Escribe la captura convertida en el inbox, de forma atómica. El original no se toca."""
 
-    capture_id, markdown = build_capture(path)
+    capture_id, markdown = build_capture(path, own_notes=own_notes)
     inbox.mkdir(parents=True, exist_ok=True)
     target = inbox / f"{capture_id}.md"
     encoded = markdown.encode("utf-8")

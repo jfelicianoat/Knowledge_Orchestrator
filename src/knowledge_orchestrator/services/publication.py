@@ -13,6 +13,7 @@ import yaml
 
 from knowledge_orchestrator.config import PipelinePaths
 from knowledge_orchestrator.domain.publication_models import NoteRecord, PublishableWorkflow, ReprocessIntent
+from knowledge_orchestrator.domain.sources import is_own_note
 from knowledge_orchestrator.repositories.capture_repository import CaptureRepository
 from knowledge_orchestrator.repositories.domain_repository import DomainRepository
 from knowledge_orchestrator.repositories.publication_repository import PublicationRepository
@@ -130,6 +131,8 @@ class PublicationService:
             "capture_id": capture.capture_id,
             "revision": workflow.revision,
             "status": "processed",
+            # Lo escribió la persona y se publicó sin resumir: sus claims pesan menos.
+            "note_origin": "own_note" if is_own_note(metadata) else None,
         }
         frontmatter = {key: value for key, value in frontmatter.items() if value is not None}
         document = "---\n" + yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False) + "---\n\n" + body

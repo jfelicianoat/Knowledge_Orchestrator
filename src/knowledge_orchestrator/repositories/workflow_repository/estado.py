@@ -154,17 +154,27 @@ def error_de(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def coste_real(broker_result: dict[str, Any] | None) -> float | None:
-    """Coste que el Broker dice haber gastado (`usage.cost_usd`), si lo dice."""
+def _numero(value: Any) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def coste_real(broker_result: dict[str, Any] | None, progress: dict[str, Any] | None = None) -> float | None:
+    """Coste que el Broker dice haber gastado, si lo dice.
+
+    Primero `result.usage.cost_usd`; si no hay resultado (tarea fallida), el
+    `progress.cost_actual_usd` que el Broker contabiliza en toda tarea. Sin
+    leerlo, un fallo tras ejecutar (TASK_TIMEOUT) con modelos gratuitos se
+    quedaba la reserva entera y el reintento moría con DOCUMENT_BUDGET_EXHAUSTED
+    (incidencia real 26-oct).
+    """
 
     usage = (broker_result or {}).get("usage")
-    if not isinstance(usage, dict):
-        return None
-    for key in ("cost_usd", "total_cost_usd", "cost"):
-        value = usage.get(key)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return float(value)
-    return None
+    if isinstance(usage, dict):
+        for key in ("cost_usd", "total_cost_usd", "cost"):
+            value = _numero(usage.get(key))
+            if value is not None:
+                return value
+    return _numero((progress or {}).get("cost_actual_usd"))
 
 
 #: Fallos que llegan después de ejecutar: el modelo generó (y pudo cobrar) antes
@@ -174,7 +184,12 @@ EXECUTED_FAILURE_CODES = frozenset({
 })
 
 
-def coste_liquidable(target: TaskStatus, broker_result: dict[str, Any] | None, error: dict[str, Any]) -> float | None:
+def coste_liquidable(
+    target: TaskStatus,
+    broker_result: dict[str, Any] | None,
+    error: dict[str, Any],
+    progress: dict[str, Any] | None = None,
+) -> float | None:
     """Coste contra el que liquidar la reserva de una tarea terminada.
 
     Con coste informado, ese. Si no lo hay: una tarea que respondió conserva la
@@ -183,7 +198,7 @@ def coste_liquidable(target: TaskStatus, broker_result: dict[str, Any] | None, e
     reintento de un documento local, que no cuesta nada, agotaba su bolsa.
     """
 
-    reported = coste_real(broker_result)
+    reported = coste_real(broker_result, progress)
     if reported is not None:
         return reported
     if target is TaskStatus.SUCCESS or str(error.get("code") or "") in EXECUTED_FAILURE_CODES:
@@ -243,11 +258,17 @@ class EstadoMixin(ControlMixin):
             if target is TaskStatus.ERROR and self._reintentar_con_mas_presupuesto(
                 connection, current, task_id, error
             ):
+                # El intento cortado se liquida ya: el reenvío vuelve a reservar.
+                release_reservation(
+                    connection, task_id,
+                    actual_cost=coste_liquidable(target, broker_result, error, payload.get("progress")),
+                )
                 return True
             self._escribir_tarea(connection, task_id, payload, target, broker_result, error)
             if target in {TaskStatus.SUCCESS, TaskStatus.ERROR, TaskStatus.CANCELLED}:
                 release_reservation(
-                    connection, task_id, actual_cost=coste_liquidable(target, broker_result, error),
+                    connection, task_id,
+                    actual_cost=coste_liquidable(target, broker_result, error, payload.get("progress")),
                 )
 
             if target in {TaskStatus.SUCCESS, TaskStatus.ERROR}:

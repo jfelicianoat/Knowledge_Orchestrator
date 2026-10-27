@@ -25,7 +25,14 @@ FILTERS = {'Vigente': 'current', 'Histórico': 'historical', 'En revisión': 're
 
 
 #: Etiqueta breve para la lista; el detalle explica cada caso.
-SHORT_SUPPORT = {'SOURCE': ' · Respaldada', 'MODEL_LINKED': ' · Sin verificar', 'SUMMARY_ONLY': ' · Solo resumen'}
+SHORT_SUPPORT = {'SOURCE': ' · Respaldada', 'MODEL_LINKED': ' · Sin verificar', 'SUMMARY_ONLY': ' · Solo resumen',
+                 'OWN_NOTE': ' · Apunte propio'}
+
+
+def support_key(claim: dict) -> str:
+    """Un apunte propio no tiene fuente con la que cotejarse: se dice eso, no «Solo resumen»."""
+
+    return 'OWN_NOTE' if claim.get('claim_origin') == 'OWN_NOTE' else claim.get('source_support') or 'UNVERIFIED'
 
 
 def plain_statement(text: str) -> str:
@@ -56,6 +63,8 @@ SUPPORT_LABELS = {
     'SUMMARY_ONLY': 'Solo en el resumen: ningún fragmento de la fuente original la respalda. Puede ser una '
                     'inferencia o un error del resumen.',
     'UNVERIFIED': 'Sin comprobar: afirmación anterior a la comprobación contra la fuente original.',
+    'OWN_NOTE': 'Apunte propio: se publicó tal cual, sin fuente con la que cotejarlo. Pesa menos que lo '
+                'respaldado por un documento y no propone cambios en otras notas.',
 }
 
 class ConocimientoMixin(FuentesMixin):
@@ -187,7 +196,7 @@ class ConocimientoMixin(FuentesMixin):
         # no merece la misma confianza que «Vigente · Respaldada» (auditoría H07).
         self._replace_tree(self.knowledge_tree, [
             (key, (STATE_LABELS.get(item['knowledge_state'], item['knowledge_state'])
-                   + SHORT_SUPPORT.get(item.get('source_support') or '', ''), item['title']))
+                   + SHORT_SUPPORT.get(support_key(item), ''), item['title']))
             for key, item in self._knowledge_items.items()
         ], texts={key: plain_statement(item['statement']) for key, item in self._knowledge_items.items()})
         self._fit_knowledge_texts()
@@ -235,7 +244,7 @@ class ConocimientoMixin(FuentesMixin):
             history = self.runtime.knowledge.repository.history(item['claim_id'])
             chain = self.runtime.knowledge.repository.succession(item['claim_id'])
             evidence = '\n\n'.join(entry['quote'] for entry in claim['evidence'])
-            support = SUPPORT_LABELS.get(claim.get('source_support') or 'UNVERIFIED', SUPPORT_LABELS['UNVERIFIED'])
+            support = SUPPORT_LABELS.get(support_key(claim), SUPPORT_LABELS['UNVERIFIED'])
             original = '\n\n'.join('«' + ' '.join(entry['quote'].split())[:600] + '»'
                                     for entry in claim.get('source_evidence') or []) or 'Ningún fragmento.'
             sources = '\n'.join(source['title'] + ' · ' + source.get('source_url', 'Documento local')

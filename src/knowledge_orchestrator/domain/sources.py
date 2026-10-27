@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
+from typing import Any
+
 from .models import CaptureDocument, SourceOrigin
 
 
@@ -30,6 +34,21 @@ PROHIBITED_SOURCE_TYPES = frozenset({
     "monitored_documentation",
     "documentation_watch",
 })
+
+
+#: Clave de la captura que pide publicar el texto tal cual, sin resumirlo con el Broker.
+OWN_NOTES_KEY = "own_notes"
+
+
+def is_own_note(metadata: Mapping[str, Any] | str | None) -> bool:
+    """¿Es un apunte propio? Acepta el metadata ya leído o su JSON guardado en `captures`."""
+
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except ValueError:
+            return False
+    return isinstance(metadata, Mapping) and metadata.get(OWN_NOTES_KEY) is True
 
 
 def is_prohibited_source_type(source_type: str) -> bool:

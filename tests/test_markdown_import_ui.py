@@ -42,7 +42,7 @@ class MarkdownImportUiTests(unittest.TestCase):
             time.sleep(0.02)
         self.fail(f"No terminó a tiempo; estado: {self.window.status_var.get()}")
 
-    def _import(self, files: list[Path], *, convert: bool) -> tuple[mock.Mock, mock.Mock]:
+    def _import(self, files: list[Path], *, convert: str) -> tuple[mock.Mock, mock.Mock]:
         warnings, errors = mock.Mock(), mock.Mock()
         with mock.patch.object(trabajo_acciones.filedialog, "askopenfilenames", return_value=[str(f) for f in files]), \
                 mock.patch.object(trabajo_acciones.messagebox, "showwarning", warnings), \
@@ -62,7 +62,7 @@ class MarkdownImportUiTests(unittest.TestCase):
         broken = self.outside / "rota.md"
         broken.write_text(CAPTURE.replace('status: "pending"', 'status: "done"'), encoding="utf-8")
 
-        warnings, errors = self._import([ordinary, capture, broken], convert=True)
+        warnings, errors = self._import([ordinary, capture, broken], convert="summarize")
 
         self.confirm.assert_called_once()
         self.assertEqual([item.path.name for item in self.confirm.call_args.args[0]], ["apuntes.md"])
@@ -80,7 +80,7 @@ class MarkdownImportUiTests(unittest.TestCase):
     def test_declining_conversion_adds_nothing(self) -> None:
         ordinary = self.outside / "notas.txt"
         ordinary.write_text("Solo texto.\n", encoding="utf-8")
-        self._import([ordinary], convert=False)
+        self._import([ordinary], convert="")
         self.assertEqual(list(self.runtime.paths.inbox.glob("*.md")), [])
         self.assertIn("No se añadió ningún documento", self.window.status_var.get())
 
@@ -89,12 +89,12 @@ class MarkdownImportUiTests(unittest.TestCase):
         # solo lo decía un mensaje de la barra de estado que otros eventos tapaban.
         capture = self.outside / "captura.md"
         capture.write_text(CAPTURE, encoding="utf-8")
-        self._import([capture], convert=True)
+        self._import([capture], convert="summarize")
         self.assertTrue(self.runtime.ingestion.ingest(self.runtime.paths.inbox / "captura.md").accepted)
 
         infos = mock.Mock()
         with mock.patch.object(trabajo_acciones.messagebox, "showinfo", infos):
-            self._import([capture], convert=True)
+            self._import([capture], convert="summarize")
         infos.assert_called_once()
         self.assertEqual(infos.call_args.args[0], "Ya estaban importados")
         self.assertEqual(list(self.runtime.paths.inbox.glob("*.md")), [])

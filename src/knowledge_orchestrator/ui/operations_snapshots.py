@@ -67,7 +67,7 @@ class OperationsSnapshots:
             total = connection.execute('SELECT count(*) FROM knowledge_claims k WHERE ' + where, args).fetchone()[0]
             rows = connection.execute(
                 'SELECT k.claim_id,k.note_id,k.statement,k.knowledge_state,k.manual_lock,k.revision,k.source_support,'
-                'k.derived_from_claim_id,k.superseded_by,c.title,n.vault_path,('
+                'k.claim_origin,k.derived_from_claim_id,k.superseded_by,c.title,n.vault_path,('
                 + current_sql + ') AS available_current '
                 'FROM knowledge_claims k JOIN notes n ON n.note_id=k.note_id '
                 'JOIN captures c ON c.capture_id=n.capture_id WHERE ' + where

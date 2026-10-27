@@ -15,6 +15,7 @@ from knowledge_orchestrator.domain.semantic_models import (
     ExtractedClaim,
     KnowledgeClaim,
 )
+from knowledge_orchestrator.domain.sources import is_own_note
 from knowledge_orchestrator.repositories.knowledge_repository import register_claim
 from knowledge_orchestrator.repositories.maintenance_states import claim_in_application, note_in_reversion
 from knowledge_orchestrator.repositories.semantic_repository.base import RepositorioBase
@@ -34,14 +35,14 @@ class AfirmacionesMixin(RepositorioBase):
             connection.execute(
                 "INSERT INTO knowledge_claims(note_id, source_capture_id, topic_id, statement, normalized_statement, "
                 "claim_type, volatility, observed_at, source_date, span_start, span_end, entities_json, manual_lock, "
-                "source_support) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "source_support, claim_origin) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(note_id, span_start, span_end, normalized_statement) DO NOTHING",
                 (
                     note_id, context["capture_id"], context["topic_id"], claim.statement.strip(), normalized,
                     claim.claim_type.strip(), claim.volatility, claim.observed_at, claim.source_date,
                     claim.span_start, claim.span_end, json.dumps(entities, ensure_ascii=False), int(claim.manual_lock),
-                    claim.source_support,
+                    claim.source_support, "OWN_NOTE" if is_own_note(context["metadata_json"]) else "DOCUMENT",
                 ),
             )
             row = connection.execute(

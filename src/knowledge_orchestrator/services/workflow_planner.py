@@ -8,6 +8,7 @@ from typing import Any
 from knowledge_orchestrator.domain.broker_contracts import validate_create_task_request
 from knowledge_orchestrator.domain.broker_models import PlannedTask, StepKind, TaskStatus
 from knowledge_orchestrator.domain.models import ProfileDefinition
+from knowledge_orchestrator.domain.sources import is_own_note
 from knowledge_orchestrator.repositories.capture_repository import CaptureRepository
 from knowledge_orchestrator.repositories.domain_repository import DomainRepository
 from knowledge_orchestrator.repositories.workflow_repository import WorkflowRepository
@@ -24,6 +25,8 @@ from .system1 import Selection, System1Service
 
 #: Paso final de la síntesis y prefijo de las reducciones intermedias.
 FINAL_SYNTHESIS_STEP = "synthesis"
+#: Apunte propio publicado tal cual: un workflow sin tareas del Broker.
+OWN_NOTE_STRATEGY = "own_note"
 REDUCTION_PREFIX = "reduce_"
 #: En la síntesis la transcripción ya no cabe (por eso se troceó): si una
 #: plantilla personalizada la pide, recibe este aviso en vez de todo el texto.
@@ -36,17 +39,6 @@ TRUNCATION_MARK = "\n\n[… resultado parcial recortado para caber en la ventana
 
 def _fallback_base(step_id: str) -> str:
     return step_id.removesuffix("_fallback")
-
-
-def split_budget(total: float | None, parts: int) -> float | None:
-    """Reparte el presupuesto del documento sin superar nunca el total."""
-
-    if total is None:
-        return None
-    if parts <= 0:
-        return 0.0
-    # Se redondea hacia abajo: la suma de las partes nunca excede el total.
-    return int(total * 1_000_000 / parts) / 1_000_000
 
 
 class WorkflowPlanner:
@@ -119,6 +111,10 @@ class WorkflowPlanner:
         base_profile = self.domains.get_profile(capture.profile_id)
         if base_profile is None or not base_profile.enabled:
             raise ValueError("El perfil asignado no existe o está deshabilitado")
+        if is_own_note(capture.metadata_json):
+            workflow_revision = revision or self.workflows.next_revision(capture_id)
+            return self._plan_own_note(capture_id, f"wf_{capture_id}_r{workflow_revision}", workflow_revision,
+                                       base_profile, capture.transcript_content)
         window = self.context_window_for(base_profile)
         profile = self.effective_profile(base_profile, window=window)
         metadata = json.loads(capture.metadata_json)
@@ -129,9 +125,8 @@ class WorkflowPlanner:
         input_budget = window - profile.max_output_tokens - self.safety_tokens
         if input_budget < 500:
             raise ValueError("El perfil no deja espacio de contexto para la entrada")
-        # El presupuesto es del documento, no de cada petición (auditoría H08):
-        # los fragmentos se reparten la bolsa y la última parte queda para la
-        # síntesis. Lo que se envía de verdad lo vigila la reserva del workflow.
+        # El tope de coste va en cada petición y lo hace cumplir el Broker; KO no
+        # lo reparte ni lleva una bolsa propia por documento.
         document_budget = float(base_profile.max_cost_usd)
 
         workflow_revision = revision or self.workflows.next_revision(capture_id)
@@ -171,7 +166,6 @@ class WorkflowPlanner:
             chunk_budget = max(250, input_budget - overhead)
             chunks = self.chunker.split(transcript, max_tokens=chunk_budget)
             chunk_count = len(chunks)
-            profile = replace(profile, max_cost_usd=split_budget(document_budget, chunk_count + 1) or 0.0)
             for index, chunk in enumerate(chunks, start=1):
                 chunk_context = prompt_context(
                     metadata,
@@ -221,6 +215,27 @@ class WorkflowPlanner:
             review_required=base_profile.human_review_required,
             budget_usd=document_budget,
         )
+        return workflow_id
+
+    def _plan_own_note(
+        self, capture_id: str, workflow_id: str, revision: int, profile: ProfileDefinition, text: str,
+    ) -> str:
+        """Un apunte propio ya está hecho: se publica tal cual, sin pedir al Broker que lo resuma."""
+
+        self.workflows.create_workflow(
+            workflow_id=workflow_id,
+            capture_id=capture_id,
+            revision=revision,
+            profile_id=profile.profile_id or 0,
+            profile_revision=profile.revision,
+            strategy="single",  # la tabla solo admite single/chunked (y pasos > 0); el plan dice qué es
+            total_steps=1,
+            plan={"strategy": OWN_NOTE_STRATEGY, "human_review_required": profile.human_review_required},
+            tasks=[],
+            review_required=profile.human_review_required,
+            budget_usd=0.0,
+        )
+        self.workflows.finish_workflow(workflow_id, text)
         return workflow_id
 
     def context_window_for(self, profile: ProfileDefinition) -> int:
@@ -274,6 +289,12 @@ class WorkflowPlanner:
             successful = next((task for task in singles if task.status is TaskStatus.SUCCESS), None)
             if successful:
                 self.workflows.finish_workflow(workflow_id, self._assistant_content(successful.result_json))
+                return
+            if not singles:
+                # Apunte propio cortado entre crear el workflow y cerrarlo: se cierra al recuperar.
+                capture = self.captures.get(workflow.capture_id)
+                if capture is not None and is_own_note(capture.metadata_json):
+                    self.workflows.finish_workflow(workflow_id, capture.transcript_content)
                 return
             self._create_single_fallback_if_needed(singles)
             return
@@ -350,15 +371,13 @@ class WorkflowPlanner:
         room = input_budget - overhead
         if room < 250:
             raise ValueError("La plantilla de síntesis no deja espacio para los resultados parciales")
-        remaining_budget = self._remaining_budget(workflow.workflow_id)
         sequence = max((task.sequence_index for task in tasks), default=0) + 1
         system, user, joined = render(results, 1, len(results))
         if estimate_tokens(system + user) <= input_budget or len(results) == 1:
             if len(results) == 1 and estimate_tokens(system + user) > input_budget:
                 results = [self._fit(results[0], room)]
                 system, user, joined = render(results, 1, 1)
-            final_profile = replace(profile, max_cost_usd=remaining_budget if remaining_budget is not None
-                                    else profile.max_cost_usd)
+            final_profile = profile
             self.workflows.insert_synthesis_task(self._task(
                 capture_id=capture.capture_id, workflow_id=workflow.workflow_id, revision=workflow.revision,
                 profile=final_profile, step_id=FINAL_SYNTHESIS_STEP, step_kind=StepKind.SYNTHESIS,
@@ -368,14 +387,7 @@ class WorkflowPlanner:
             return
 
         groups = self._pack(results, room)
-        # Cada nivel reparte lo que queda entre sus reducciones y las que aún
-        # vendrán (se estiman dividiendo por dos hasta llegar a la final).
-        pending, size = 0, len(groups)
-        while size > 1:
-            pending += size
-            size = (size + 1) // 2
-        share = split_budget(remaining_budget, pending + 1)
-        reduction_profile = replace(profile, max_cost_usd=share if share is not None else profile.max_cost_usd)
+        reduction_profile = profile
         for index, group in enumerate(groups, start=1):
             system, user, joined = render(group, index, len(groups))
             self.workflows.insert_synthesis_task(self._task(
@@ -391,15 +403,6 @@ class WorkflowPlanner:
             f"se funden primero en {len(groups)} grupos (nivel {level}).",
             {"level": level, "inputs": len(results), "groups": len(groups)},
         )
-
-    def _remaining_budget(self, workflow_id: str) -> float | None:
-        with closing(self.workflows.database.connect(readonly=True)) as connection:
-            row = connection.execute(
-                "SELECT budget_usd, budget_reserved_usd FROM workflows WHERE workflow_id = ?", (workflow_id,)
-            ).fetchone()
-        if row is None or row["budget_usd"] is None:
-            return None
-        return max(0.0, float(row["budget_usd"]) - float(row["budget_reserved_usd"] or 0.0))
 
     @staticmethod
     def _fit(text: str, max_tokens: int) -> str:

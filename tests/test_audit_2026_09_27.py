@@ -359,26 +359,23 @@ class SourceEvidenceTests(AuditBase):
 
 
 class DocumentBudgetTests(AuditBase):
-    """H08: el presupuesto es del documento, no de cada petición."""
+    """El coste lo controla el Broker petición a petición (27-oct); KO ya no lleva bolsa propia."""
 
-    def test_split_document_never_reserves_more_than_its_budget(self) -> None:
-        # La bolsa protege el gasto en proveedores de pago; lo local no cuesta.
-        self.profile(max_cost_usd=0.05, data_classification="public")
+    def test_each_request_carries_the_profile_cap_and_ko_never_blocks(self) -> None:
+        self.profile(max_cost_usd=0.05, data_classification="public", cloud_allowed=True)
         self.runtime.workflow_planner.max_context_tokens = 4_000
         self.ingest("coste", LONG_TRANSCRIPT)
         workflow_id = self.runtime.workflow_planner.plan_capture("coste")
         repository = self.runtime.workflow_repository
         tasks = repository.list_workflow_tasks(workflow_id)
-        total = sum(json.loads(task.request_json)["model_requirements"]["max_cost_usd"] for task in tasks)
-        self.assertLessEqual(total, 0.05)
-        # Aunque alguien inflara una petición, la bolsa la para antes de enviarla.
+        self.assertGreater(len(tasks), 1)
+        for task in tasks:
+            self.assertEqual(json.loads(task.request_json)["model_requirements"]["max_cost_usd"], 0.05)
+        # Una reserva agotada ya no para el envío: decide el Broker.
         with closing(self.runtime.database.connect()) as connection, connection:
             connection.execute("UPDATE workflows SET budget_reserved_usd = 0.0499999 WHERE workflow_id = ?",
                                (workflow_id,))
-        self.assertIsNone(repository.claim_submission(tasks[0].task_id))
-        failed = repository.get_task(tasks[0].task_id)
-        self.assertEqual(failed.error_code, "DOCUMENT_BUDGET_EXHAUSTED")
-        self.assertEqual(repository.get_workflow(workflow_id).status, WorkflowStatus.ERROR)
+        self.assertIsNotNone(repository.claim_submission(tasks[0].task_id))
 
     def test_failure_that_never_ran_returns_its_reservation(self) -> None:
         self.profile(max_cost_usd=0.05)

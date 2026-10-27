@@ -44,6 +44,7 @@ def _claim(row: sqlite3.Row) -> KnowledgeClaim:
         revision=row['revision'],
         derived_from_claim_id=row['derived_from_claim_id'],
         source_support=row['source_support'] if 'source_support' in row.keys() else 'UNVERIFIED',
+        claim_origin=row['claim_origin'] if 'claim_origin' in row.keys() else 'DOCUMENT',
     )
 
 

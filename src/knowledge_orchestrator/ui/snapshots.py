@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from knowledge_orchestrator.domain.topics import normalize_search_text
 from knowledge_orchestrator.repositories.database import Database
 
 ACTIVE_CAPTURE_STATUSES = ("STAGED", "PENDING", "SUBMITTING", "QUEUED", "PROCESSING")
@@ -179,11 +180,13 @@ class LibraryPage:
 def _library_filter(query: str, topic: str | None) -> tuple[str, tuple[Any, ...]]:
     """Condición común de lista y recuento: mismas notas en los dos sitios."""
 
-    normalized = query.strip()
+    # Sin tildes ni mayúsculas: «Què es el data scienc» debe encontrar «Qué es el Data Science».
+    normalized = normalize_search_text(query).strip()
     like_query = f"%{normalized}%"
     where = (
         "n.status = 'PUBLISHED' "
-        "AND (? = '' OR c.title LIKE ? OR COALESCE(t.name, '') LIKE ? OR n.vault_path LIKE ?)"
+        "AND (? = '' OR ko_fold(c.title) LIKE ? OR ko_fold(COALESCE(t.name, '')) LIKE ? "
+        "OR ko_fold(n.vault_path) LIKE ?)"
     )
     parameters: tuple[Any, ...] = (normalized, like_query, like_query, like_query)
     if topic is not None:
@@ -212,6 +215,8 @@ class ModelOption:
     provider: str
     context_window: int | None
     thinking: bool
+    #: `deployment == "local"` en el catálogo; lo demás (cloud, api) puede cobrar.
+    local: bool = True
 
     @property
     def label(self) -> str:
@@ -386,6 +391,7 @@ class UiSnapshotService:
 
         where, parameters = _library_filter(query, topic)
         with closing(self.database.connect(readonly=True)) as connection:
+            connection.create_function("ko_fold", 1, normalize_search_text, deterministic=True)
             rows = connection.execute(
                 "SELECT n.note_id, n.capture_id, n.revision, n.status, n.vault_path, "
                 "n.published_at, n.updated_at, c.title, t.name AS topic_name "
@@ -421,6 +427,7 @@ class UiSnapshotService:
 
         where, parameters = _library_filter(query, topic)
         with closing(self.database.connect(readonly=True)) as connection:
+            connection.create_function("ko_fold", 1, normalize_search_text, deterministic=True)
             total = int(connection.execute(
                 f"SELECT COUNT(*) {_LIBRARY_FROM} WHERE {where}", parameters
             ).fetchone()[0])
@@ -514,8 +521,17 @@ class UiSnapshotService:
                 provider=str(row["provider"] or catalog.get("provider") or "desconocido"),
                 context_window=int(row["context_window"]) if row["context_window"] else None,
                 thinking="thinking" in capabilities if isinstance(capabilities, list) else False,
+                local=catalog.get("deployment") == "local",
             ))
         return options
+
+    def providers(self) -> dict[str, bool]:
+        """Proveedores con algún modelo utilizable y si son locales (`True`) o de nube."""
+
+        found: dict[str, bool] = {}
+        for option in self.models():
+            found[option.provider] = found.get(option.provider, True) and option.local
+        return dict(sorted(found.items(), key=lambda item: (not item[1], item[0].lower())))
 
     def model_names(self) -> list[str]:
         return [option.name for option in self.models()]
@@ -561,7 +577,8 @@ class UiSnapshotService:
         error_message = str(row["task_error_message"] or row["last_error_message"] or "")
         category = _work_category(capture_status, task_status, error_code)
         review_status = str(row["review_status"] or "")
-        if capture_status == "CANCELLED":
+        # Cancelar desde el Broker deja la captura FAILED con código CANCELLED: es una cancelación, no un error.
+        if capture_status == "CANCELLED" or (capture_status == "FAILED" and row["last_error_code"] == "CANCELLED"):
             # Una tarea que falló antes de cancelar no convierte la cancelación en error.
             status, category, error_code, error_message = "CANCELLED", "completed", None, ""
         elif review_status == "PENDING" and capture_status == "PROCESSING":

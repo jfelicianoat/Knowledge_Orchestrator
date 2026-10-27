@@ -21,14 +21,17 @@ def request_cost(request_json: str) -> float | None:
 
     try:
         request = json.loads(request_json)
-        value = (request.get("model_requirements") or {}).get("max_cost_usd")
+        requirements = request.get("model_requirements") or {}
+        value = requirements.get("max_cost_usd")
         local_only = (request.get("risk") or {}).get("data_classification") == "local_only"
     except (json.JSONDecodeError, AttributeError):
         return None
-    if local_only:
+    if local_only or requirements.get("cloud_allowed") is False:
         # Solo modelos locales: no cuesta nada. Reservar el máximo hacía que un
         # fallo sin coste informado (TASK_TIMEOUT) se quedara la bolsa entera y
-        # «Reintentar» muriera al instante con DOCUMENT_BUDGET_EXHAUSTED.
+        # «Reintentar» muriera al instante con DOCUMENT_BUDGET_EXHAUSTED. Un
+        # perfil `public` sin nube es igual de gratuito (incidencia real 27-oct:
+        # el Broker no informa coste en TASK_TIMEOUT).
         return 0.0
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -66,32 +69,15 @@ class EnvioMixin(ConsultaMixin):
         with self.database.transaction(immediate=True) as connection:
             row = connection.execute(
                 "SELECT t.task_id, t.workflow_id, t.capture_id, t.request_json, w.status AS workflow_status, "
-                "w.budget_usd, w.budget_reserved_usd FROM tasks t JOIN workflows w ON w.workflow_id = t.workflow_id "
+                "w.budget_usd FROM tasks t JOIN workflows w ON w.workflow_id = t.workflow_id "
                 "WHERE t.task_id = ? AND t.status = 'READY'",
                 (task_id,),
             ).fetchone()
             if row is None or row["workflow_status"] not in {"PLANNED", "RUNNING"}:
                 return None
+            # El control de coste es del Broker (max_cost_usd de cada petición): KO ya no
+            # para envíos por una bolsa propia, que solo daba DOCUMENT_BUDGET_EXHAUSTED falsos.
             cost = request_cost(row["request_json"])
-            if row["budget_usd"] is not None and cost is not None:
-                # La bolsa es del documento: fragmentos, síntesis, reducciones y
-                # reintentos reservan de ella antes de salir (auditoría H08).
-                if float(row["budget_reserved_usd"]) + cost > float(row["budget_usd"]) + 1e-9:
-                    message = (
-                        f"El documento agotó su presupuesto de {float(row['budget_usd']):.4f} USD "
-                        f"(reservado {float(row['budget_reserved_usd']):.4f}); esta petición pedía {cost:.4f}."
-                    )
-                    connection.execute(
-                        "UPDATE tasks SET status = 'ERROR', error_code = 'DOCUMENT_BUDGET_EXHAUSTED', "
-                        "error_message = ?, error_retryable = 0, "
-                        "completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
-                        "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?",
-                        (message, task_id),
-                    )
-                    self._fail_workflow(
-                        connection, row["workflow_id"], row["capture_id"], "DOCUMENT_BUDGET_EXHAUSTED", message,
-                    )
-                    return None
             cursor = connection.execute(
                 "UPDATE tasks SET status = 'SUBMITTING', attempt = attempt + 1, "
                 "budget_reserved_usd = budget_reserved_usd + ?, "
