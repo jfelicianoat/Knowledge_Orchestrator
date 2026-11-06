@@ -21,17 +21,25 @@ class BrokerDispatcher:
         client: BrokerClient,
         *,
         backoff_seconds: tuple[float, ...] = (30.0, 60.0, 120.0),
+        max_in_flight: int | None = None,
     ) -> None:
         self.repository = repository
         self.client = client
         self.backoff_seconds = backoff_seconds
+        self.max_in_flight = max_in_flight
 
     async def dispatch_once(self, task_ids: Collection[str] | None = None) -> int:
         accepted = 0
         candidates = self.repository.list_dispatchable()
         if task_ids is not None:
+            # Lo que pide la persona desde la UI sale aunque el cupo esté lleno.
             selected = set(task_ids)
             candidates = [candidate for candidate in candidates if candidate.task_id in selected]
+        elif self.max_in_flight is not None:
+            # Cupo en el Broker: van saliendo en orden de creación, así la síntesis de un
+            # documento empezado pasa antes que los fragmentos de los siguientes.
+            room = self.max_in_flight - self.repository.count_in_flight()
+            candidates = candidates[:max(0, room)]
         for candidate in candidates:
             task = self.repository.claim_submission(candidate.task_id)
             if task is None:
@@ -90,7 +98,15 @@ class BrokerPoller:
                     str(error),
                 )
                 continue
-            if self.repository.apply_status(task.task_id, payload):
+            # Una respuesta que no se sabe aplicar cierra SU tarea y el sondeo sigue:
+            # antes la excepción cortaba el ciclo y las demás no se consultaban nunca.
+            try:
+                if self.repository.apply_status(task.task_id, payload):
+                    updated += 1
+                    self.planner.advance_workflow(task.workflow_id)
+            except Exception as error:  # frontera por tarea
+                self.repository.mark_submission_error(
+                    task.task_id, "STATUS_APPLY_FAILED", f"{type(error).__name__}: {error}",
+                )
                 updated += 1
-                self.planner.advance_workflow(task.workflow_id)
         return updated

@@ -140,6 +140,9 @@ class BrokerSettings:
     dispatcher_interval_seconds: float = 0.5
     max_context_tokens: int = 16_000
     submission_backoff_seconds: tuple[float, ...] = (30.0, 60.0, 120.0)
+    #: Tareas de documentos que pueden estar a la vez en el Broker (28-oct: con 634 enviadas
+    #: de golpe cada documento esperaba la cola entera dos veces y no terminaba ninguno).
+    max_in_flight_tasks: int = 10
     #: AI OS Core, el director del ecosistema. Vacío: la app funciona sin él.
     #: Entorno o, si falta, lo que deja Core al arrancar: no hay que pegar ningún token.
     core_url: str | None = field(default_factory=lambda: core_settings()[0])

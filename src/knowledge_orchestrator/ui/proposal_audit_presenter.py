@@ -10,7 +10,8 @@ STATES = {'PENDING_COMPARISON': 'Por comparar', 'PENDING_REVIEW': 'Pendiente de 
 
 _ACTORS = {'broker:comparison': 'análisis automático del Broker', 'ui': 'tú, desde la aplicación',
            'user:desktop': 'tú, desde la aplicación', 'scheduler': 'planificador automático',
-           'system:reconciliation': 'reconciliación automática'}
+           'system:reconciliation': 'reconciliación automática',
+           'extraction': 'extracción automática de la nota'}
 
 
 def actor_label(actor: str | None) -> str:
@@ -24,6 +25,8 @@ def actor_label(actor: str | None) -> str:
         return f'consumidor de la API «{name}»'
     if kind == 'policy' and name:
         return f'política {name}'
+    if kind == 'script' and name:
+        return f'mantenimiento «{name}»'
     return actor or 'sin dato'
 
 
@@ -56,12 +59,12 @@ def audit_text(record: dict) -> dict[str, str]:
             + f"\nTarea: {job['job_id']}\nTarea del Broker: {job.get('broker_task_id') or 'No registrada'}"
             + '\nModelos reportados: ' + (', '.join(job.get('reported_models', [])) or 'No informados'))
     evidence.append('La confianza de fuente y los modelos reportados no prueban veracidad factual.')
-    decision = [f"Registro creado: {candidate['created_at']}",
+    decision = [f"Registro creado: {_date_time_label(candidate['created_at'])}",
                 f"Revisión actual de propuesta: {candidate['proposal_revision']}",
                 "Decisión registrada por: " + (actor_label(candidate['reviewed_by']) if candidate['reviewed_by']
                                              else 'Sin decisión de publicación'),
-                f"Fecha de decisión: {candidate['reviewed_at'] or 'Sin fecha'}",
-                f"Fecha de publicación: {candidate['applied_at'] or 'Sin publicación terminada'}",
+                f"Fecha de decisión: {_date_time_label(candidate['reviewed_at'], 'Sin fecha')}",
+                f"Fecha de publicación: {_date_time_label(candidate['applied_at'], 'Sin publicación terminada')}",
                 f"Nota destino: {candidate['target_note_id']} · Afirmación anterior: {candidate['target_claim_id']}",
                 f"Afirmación nueva: {candidate['new_claim_id']} · Sucesor: "
                 + str(candidate['applied_successor_id'] or 'No publicado')]
@@ -76,7 +79,7 @@ def audit_text(record: dict) -> dict[str, str]:
                         f"revisión {policy['policy_revision']}\n"
                         f"Ejecución: {policy['run_id']}\nSimulación de ejecución: {policy['simulation_id']}\n"
                         f"Autorización por: {policy['authorized_by'] or 'Sin dato'} · "
-                        f"{policy['authorized_at'] or 'Sin fecha'}\n"
+                        f"{_date_time_label(policy['authorized_at'], 'Sin fecha')}\n"
                         'Simulación revisada al autorizar: '
                         + (policy['reviewed_simulation_id'] or 'Sin vínculo registrado') + '\n'
                         'Condiciones y recibo disponibles en Servicios → Automatizaciones → Políticas y decisiones.')
@@ -86,11 +89,12 @@ def audit_text(record: dict) -> dict[str, str]:
     if record['batch']:
         batch = record['batch']
         decision.append(f"Lote humano: {batch['batch_id']} · Confirmado por {batch['owner']}\n"
-                        f"Confirmación: {batch['confirmed_at'] or 'Pendiente'}\n"
+                        f"Confirmación: {_date_time_label(batch['confirmed_at'], 'Pendiente')}\n"
                         'Recibo disponible en Revisión → Lotes anteriores.')
     if record['previous_note']:
         previous = record['previous_note']
-        decision.append(f"Versión anterior de nota conservada: {previous['revision']} · {previous['created_at']}\n"
+        decision.append(f"Versión anterior de nota conservada: {previous['revision']} · "
+                        f"{_date_time_label(previous['created_at'])}\n"
                         'Contenido disponible en Histórico de decisiones → Ver versión anterior.')
     if record['reversion']:
         reversion = record['reversion']

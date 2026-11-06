@@ -72,10 +72,10 @@ class AutomationForm(ttk.Frame):
         bar.grid(row=row + 2, column=0, columnspan=2, sticky='ew', pady=8)
         self.source_status = tk.StringVar(value='Cargando fuentes…')
         ttk.Label(bar, textvariable=self.source_status).pack(side='left')
-        self.previous = ttk.Button(bar, text='Anteriores', command=lambda: page_sources(-100))
-        self.previous.pack(side='right', padx=4)
         self.next = ttk.Button(bar, text='Siguientes', command=lambda: page_sources(100))
         self.next.pack(side='right', padx=4)
+        self.previous = ttk.Button(bar, text='Anteriores', command=lambda: page_sources(-100))
+        self.previous.pack(side='right', padx=4)
         ttk.Label(content, text='Guardar crea una versión desactivada. '
                   'Ninguna política puede ignorar bloqueos manuales, '
                   'contradicciones, evidencia o cambios externos en una nota.', wraplength=650).grid(

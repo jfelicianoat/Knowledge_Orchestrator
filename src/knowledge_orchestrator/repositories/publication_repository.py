@@ -170,7 +170,7 @@ class PublicationRepository:
                 (row['capture_id'], message, note_id),
             )
 
-    def complete_capture(self, note_id: int) -> None:
+    def complete_capture(self, note_id: int, *, archived: bool = True) -> None:
         with self.database.transaction(immediate=True) as connection:
             row = connection.execute(
                 "SELECT capture_id, source_archive_path FROM notes WHERE note_id = ?", (note_id,)
@@ -185,11 +185,13 @@ class PublicationRepository:
                 "ELSE last_error_code END, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE capture_id = ? "
                 "AND status IN ('PROCESSING', 'COMPLETED')",
-                (row["source_archive_path"], row["capture_id"]),
+                (row["source_archive_path"] if archived else None, row["capture_id"]),
             )
             connection.execute(
                 "INSERT INTO events(capture_id, event_type, message, details_json) VALUES (?, 'CAPTURE_COMPLETED', "
-                "'Nota publicada y fuente archivada', '{}')", (row["capture_id"],),
+                "?, '{}')",
+                (row["capture_id"], "Nota publicada y fuente archivada" if archived
+                 else "Nota publicada; el original ya no estaba en processing y no se pudo archivar"),
             )
 
     def prepare_rejection(self, note_id: int, *, rejected_note: Path, rejected_source: Path) -> NoteRecord:

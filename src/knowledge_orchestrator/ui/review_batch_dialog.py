@@ -9,6 +9,7 @@ import uuid
 from tkinter import messagebox, ttk
 
 from knowledge_orchestrator.services.review_batches import ReviewBatchService
+from knowledge_orchestrator.ui.snapshots import _date_time_label
 
 STATUSES = {'DRAFT': 'Pendiente de confirmar', 'READY': 'En cola', 'RUNNING': 'Aplicando',
             'RECOVERY_REQUIRED': 'Interrumpido · se recuperará al reiniciar la aplicación',
@@ -151,7 +152,8 @@ class ReviewBatchDialog(tk.Toplevel):
             elif kind == 'history':
                 self._history_count = len(result)
                 self._history_ids = {
-                    f"{row['created_at']} · {STATUSES[row['status']]} · {row['batch_id'][:8]}": row['batch_id']
+                    f"{_date_time_label(row['created_at'])} · {STATUSES[row['status']]} · "
+                    f"{row['batch_id'][:8]}": row['batch_id']
                     for row in result}
                 self.history_choice.configure(values=list(self._history_ids))
                 self.history_choice.set('Selecciona un lote' if result else 'No hay lotes en esta página')

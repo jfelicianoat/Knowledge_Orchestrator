@@ -17,6 +17,7 @@ from knowledge_orchestrator.services.reversion_view import reversion_view
 from knowledge_orchestrator.ui.automation_plan import text_panel
 from knowledge_orchestrator.ui.dialogos import ask_text
 from knowledge_orchestrator.ui.review_batch_dialog import ReviewBatchDialog
+from knowledge_orchestrator.ui.snapshots import _date_time_label
 
 STATES = {'PREVIEW': 'Vista previa · sin modificar notas', 'APPLYING': 'Reversión iniciada',
           'APPLIED': 'Reversión aplicada · histórico conservado', 'CONFLICT': 'Conflicto · requiere revisión'}
@@ -57,10 +58,10 @@ class ReversionPanel(ttk.Frame):
         bar.grid(row=1, column=0, sticky='ew', pady=8)
         self.refresh_button = ttk.Button(bar, text='Actualizar publicaciones', command=self._load)
         self.refresh_button.pack(side='left')
-        self.previous = ttk.Button(bar, text='Más recientes', command=lambda: self._page(-100))
-        self.previous.pack(side='right', padx=4)
         self.next = ttk.Button(bar, text='Más antiguas', command=lambda: self._page(100))
         self.next.pack(side='right', padx=4)
+        self.previous = ttk.Button(bar, text='Más recientes', command=lambda: self._page(-100))
+        self.previous.pack(side='right', padx=4)
         self.tree = ttk.Treeview(body, columns=('note', 'date', 'actor', 'state'), show='headings',
                                  height=4, selectmode='browse', style='Dark.Treeview')
         for key, title, width in (('note', 'Publicación / nota', 320), ('date', 'Aplicada', 175),
@@ -179,7 +180,7 @@ class ReversionPanel(ttk.Frame):
             self.tree.delete(*self.tree.get_children())
             for identifier, row in self.rows.items():
                 self.tree.insert('', 'end', iid=identifier, values=(f"{row['title']} · {identifier}",
-                    row['applied_at'], self._actor_label(row['reviewed_by']),
+                    _date_time_label(row['applied_at']), self._actor_label(row['reviewed_by']),
                     STATES.get(row['reversion_status'], 'Sin reversión aplicada')))
             if selected in self.rows:
                 self.application = self.rows[selected]
@@ -228,7 +229,7 @@ class ReversionPanel(ttk.Frame):
 
     @staticmethod
     def _history_label(row):
-        return (f"{row['created_at']} · {STATES[row['status']]} · "
+        return (f"{_date_time_label(row['created_at'])} · {STATES[row['status']]} · "
                 + ReversionPanel._actor_label(row['owner']) + f" · {row['reversion_id'][:8]}")
 
     @staticmethod

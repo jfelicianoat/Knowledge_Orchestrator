@@ -23,21 +23,30 @@ if ($Clean) {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build, $OutputDir
 }
 
-Invoke-Native { python -m pip install --upgrade pip } "Actualizar pip"
-Invoke-Native { python -m pip install -e . } "Instalar el proyecto"
-Invoke-Native { python -m pip install pyinstaller } "Instalar PyInstaller"
+# El Python del proyecto y no el del PATH: el 3.11 del sistema trae SQLite 3.45.1,
+# que falla con «NOT NULL constraint failed» en la migración 006 (ADD COLUMN NOT NULL
+# DEFAULT … CHECK). El ejecutable 0.5.x compilado así no arrancaba en una carpeta nueva.
+$Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path $Python)) { $Python = "python" }
+
+Invoke-Native { & $Python -m pip install --upgrade pip } "Actualizar pip"
+Invoke-Native { & $Python -m pip install -e . } "Instalar el proyecto"
+Invoke-Native { & $Python -m pip install pyinstaller } "Instalar PyInstaller"
 
 # PyInstaller excluye Tkinter silenciosamente cuando Tcl/Tk está incompleto.
 # Este preflight evita entregar un ejecutable que se cierra al arrancar.
-python -c "import tkinter as tk; root = tk.Tk(); root.withdraw(); root.update_idletasks(); root.destroy()"
+& $Python -c "import tkinter as tk; root = tk.Tk(); root.withdraw(); root.update_idletasks(); root.destroy()"
 if ($LASTEXITCODE -ne 0) {
     throw "La instalación de Python no tiene un Tcl/Tk funcional. Repara Python antes de generar la app Windows."
 }
 
+# Todas las migraciones sobre una base vacía con el SQLite que irá dentro del ejecutable.
+Invoke-Native { & $Python -c "import sys, tempfile, pathlib; sys.path.insert(0, 'src'); from knowledge_orchestrator.repositories.database import Database; Database(pathlib.Path(tempfile.mkdtemp()) / 'preflight.db').initialize(); print('Migraciones aplicadas en una base nueva')" } "Comprobar migraciones en una base nueva"
+
 # PyInstaller resuelve --add-data desde --specpath (build/pyinstaller), no desde
 # el proyecto: con una ruta relativa no encuentra las migraciones y aborta.
 $Migrations = Join-Path $ProjectRoot "src\knowledge_orchestrator\migrations"
-Invoke-Native { python -m PyInstaller `
+Invoke-Native { & $Python -m PyInstaller `
     --name Knowledge-Orchestrator `
     --noconfirm `
     --clean `
@@ -61,7 +70,7 @@ if (-not $SkipInstaller) {
     )
     $Compiler = $CompilerCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if ($Compiler) {
-        & $Compiler "scripts\knowledge_orchestrator.iss"
+        Invoke-Native { & $Compiler "scripts\knowledge_orchestrator.iss" } "Inno Setup"
         Write-Host "Instalador creado en $OutputDir\installer"
     } else {
         Write-Warning "Inno Setup 6 no está instalado; la aplicación portable sí se ha creado."

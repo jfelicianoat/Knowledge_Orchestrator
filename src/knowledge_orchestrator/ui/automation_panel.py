@@ -18,6 +18,7 @@ from knowledge_orchestrator.ui.automation_presenter import (
 )
 from knowledge_orchestrator.ui.dialogos import ask_text
 from knowledge_orchestrator.ui.review_batch_dialog import STATUSES
+from knowledge_orchestrator.ui.snapshots import _date_time_label
 
 
 class AutomationPanel(ttk.Frame):
@@ -103,10 +104,10 @@ class AutomationPanel(ttk.Frame):
         self.audit_kind.pack(side='left')
         self.audit_kind.bind('<<ComboboxSelected>>', lambda _event: self._load_audit(reset=True))
         ttk.Button(bar, text='Consultar', command=self._load_audit).pack(side='left', padx=4)
-        self.audit_previous = ttk.Button(bar, text='Más recientes', command=lambda: self._audit_page(-100))
-        self.audit_previous.pack(side='right', padx=4)
         self.audit_next = ttk.Button(bar, text='Más antiguos', command=lambda: self._audit_page(100))
         self.audit_next.pack(side='right', padx=4)
+        self.audit_previous = ttk.Button(bar, text='Más recientes', command=lambda: self._audit_page(-100))
+        self.audit_previous.pack(side='right', padx=4)
         self.audit_tree = ttk.Treeview(self.audit, columns=('date', 'record'), show='headings', height=5,
                                        style='Dark.Treeview', selectmode='browse')
         self.audit_tree.heading('date', text='Fecha')
@@ -231,7 +232,8 @@ class AutomationPanel(ttk.Frame):
             for index, row in enumerate(rows):
                 identifier = str(index)
                 self.audit_rows[identifier] = row
-                self.audit_tree.insert('', 'end', iid=identifier, values=(row['created_at'], row['_label']))
+                self.audit_tree.insert('', 'end', iid=identifier,
+                                      values=(_date_time_label(row['created_at']), row['_label']))
             self.audit_previous.state(['!disabled'] if self.audit_offset else ['disabled'])
             self.audit_next.state(['!disabled'] if more else ['disabled'])
             write_text(self.audit_text, 'Selecciona un registro.' if rows else 'No hay registros en esta página.')
@@ -540,7 +542,7 @@ class AutomationPanel(ttk.Frame):
         elif 'simulation_id' in row:
             self._submit('historical_simulation', lambda: self.service.policies.simulation(row['simulation_id']))
         else:
-            details = f"{row['_label']} · {row['created_at']}\n{row['actor']}\n\n{row['reason']}"
+            details = f"{row['_label']} · {_date_time_label(row['created_at'])}\n{row['actor']}\n\n{row['reason']}"
             if 'config' in row:
                 details += '\n\n' + config_summary(row['config'])
             if row.get('reviewed_simulation_id'):

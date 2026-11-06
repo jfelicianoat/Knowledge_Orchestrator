@@ -61,7 +61,8 @@ class TemasMixin(BibliotecaMixin):
 
     def _build_topics(self) -> None:
         c = self.colors
-        page = self._new_page("topics")
+        # Con desplazamiento: a 1080×680 «Guardar tema» quedaba fuera de la ventana (5-nov-2026).
+        page = self._new_scrollable_page("topics")
         page.columnconfigure(0, weight=1)
         page.rowconfigure(2, weight=1)
         self._page_heading(
@@ -74,13 +75,16 @@ class TemasMixin(BibliotecaMixin):
         info.columnconfigure(1, weight=1)
         self._icon(info, "info", size=15, color="accent", bg="raised").grid(row=0, column=0, sticky="n",
                                                                            padx=(16, 12), pady=14)
-        self._text(
+        explanation = self._text(
             info,
             "Cada documento nuevo se asigna al primer tema activo, por orden, cuyas palabras clave aparecen en su "
             "título, canal o etiquetas; si ninguno coincide, va a «_inbox». El perfil del tema decide modelo, "
             "privacidad y presupuesto.",
             size=9, color="muted", bg="raised", wraplength=900,
-        ).grid(row=0, column=1, sticky="ew", pady=14)
+        )
+        explanation.grid(row=0, column=1, sticky="ew", pady=14)
+        # Al ancho real: con 900 fijos el texto se cortaba en ventanas estrechas.
+        explanation.bind("<Configure>", lambda event: explanation.configure(wraplength=max(200, event.width)))
         ttk.Button(info, text="Editar perfiles en Ajustes", command=lambda: self._show_page("config")).grid(
             row=0, column=2, padx=16, pady=10)
 
@@ -96,11 +100,12 @@ class TemasMixin(BibliotecaMixin):
         listing.rowconfigure(0, weight=1)
         columns = ("nombre", "carpeta", "perfil", "activo", "pos")
         self.topics_tree = ttk.Treeview(listing, columns=columns, show="headings", selectmode="browse")
-        for column, text, width in (("nombre", "Tema", 200), ("carpeta", "Carpeta en la bóveda", 220),
-                                    ("perfil", "Perfil de procesamiento", 200), ("activo", "Estado", 100),
-                                    ("pos", "Orden", 110)):
+        # 830 px de columnas en una lista de ~650: «Estado» y «Orden» quedaban fuera (5-nov-2026).
+        for column, text, width in (("nombre", "Tema", 150), ("carpeta", "Carpeta en la bóveda", 150),
+                                    ("perfil", "Perfil de procesamiento", 160), ("activo", "Estado", 80),
+                                    ("pos", "Orden", 105)):
             self.topics_tree.heading(column, text=text)
-            self.topics_tree.column(column, width=width, minwidth=80)
+            self.topics_tree.column(column, width=width, minwidth=60, stretch=column in {"nombre", "carpeta"})
         self.topics_tree.tag_configure("inactive", foreground=c["faint"])
         self.topics_tree.grid(row=0, column=0, sticky="nsew")
         self.topics_tree.bind("<<TreeviewSelect>>", lambda _event: self._select_topic())

@@ -157,9 +157,9 @@ class PublicationService:
         self.checkpoint("note_renamed")
         self.repository.mark_published(note.note_id)
         self.checkpoint("note_persisted")
-        self._archive_source(self.repository.get_note(note.note_id) or note)
+        archived = self._archive_source(self.repository.get_note(note.note_id) or note)
         self.checkpoint("source_archived")
-        self.repository.complete_capture(note.note_id)
+        self.repository.complete_capture(note.note_id, archived=archived)
         published_note = self.repository.get_note(note.note_id) or note
         self.on_published(published_note)
         return published_note
@@ -180,8 +180,8 @@ class PublicationService:
             capture = self.captures.get(note.capture_id)
             if capture and capture.status.value != "COMPLETED":
                 try:
-                    self._archive_source(note)
-                    self.repository.complete_capture(note.note_id)
+                    archived = self._archive_source(note)
+                    self.repository.complete_capture(note.note_id, archived=archived)
                     self.on_published(self.repository.get_note(note.note_id) or note)
                 except (PublicationError, OSError, ValueError) as error:
                     self.repository.record_note_incident(note, "ARCHIVE_RECOVERY_FAILED", error)
@@ -269,17 +269,25 @@ class PublicationService:
         if self._hash(note.vault_path) != note.content_hash:
             raise PublicationConflict("La nota cambió antes de completar la publicación")
 
-    def _archive_source(self, note: NoteRecord) -> None:
+    def _archive_source(self, note: NoteRecord) -> bool:
+        """Archiva la fuente; `False` si ya no existe y no hay nada que archivar."""
+
         capture = self.captures.get(note.capture_id)
         if capture is None:
             raise PublicationError("Captura inexistente")
         if note.source_archive_path.exists():
-            return
+            return True
+        if capture.processing_path is not None and not capture.processing_path.exists() \
+                and capture.processing_path.parent.is_dir():
+            # La carpeta se ve pero el fichero no: reintentar no lo traerá de vuelta y
+            # la captura quedaba «en proceso» para siempre, sin poder cancelarse.
+            return False
         if capture.processing_path is None or not capture.processing_path.exists():
             raise PublicationError("No existe la fuente en processing ni en completed")
         note.source_archive_path.parent.mkdir(parents=True, exist_ok=True)
         # Archivamos la fuente solo despues de publicar la nota; asi siempre queda evidencia local.
         move_file(capture.processing_path, note.source_archive_path)
+        return True
 
     @staticmethod
     def _move_idempotent(source: Path, target: Path) -> None:

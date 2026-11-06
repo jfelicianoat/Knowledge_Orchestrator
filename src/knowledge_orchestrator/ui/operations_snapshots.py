@@ -1,6 +1,8 @@
 """Lecturas acotadas para explorar conocimiento; comparte vigencia con la API."""
 from __future__ import annotations
 
+import threading
+import time
 from contextlib import closing
 
 from knowledge_orchestrator.repositories.database import Database
@@ -10,20 +12,64 @@ from knowledge_orchestrator.services.knowledge import KnowledgeService
 
 PENDING_PROPOSALS = "s.status IN ('PENDING_COMPARISON','PENDING_REVIEW','CONFLICT','APPLYING')"
 
+#: Cada cuánto vuelve la interfaz a contrastar la bóveda. Contrastarla en cada
+#: refresco (2 s) releía las 1258 notas del usuario en Google Drive: 7 min en
+#: frío durante los que Afirmaciones e Inicio no enseñaban nada (5-nov-2026).
+VAULT_CHECK_SECONDS = 60.0
+_last_vault_check: dict[str, float] = {}
+_vault_check_lock = threading.Lock()
+
 
 class OperationsSnapshots:
     def __init__(self, database: Database) -> None:
         self.database = database
 
-    def refresh_knowledge(self, **filters) -> dict:
-        """Usar desde un worker: contrasta archivos antes de mostrar vigencia."""
-        KnowledgeService(KnowledgeRepository(self.database)).reconcile()
+    def vault_check_due(self) -> bool:
+        """True como mucho una vez por minuto y base: entonces toca `refresh_*` en vez de la lectura rápida."""
+
+        key, now = str(self.database.path), time.monotonic()
+        with _vault_check_lock:
+            last = _last_vault_check.get(key)
+            if last is not None and now - last < VAULT_CHECK_SECONDS:
+                return False
+            _last_vault_check[key] = now
+            return True
+
+    def failed_analysis_targets(self) -> tuple[list[int], list[int]]:
+        """Notas cuyo último análisis falló y propuestas cuya última comparación falló.
+
+        Solo el último intento cuenta (como «Reintentar análisis» de uno en uno): uno
+        antiguo de una nota que después se analizó bien no se repite.
+        """
+
+        latest = ("j.created_at = (SELECT MAX(x.created_at) FROM semantic_jobs x WHERE x.kind = j.kind AND "
+                  "{key} = j.{column})")
+        with closing(self.database.connect(readonly=True)) as connection:
+            notes = [row[0] for row in connection.execute(
+                "SELECT j.note_id FROM semantic_jobs j JOIN notes n ON n.note_id = j.note_id "
+                "WHERE j.kind = 'EXTRACT' AND j.status = 'ERROR' AND n.status = 'PUBLISHED' AND "
+                + latest.format(key='x.note_id', column='note_id') + " ORDER BY j.note_id")]
+            candidates = [row[0] for row in connection.execute(
+                "SELECT j.candidate_id FROM semantic_jobs j JOIN update_candidates c "
+                "ON c.candidate_id = j.candidate_id WHERE j.kind = 'COMPARE' AND j.status = 'ERROR' "
+                "AND c.status = 'PENDING_COMPARISON' AND "
+                + latest.format(key='x.candidate_id', column='candidate_id') + " ORDER BY j.candidate_id")]
+        return list(dict.fromkeys(notes)), list(dict.fromkeys(candidates))
+
+    def knowledge_with_coverage(self, **filters) -> dict:
+        """Lo guardado en la base, sin releer la bóveda: se pinta al instante mientras se contrasta."""
+
         snapshot = self.knowledge(**filters)
         if snapshot['offset'] and snapshot['offset'] >= snapshot['total']:
             offset = max(0, ((snapshot['total'] - 1) // snapshot['limit']) * snapshot['limit'])
             snapshot = self.knowledge(**{**filters, 'offset': offset})
         snapshot['coverage'] = self.knowledge_coverage()
         return snapshot
+
+    def refresh_knowledge(self, **filters) -> dict:
+        """Usar desde un worker: contrasta archivos antes de mostrar vigencia."""
+        KnowledgeService(KnowledgeRepository(self.database)).reconcile()
+        return self.knowledge_with_coverage(**filters)
 
     def knowledge_coverage(self) -> dict:
         """Cuántas notas hay publicadas, analizadas, pendientes o con análisis fallido.

@@ -5,7 +5,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import closing
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import SplitResult, parse_qs, urlencode, urlsplit, urlunsplit
 
 from knowledge_orchestrator.repositories.database import Database
 
@@ -39,5 +39,18 @@ def source_provenance_in(connection: sqlite3.Connection, capture_id: str) -> dic
     if isinstance(raw_url, str):
         url = urlsplit(raw_url)
         if url.scheme in {'http', 'https'} and url.hostname and not url.username and not url.password:
-            payload['source_url'] = urlunsplit((url.scheme, url.netloc, url.path, '', ''))
+            payload['source_url'] = urlunsplit((url.scheme, url.netloc, url.path, _video_query(url), ''))
     return payload
+
+
+def _video_query(url: SplitResult) -> str:
+    """La consulta se descarta (puede llevar credenciales), salvo el id de un vídeo de YouTube.
+
+    Sin `?v=` todas las fuentes de YouTube se veían como «https://www.youtube.com/watch»,
+    un enlace que no lleva a ningún vídeo (5-nov-2026).
+    """
+    if (url.hostname or '').removeprefix('www.').removeprefix('m.') == 'youtube.com' and url.path == '/watch':
+        video = parse_qs(url.query).get('v', [''])[0]
+        if video.replace('-', '').replace('_', '').isalnum():
+            return urlencode({'v': video})
+    return ''

@@ -33,11 +33,20 @@ class KnowledgeService:
     def __init__(self, repository: KnowledgeRepository) -> None:
         self.repository = repository
 
-    def reconcile(self) -> dict[int, str]:
+    def reconcile(self, note_ids: list[int] | None = None) -> dict[int, str]:
+        """Contrasta las notas publicadas con su fichero; `note_ids` limita a esas notas.
+
+        Leer una sola nota contrastaba la bóveda entera: con 1258 notas en Google Drive
+        una vista previa o un GET de documento tardaba de segundos a minutos (5-nov-2026).
+        """
+        if note_ids is not None and not note_ids:
+            return {}
         database = self.repository.database
+        only = "" if note_ids is None else f" AND note_id IN ({','.join('?' * len(note_ids))})"
         with closing(database.connect(readonly=True)) as connection:
             notes = connection.execute(
-                "SELECT note_id, vault_path, content_hash FROM notes WHERE status = 'PUBLISHED'"
+                "SELECT note_id, vault_path, content_hash FROM notes WHERE status = 'PUBLISHED'" + only,
+                tuple(note_ids or ()),
             ).fetchall()
         with closing(database.connect(readonly=True)) as connection:
             known = {row['note_id']: (row['state'], row['observed_hash'], row['expected_hash'])

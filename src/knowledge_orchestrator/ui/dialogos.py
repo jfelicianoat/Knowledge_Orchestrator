@@ -51,8 +51,13 @@ def _invoke_focused(event: tk.Event) -> None:
         event.widget.invoke()
 
 
-def ask_text(parent: tk.Misc, title: str, prompt: str, *, secret: bool = False, initial: str = "") -> str | None:
-    """Pide un texto con «Aceptar/Cancelar»; `None` si se cancela."""
+def ask_text(parent: tk.Misc, title: str, prompt: str, *, secret: bool = False, initial: str = "",
+             multiline: bool = False) -> str | None:
+    """Pide un texto con «Aceptar/Cancelar»; `None` si se cancela.
+
+    `multiline` da un cuadro de varias líneas (Intro salta de línea, Ctrl+Intro acepta):
+    para «una ruta por línea» un campo de una sola línea no servía.
+    """
 
     dialog = tk.Toplevel(parent)
     dialog.title(title)
@@ -62,19 +67,27 @@ def ask_text(parent: tk.Misc, title: str, prompt: str, *, secret: bool = False, 
     body.pack(fill="both", expand=True)
     ttk.Label(body, text=prompt, wraplength=440, justify="left").pack(anchor="w")
     value = tk.StringVar(value=initial)
-    entry = ttk.Entry(body, textvariable=value, width=52, show="•" if secret else "")
-    entry.pack(fill="x", pady=(8, 14))
+    entry: tk.Text | ttk.Entry
+    if multiline:
+        entry = tk.Text(body, width=60, height=6, wrap="none", undo=True)
+        entry.insert("1.0", initial)
+        entry.pack(fill="x", pady=(8, 4))
+        ttk.Label(body, text="Ctrl+Intro para aceptar.").pack(anchor="w", pady=(0, 10))
+    else:
+        entry = ttk.Entry(body, textvariable=value, width=52, show="•" if secret else "")
+        entry.pack(fill="x", pady=(8, 14))
     answer: dict[str, str | None] = {"text": None}
 
-    def accept(_event: object = None) -> None:
-        answer["text"] = value.get()
+    def accept(_event: object = None) -> str:
+        answer["text"] = entry.get("1.0", "end-1c") if isinstance(entry, tk.Text) else value.get()
         dialog.destroy()
+        return "break"
 
     buttons = ttk.Frame(body)
     buttons.pack(fill="x")
     ttk.Button(buttons, text="Aceptar", style="Accent.TButton", command=accept).pack(side="right")
     ttk.Button(buttons, text="Cancelar", command=dialog.destroy).pack(side="right", padx=(0, 8))
-    entry.bind("<Return>", accept)
+    entry.bind("<Control-Return>" if multiline else "<Return>", accept)
     dialog.bind("<Escape>", lambda _event: dialog.destroy())
     entry.focus_set()
     dialog.grab_set()

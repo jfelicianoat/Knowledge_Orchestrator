@@ -8,6 +8,7 @@ FORM: extensión del registro maestro-detalle aprobado, sin una nueva identidad.
 """
 from __future__ import annotations
 
+import logging
 import queue
 import sqlite3
 import threading
@@ -19,6 +20,9 @@ from knowledge_orchestrator.ui.dashboard.conocimiento import ConocimientoMixin
 from knowledge_orchestrator.ui.dashboard.estilo import FONT, FONT_SEMIBOLD, TONES
 from knowledge_orchestrator.ui.dashboard.fuentes import CHANGE_LABELS, source_time
 from knowledge_orchestrator.ui.dashboard.revision import RELATION_LABELS
+from knowledge_orchestrator.ui.snapshots import _date_time_label
+
+logger = logging.getLogger(__name__)
 
 STAGES = {'Cambios': 'changes', 'Análisis': 'analysis', 'Propuestas': 'proposals',
           'Histórico de decisiones': 'history', 'Actividad': 'activity'}
@@ -33,7 +37,9 @@ class OperacionesMixin(ConocimientoMixin):
     def _build_operations(self) -> None:
         self._flow_items: dict[str, dict] = {}
         self._flow_offset = 0
-        self._flow_kind = 'changes'
+        # «Actividad · Todos» y no «Cambios · Pendientes»: sin fuentes vigiladas,
+        # que es lo habitual, la página se abría siempre vacía (5-nov-2026).
+        self._flow_kind = 'activity'
         self._flow_revision_id: int | None = None
         page = self._new_page('operations')
         page.columnconfigure(0, weight=1)
@@ -42,8 +48,8 @@ class OperacionesMixin(ConocimientoMixin):
                            'Sigue cada novedad hasta su análisis, revisión y publicación.')
         controls = ttk.Frame(page, style='Dark.TFrame')
         controls.grid(row=1, column=0, sticky='ew', padx=24, pady=(0, 12))
-        self.flow_stage = tk.StringVar(value='Cambios')
-        self.flow_scope = tk.StringVar(value='Pendientes')
+        self.flow_stage = tk.StringVar(value='Actividad')
+        self.flow_scope = tk.StringVar(value='Todos')
         for column, (label, variable, values) in enumerate((('Etapa', self.flow_stage, STAGES),
                                                            ('Mostrar', self.flow_scope, SCOPES))):
             ttk.Label(controls, text=label, style='Dark.TLabel').grid(row=0, column=column * 2, padx=(0, 8))
@@ -102,7 +108,13 @@ class OperacionesMixin(ConocimientoMixin):
         self.flow_audit.pack(side='left', padx=8)
         self.flow_reanalyze = ttk.Button(actions, text='Reintentar análisis', command=self._reanalyze_flow_note)
         self.flow_reanalyze.pack(side='left')
-        ttk.Button(actions, text='Volver al detalle', command=self._return_flow_detail).pack(side='left', padx=8)
+        self.flow_back = ttk.Button(actions, text='Volver al detalle', command=self._return_flow_detail)
+        self.flow_back.pack(side='left', padx=8)
+        # De uno en uno, 168 notas con el análisis fallido eran 168 clics (datos reales, 5-nov-2026).
+        self.flow_reanalyze_all = ttk.Button(actions, text='Reintentar todos los fallidos',
+                                             command=self._reanalyze_all_failed)
+        self.flow_reanalyze_all.pack(side='right')
+        self._reanalyze_all_busy = False
         self._refresh_flow()
         self._build_pipeline()
 
@@ -137,8 +149,9 @@ class OperacionesMixin(ConocimientoMixin):
         self._flow_offset = snapshot['offset']
         self._flow_items = {str(row['id']): row for row in snapshot['items']}
         self._replace_tree(self.flow_tree, [(key, (
-            STATUS_LABELS.get(row['status'], row['status']),
-            source_time(row['updated']) if isinstance(row['updated'], (int, float)) else row['updated'],
+            self._flow_status(row['status']),
+            source_time(row['updated']) if isinstance(row['updated'], (int, float))
+            else _date_time_label(row['updated']),
         )) for key, row in self._flow_items.items()],
             texts={key: row['title'] for key, row in self._flow_items.items()})
         self.flow_summary.set(f"{self._flow_offset + 1}–{self._flow_offset + len(snapshot['items'])} "
@@ -147,6 +160,11 @@ class OperacionesMixin(ConocimientoMixin):
         self.flow_previous.state(['!disabled'] if self._flow_offset else ['disabled'])
         self.flow_next.state(['!disabled'] if self._flow_offset + 100 < snapshot['total'] else ['disabled'])
         self._select_flow()
+
+    def _flow_status(self, status: str) -> str:
+        """En «Actividad» el estado es el tipo de evento: se rotula como en el resto de la app, no en código."""
+
+        return STATUS_LABELS.get(status) or self._event_label(status)
 
     def _flow_item(self) -> dict | None:
         selected = self.flow_tree.selection()
@@ -157,11 +175,16 @@ class OperacionesMixin(ConocimientoMixin):
         for button in (self.flow_open, self.flow_ingest, self.flow_revision, self.flow_audit,
                        self.flow_reanalyze):
             button.state(['disabled'])
+        self.flow_reanalyze_all.state(['!disabled'] if self._flow_kind == 'analysis' and not self._reanalyze_all_busy
+                                      else ['disabled'])
+        # «Volver al detalle» solo tiene sentido mientras se ve una versión anterior.
+        self.flow_back.state(['!disabled'] if row is not None and self._flow_revision_id == row['id']
+                             else ['disabled'])
         if row is None:
             self._flow_revision_id = None
             self._flow_text('Selecciona un registro para seguir su procedencia, estado y siguiente paso.')
             return
-        text = row['title'] + '\n\n' + STATUS_LABELS.get(row['status'], row['status'])
+        text = row['title'] + '\n\n' + self._flow_status(row['status'])
         if self._flow_revision_id != row['id']:
             self._flow_revision_id = None
         if row.get('capture_id'):
@@ -261,6 +284,56 @@ class OperacionesMixin(ConocimientoMixin):
         self.status_var.set(f'En cola de nuevo ({job_id}). El intento anterior se conserva.')
         self._refresh_flow()
 
+    def _reanalyze_all_failed(self) -> None:
+        """Reintenta cada análisis cuyo último intento falló, con el modelo vigente de Ajustes."""
+
+        if self._reanalyze_all_busy:
+            return
+        notes, candidates = self.operations.failed_analysis_targets()
+        if not notes and not candidates:
+            self.status_var.set('No hay análisis fallidos que reintentar.')
+            return
+        if not messagebox.askyesno(
+                'Reintentar análisis fallidos',
+                f'Se volverán a analizar {len(notes)} nota(s) y {len(candidates)} comparación(es) cuyo último '
+                'intento falló, con el modelo elegido ahora en Ajustes («Modelo que extrae afirmaciones»). '
+                'Los intentos anteriores se conservan. ¿Continuar?', parent=self):
+            return
+        self._reanalyze_all_busy = True
+        self.flow_reanalyze_all.state(['disabled'])
+        self.status_var.set(f'Poniendo en cola {len(notes) + len(candidates)} análisis…')
+        service = self.runtime.semantic_maintenance
+        results: queue.SimpleQueue[tuple[int, list[str]]] = queue.SimpleQueue()
+
+        def work() -> None:
+            queued, failed = 0, []
+            for kind, identifier in [('note', n) for n in notes] + [('compare', c) for c in candidates]:
+                try:
+                    if kind == 'note':
+                        service.reanalyze_note(identifier)
+                    else:
+                        service.retry_comparison(identifier)
+                    queued += 1
+                except Exception as error:  # noqa: BLE001 - se cuenta y se informa; no corta el resto
+                    failed.append(f'{identifier}: {error}')
+            results.put((queued, failed))
+
+        threading.Thread(target=work, name='reanalyze-all', daemon=True).start()
+        self.after(200, lambda: self._poll_reanalyze_all(results))
+
+    def _poll_reanalyze_all(self, results: queue.SimpleQueue[tuple[int, list[str]]]) -> None:
+        try:
+            queued, failed = results.get_nowait()
+        except queue.Empty:
+            self.after(200, lambda: self._poll_reanalyze_all(results))
+            return
+        self._reanalyze_all_busy = False
+        self.status_var.set(f'{queued} análisis en cola de nuevo; los intentos anteriores se conservan.'
+                            + (f' {len(failed)} no se pudieron reintentar (detalle en el registro).' if failed else ''))
+        for detail in failed:
+            logger.warning('No se pudo reintentar el análisis %s', detail)
+        self._refresh_flow()
+
     def _audit_flow_proposal(self):
         row = self._flow_item()
         if row and self._flow_kind in {'proposals', 'history'}:
@@ -337,7 +410,7 @@ class OperacionesMixin(ConocimientoMixin):
         self.pipeline_vars: dict[str, tk.StringVar] = {}
         self._pipeline_nodes: dict[str, tuple[tk.Canvas, int, int]] = {}
         self._pipeline_refreshing = False
-        self._pipeline_results: queue.SimpleQueue[dict | Exception] = queue.SimpleQueue()
+        self._pipeline_results: queue.SimpleQueue[tuple[dict | Exception, bool]] = queue.SimpleQueue()
         stages = [('sources', 'Fuentes', lambda: self._show_page('sources')),
                   ('changes', 'Cambios', lambda: self._open_flow('changes')),
                   ('analysis', 'Análisis', lambda: self._open_flow('analysis')),
@@ -385,21 +458,28 @@ class OperacionesMixin(ConocimientoMixin):
         operations, results = self.operations, self._pipeline_results
 
         def load() -> None:
+            # Los recuentos guardados se pintan ya; contrastar la bóveda va después y solo cuando toca.
             try:
-                results.put(operations.refresh_counts())
+                due = operations.vault_check_due()
+                results.put((operations.counts(), not due))
+                if due:
+                    results.put((operations.refresh_counts(), True))
             except Exception as error:
-                results.put(error)
+                results.put((error, True))
 
         threading.Thread(target=load, name='knowledge-pipeline-read', daemon=True).start()
         self.after(50, self._poll_pipeline)
 
     def _poll_pipeline(self) -> None:
         try:
-            result = self._pipeline_results.get_nowait()
+            result, final = self._pipeline_results.get_nowait()
         except queue.Empty:
             self.after(50, self._poll_pipeline)
             return
-        self._pipeline_refreshing = False
+        if final:
+            self._pipeline_refreshing = False
+        else:
+            self.after(50, self._poll_pipeline)
         if isinstance(result, Exception):
             self.lifecycle_summary.set('No se pudieron actualizar los indicadores. Usa Actualizar para reintentar.')
             return

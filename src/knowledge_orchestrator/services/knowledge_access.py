@@ -112,7 +112,7 @@ class KnowledgeAccess:
             )]
 
     def document(self, document_id: int) -> dict:
-        self.refresh()
+        self.knowledge.reconcile([document_id])
         with closing(self.database.connect(readonly=True)) as connection:
             row = connection.execute(
                 'SELECT n.*, c.title FROM notes n JOIN captures c ON c.capture_id = n.capture_id '

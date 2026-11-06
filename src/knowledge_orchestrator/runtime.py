@@ -262,6 +262,7 @@ def build_runtime(
         workflow_repository,
         broker_client,
         backoff_seconds=settings.submission_backoff_seconds,
+        max_in_flight=settings.max_in_flight_tasks,
     )
     poller = BrokerPoller(workflow_repository, broker_client, workflow_planner)
     discovery = ModelDiscoveryService(workflow_repository, broker_client)

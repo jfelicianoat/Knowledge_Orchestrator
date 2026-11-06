@@ -101,6 +101,12 @@ INGESTION_MESSAGES = {
 }
 
 
+def _alnum(text: str) -> str:
+    """Letras y cifras en minúscula: «80/20» y «80 20» del nombre de archivo son lo mismo."""
+
+    return "".join(character for character in text.casefold() if character.isalnum())
+
+
 def provider_error_text(code: str | None, message: str) -> str:
     """Traduce el fallo del proveedor a algo que diga qué hacer.
 
@@ -237,6 +243,7 @@ class DashboardBase(EstiloMixin):
         self._live_broker: tuple[str, str] | None = None
         self._selected_review: ReviewItem | None = None
         self._review_items: dict[str, ReviewItem] = {}
+        self._review_selection_initialized = False
         self._library_items: dict[str, LibraryItem] = {}
         self._selected_library_id: int | None = None
         self._library_search_job: str | None = None
@@ -338,6 +345,9 @@ class DashboardBase(EstiloMixin):
         elif page == "library":
             self._refresh_library()
             self.after_idle(self.library_search_entry.focus_set)
+        elif page in {"knowledge", "sources", "operations", "services"}:
+            # Estas vistas se leen en el refresco: sin esto mostraban hasta 2 s lo de la última visita.
+            self.after_idle(self._refresh)
 
     def _drain_events(self) -> None:
         events = self.runtime.bridge.drain()
@@ -353,6 +363,10 @@ class DashboardBase(EstiloMixin):
             # El mensaje puede ser un error técnico del cliente HTTP en inglés
             # («All connection attempts failed»): delante va qué ha pasado.
             label = self._event_label(event.event_type)
+            if event.event_type == "BROKER_OFFLINE" and any(
+                    mark in (event.message or "") for mark in ("HTTP 401", "HTTP 403", "ADMIN_AUTH")):
+                # Vivo pero sin aceptar la credencial: «no disponible» mandaba a mirar la red.
+                label = "El Broker rechaza la credencial"
             # Si el mensaje ya empieza por la etiqueta, repetirla decía
             # «Tareas actualizadas: Tareas actualizadas: 1».
             self.status_var.set(f"{label}: {event.message}"
@@ -422,7 +436,12 @@ class DashboardBase(EstiloMixin):
             # nombre no aporta; decir dónde está, sí.
             location = ("" if item.incident_id is None else "En la carpeta vigilada" if item.retryable
                         else "En cuarentena")
-        return f"{item.title}\n{location}"
+        elif _alnum(item.title) and _alnum(item.title) in _alnum(location):
+            # «2026-10-30 - <título>.md» (o «yt_…-r1-…») solo repetía el título:
+            # el modelo que lo redacta sí es un dato nuevo (5-nov-2026).
+            location = "" if item.model.casefold() in {"", "auto", "automático"} else f"Modelo: {item.model}"
+        # Sin segunda línea el título va solo, centrado en la fila como el estado.
+        return f"{item.title}\n{location}" if location else item.title
 
     @staticmethod
     def _work_tone(item: WorkItem) -> str:
@@ -463,6 +482,59 @@ class DashboardBase(EstiloMixin):
         if seconds < 7 * 86400:
             return f"hace {seconds // 86400} d"
         return moment.astimezone().strftime("%d/%m/%Y")
+
+    @staticmethod
+    def _proportional_sash(paned: tk.PanedWindow, fraction: float, min_left: int, min_right: int) -> None:
+        """Reparte un divisor maestro-detalle en proporción al ancho real, sin bajar de los mínimos.
+
+        Con anchos fijos, a 1440 px sobraba detalle y a 1080 px la lista se comía el
+        detalle (o al revés). Solo se recoloca cuando cambia el ancho: si la persona
+        arrastra el divisor, se respeta hasta el siguiente cambio de tamaño.
+        """
+
+        last = {"width": 0}
+
+        def place(event: tk.Event) -> None:
+            if event.width == last["width"] or event.width <= 1:
+                return
+            last["width"] = event.width
+            x = max(min_left, min(int(event.width * fraction), event.width - min_right))
+            paned.after_idle(lambda: paned.sash_place(0, x, 1) if paned.winfo_exists() else None)
+
+        paned.bind("<Configure>", place, add="+")
+
+    @staticmethod
+    def _fit_column(tree: ttk.Treeview, column: str, minimum: int = 120) -> None:
+        """La columna del título ocupa lo que dejan las demás: Treeview no la encoge solo.
+
+        Sin esto, en ventanas estrechas «Actualizado» o «Publicada» quedaban fuera de la
+        vista y en anchas sobraba hueco a la derecha (5-nov-2026).
+        """
+
+        def fit(event: tk.Event) -> None:
+            others = sum(int(tree.column(name, "width")) for name in ("#0", *tree["columns"])
+                         if name != column and (name != "#0" or "tree" in str(tree["show"])))
+            wanted = max(minimum, event.width - others - 4)
+            if int(tree.column(column, "width")) != wanted:
+                tree.column(column, width=wanted)
+
+        tree.bind("<Configure>", fit, add="+")
+
+    @staticmethod
+    def _reflow_buttons(buttons: list[tk.Widget], width: int, gap: int = 6) -> None:
+        """Coloca botones en filas que quepan en `width`; ninguno queda cortado fuera de la vista."""
+
+        if width <= 1:
+            return  # aún sin dibujar: se recoloca con el primer <Configure>
+        row = column = used = 0
+        for button in buttons:
+            needed = button.winfo_reqwidth() + gap
+            if column and used + needed > width:
+                row, column, used = row + 1, 0, 0
+            info = button.grid_info()
+            if (int(info.get("row", -1)), int(info.get("column", -1))) != (row, column):
+                button.grid(row=row, column=column)
+            column, used = column + 1, used + needed
 
     @staticmethod
     def _middle_ellipsis(text: str, limit: int = 90) -> str:

@@ -21,6 +21,7 @@ from knowledge_orchestrator.services.path_settings import PipelinePathStore, loa
 from knowledge_orchestrator.ui.dashboard.temas import TemasMixin
 from knowledge_orchestrator.ui.dialogos import windows_paths_accept_slashes
 from knowledge_orchestrator.ui.obsidian_connection_panel import ObsidianConnectionPanel
+from knowledge_orchestrator.ui.snapshots import _date_time_label
 
 STRATEGY_LABELS = {
     "single": "Respuesta directa",
@@ -283,6 +284,7 @@ class ConfiguracionMixin(TemasMixin):
                                  state="readonly", width=27, style="Dark.TCombobox")
             combo.grid(row=row, column=1, sticky="ew", padx=(12, 0), pady=6)
             self.profile_combos[key] = combo
+        self.profile_form["classification"].trace_add("write", lambda *_args: self._sync_provider_privacy())
         # Antes había aquí un selector con dos opciones que hacían lo mismo
         # (auditoría H21): la aplicación siempre trocea en local y funde por
         # niveles. Se muestra lo que ocurre de verdad en vez de una elección falsa.
@@ -608,19 +610,53 @@ class ConfiguracionMixin(TemasMixin):
         self._provider_local = self.snapshots.providers()
         names = list(self._provider_local) + [name for name in allowed if name not in self._provider_local]
         self._provider_vars = {}
+        self._provider_checks: dict[str, ttk.Checkbutton] = {}
         for index, name in enumerate(names):
             variable = tk.BooleanVar(value=name in allowed)
             variable.trace_add("write", self._mark_profile_dirty)
             self._provider_vars[name] = variable
             kind = "local" if self._provider_local.get(name, False) else "nube"
-            ttk.Checkbutton(self.providers_frame, text=f"{name} ({kind})", variable=variable,
-                            style="Dark.TCheckbutton").grid(row=index // 2, column=index % 2, sticky="w",
-                                                            padx=(0, 12))
+            check = ttk.Checkbutton(self.providers_frame, text=f"{name} ({kind})", variable=variable,
+                                    style="Dark.TCheckbutton")
+            check.grid(row=index // 2, column=index % 2, sticky="w", padx=(0, 12))
+            self._provider_checks[name] = check
+        self._sync_provider_privacy()
         # El PanedWindow conserva la altura con la que se construyó: sin esto, las
         # casillas añadidas después dejaban cortado el último botón del formulario.
         content, editor = self._profile_panes
         editor.update_idletasks()
         content.paneconfigure(editor, height=editor.winfo_reqheight())
+
+    def _sync_provider_privacy(self) -> None:
+        """Con privacidad local o confidencial, los proveedores de nube ni se marcan ni se pueden marcar.
+
+        Antes la combinación imposible solo se rechazaba al guardar, y con el catálogo real
+        (ollama es nube) el perfil por defecto de una instalación nueva no se podía guardar (6-nov-2026).
+        """
+
+        checks = getattr(self, "_provider_checks", {})
+        if not checks:
+            return
+        classification = _value_for(CLASSIFICATION_LABELS, self.profile_form["classification"].get())
+        local_only = classification in {"confidential", "local_only"}
+        removed = []
+        for name, check in checks.items():
+            if local_only and not self._provider_local.get(name, False):
+                if self._provider_vars[name].get():
+                    removed.append(name)
+                    self._provider_vars[name].set(False)
+                check.state(["disabled"])
+            else:
+                check.state(["!disabled"])
+        if local_only and not any(variable.get() for variable in self._provider_vars.values()):
+            for name, variable in self._provider_vars.items():
+                if self._provider_local.get(name, False):
+                    variable.set(True)
+        if removed:
+            self._profile_dirty = self._selected_profile_id is not None
+            self._sync_profile_buttons()
+            self.status_var.set(f"Privacidad local: se desmarcó {', '.join(removed)} (es de nube). "
+                                "Pulsa «Guardar política» para conservarlo.")
 
     def _sync_path_summary(self, source: tk.StringVar, summary: tk.StringVar, *_args: object) -> None:
         summary.set(self._middle_ellipsis(source.get(), 72))
@@ -811,7 +847,7 @@ class ConfiguracionMixin(TemasMixin):
             for item in failures:
                 tree.insert("", "end", iid=item["model"], text=item["model"], values=(
                     "apartado" if item["vetoed"] else "caducado", item["failures"],
-                    str(item["last_failed_at"])[:16].replace("T", " "), str(item["message"])[:200],
+                    _date_time_label(item["last_failed_at"]), str(item["message"])[:200],
                 ))
             status.set("Ningún modelo apartado." if not failures else f"{len(failures)} modelo(s) con fallos.")
 

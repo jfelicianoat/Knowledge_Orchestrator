@@ -12,6 +12,7 @@ from knowledge_orchestrator.ui.automation_panel import AutomationPanel
 from knowledge_orchestrator.ui.dashboard.operaciones import OperacionesMixin
 from knowledge_orchestrator.ui.dialogos import ask_text
 from knowledge_orchestrator.ui.review_batch_dialog import ReviewBatchDialog
+from knowledge_orchestrator.ui.snapshots import _date_time_label
 
 API_STATES = {'STOPPED': 'Detenida', 'RUNNING': 'Escuchando en este equipo', 'STOPPING': 'Cerrando', 'ERROR': 'Error'}
 API_ERRORS = {'API_CREDENTIALS_NOT_CONFIGURED': 'No hay consumidores con credenciales válidas.',
@@ -22,6 +23,11 @@ API_ERRORS = {'API_CREDENTIALS_NOT_CONFIGURED': 'No hay consumidores con credenc
               'API_STOP_PENDING': 'El cierre sigue pendiente.'}
 PERMISSIONS = {'read': 'Lectura', 'query': 'Consultas IA', 'ingest': 'Ingesta',
                'sources': 'Fuentes', 'review': 'Revisión', 'governance': 'Gobernanza'}
+AUTOAPPROVAL_REASONS = {
+    'PAUSED': ' · el control global está en pausa',
+    'NO_ENABLED_POLICIES': ' · ninguna política autorizada',
+    'WORKER_STOPPED': ' · el planificador está detenido',
+}
 #: Lo que permite cada permiso, dicho para quien decide dárselo a otra herramienta.
 PERMISSION_HELP = {
     'read': 'Leer documentos, afirmaciones, búsquedas y propuestas',
@@ -126,10 +132,12 @@ class ServiciosMixin(OperacionesMixin):
         pager.grid(row=4, column=0, sticky='ew', padx=16, pady=8)
         self.api_activity_caption = tk.StringVar(value='Sin solicitudes registradas.')
         ttk.Label(pager, textvariable=self.api_activity_caption).pack(side='left')
-        self.api_activity_previous = ttk.Button(pager, text='Anteriores', command=lambda: self._page_api_activity(-100))
-        self.api_activity_previous.pack(side='right', padx=4)
-        self.api_activity_next = ttk.Button(pager, text='Siguientes', command=lambda: self._page_api_activity(100))
+        # «Siguientes» a la derecha, como en el resto de listas: antes salían al revés.
+        self.api_activity_next = ttk.Button(pager, text='Siguientes ›', command=lambda: self._page_api_activity(100))
         self.api_activity_next.pack(side='right', padx=4)
+        self.api_activity_previous = ttk.Button(pager, text='‹ Anteriores',
+                                                command=lambda: self._page_api_activity(-100))
+        self.api_activity_previous.pack(side='right', padx=4)
 
     @staticmethod
     def _service_tree(parent, columns):
@@ -304,7 +312,8 @@ class ServiciosMixin(OperacionesMixin):
             client['name'], ', '.join(PERMISSIONS[scope] for scope in client['scopes'])
             if client['configured'] else 'Sin acceso (revocado o no configurado)',
             ORIGINS.get(client.get('origin', ''), '—'), client['requests'],
-            client['errors'], client['last_seen'] or 'Sin actividad')) for client in snapshot['consumers']]
+            client['errors'], _date_time_label(client['last_seen'], 'Sin actividad')))
+            for client in snapshot['consumers']]
         self._api_consumer_origins = {client['name']: client.get('origin', '') if client['configured'] else ''
                                       for client in snapshot['consumers']}
         self._replace_tree(self.api_consumers_tree, consumers)
@@ -331,7 +340,9 @@ class ServiciosMixin(OperacionesMixin):
             f"{batches.get('READY', 0)} en cola · {batches.get('RUNNING', 0)} aplicando · "
             f"{batches.get('RECOVERY_REQUIRED', 0)} pendientes de recuperar al reiniciar.\n"
             'Solo se ejecutan las propuestas del plan que confirmó una persona.\n\n'
-            f"Autoaprobación por políticas · {'Activa' if governance['enabled'] else 'Desactivada'}\n"
+            # «Desactivada» a secas, con una política autorizada al lado, no decía qué faltaba.
+            f"Autoaprobación por políticas · {'Activa' if governance['enabled'] else 'Desactivada'}"
+            f"{AUTOAPPROVAL_REASONS.get(governance.get('reason', ''), '')}\n"
             f"Planificador · {worker_label('automations')} · "
             f"{governance['schedules']['evaluating']} evaluaciones en curso · "
             f"{governance['schedules']['errors']} políticas con incidencias.\n"
@@ -361,7 +372,7 @@ class ServiciosMixin(OperacionesMixin):
         rows = self._api_activity[start:start + 100]
         activity = [(str(row['event_id']), (
             row['client'] or 'Sin autenticación', f"{row['method']} {row['route']}", row['status'] or '—',
-            row['created_at'])) for row in rows]
+            _date_time_label(row['created_at']))) for row in rows]
         self._replace_tree(self.api_activity_tree, activity)
         for index, (identifier, _) in enumerate(activity):
             self.api_activity_tree.move(identifier, '', index)

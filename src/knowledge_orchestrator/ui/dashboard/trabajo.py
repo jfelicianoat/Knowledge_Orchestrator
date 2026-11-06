@@ -74,8 +74,11 @@ class TrabajoMixin(AccionesMixin):
 
         left = tk.Frame(pane, bg=c["surface"])
         right = tk.Frame(pane, bg=c["surface"])
-        pane.add(left, minsize=520, stretch="always")
-        pane.add(right, minsize=440, stretch="always")
+        # La lista parte más ancha que el detalle: a 1440 px el detalle sobraba y
+        # la lista cortaba la pestaña «Todos» y la columna «Actualizado» (5-nov-2026).
+        pane.add(left, minsize=400, width=660, stretch="always")
+        pane.add(right, minsize=360, width=500, stretch="always")
+        self._proportional_sash(pane, 0.56, 400, 380)
         left.columnconfigure(0, weight=1)
         left.rowconfigure(3, weight=1)
         right.columnconfigure(0, weight=1)
@@ -86,17 +89,21 @@ class TrabajoMixin(AccionesMixin):
         ttk.Button(left, text="Importar desde rutas…", style="Ghost.TButton",
                    command=self._import_from_paths).grid(row=0, column=0, sticky="e", padx=12, pady=(22, 12))
         filter_row = tk.Frame(left, bg=c["surface"])
-        filter_row.grid(row=1, column=0, sticky="w", padx=24, pady=(0, 12))
+        filter_row.grid(row=1, column=0, sticky="ew", padx=24, pady=(0, 12))
         self.filter_buttons: dict[str, tk.Button] = {}
         for key, label in FILTERS:
             button = tk.Button(
                 filter_row, text=label, command=partial(self._set_work_filter, key),
                 bg=c["surface"], fg=c["muted"], activebackground=c["raised"], activeforeground=c["text"],
                 relief="flat", borderwidth=0, highlightthickness=1, highlightbackground=c["border"],
-                highlightcolor=c["text"], padx=12, pady=6, font=(FONT_SEMIBOLD, 9), cursor="hand2",
+                highlightcolor=c["text"], padx=10, pady=6, font=(FONT_SEMIBOLD, 9), cursor="hand2",
             )
-            button.pack(side="left", padx=(0, 6))
+            button.grid(row=0, column=len(self.filter_buttons), padx=(0, 6), pady=(0, 6), sticky="w")
             self.filter_buttons[key] = button
+        # Si no caben en una fila pasan a la siguiente: antes «Todos» quedaba cortado fuera de la vista.
+        self.filter_row = filter_row
+        filter_row.bind("<Configure>", lambda event: self._reflow_buttons(list(self.filter_buttons.values()),
+                                                                          event.width))
 
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_args: self._refresh_work_list())
@@ -122,10 +129,12 @@ class TrabajoMixin(AccionesMixin):
         self.work_tree.heading("#0", text="Documento")
         self.work_tree.heading("estado", text="Estado")
         self.work_tree.heading("actualizado", text="Actualizado")
-        self.work_tree.column("#0", width=330, minwidth=220, stretch=True)
-        self.work_tree.column("estado", width=175, minwidth=140, stretch=False)
-        self.work_tree.column("actualizado", width=110, minwidth=90, stretch=False)
+        # El título absorbe el ancho sobrante; las columnas fijas caben siempre.
+        self.work_tree.column("#0", width=260, minwidth=200, stretch=True)
+        self.work_tree.column("estado", width=165, minwidth=140, stretch=False)
+        self.work_tree.column("actualizado", width=95, minwidth=85, stretch=False)
         self.work_tree.grid(row=3, column=0, sticky="nsew", padx=(24, 0))
+        self._fit_column(self.work_tree, "#0")
         self.work_tree.bind("<<TreeviewSelect>>", lambda _event: self._select_work())
         self.work_tree.tag_configure("error", foreground="#ff9aa0")
         self.work_tree.tag_configure("warning", foreground="#f5c56b")
@@ -158,8 +167,10 @@ class TrabajoMixin(AccionesMixin):
         self.detail_badge.grid(row=0, column=1, sticky="ne", padx=(12, 0), pady=(4, 0))
         self.detail_path_var = tk.StringVar(value="El detalle aparecerá aquí.")
         self.detail_id_var = tk.StringVar(value="")
-        self._text(right, textvariable=self.detail_path_var, size=9, color="muted", wraplength=620).grid(
-            row=1, column=0, sticky="ew", padx=28, pady=(0, 2))
+        detail_path = self._text(right, textvariable=self.detail_path_var, size=9, color="muted", wraplength=620)
+        detail_path.grid(row=1, column=0, sticky="ew", padx=28, pady=(0, 2))
+        # Ajuste al ancho real: con 620 fijos la ruta se cortaba por la derecha.
+        detail_path.bind("<Configure>", lambda event: detail_path.configure(wraplength=max(200, event.width)))
         tk.Label(right, textvariable=self.detail_id_var, bg=c["surface"], fg=c["faint"],
                  font=(MONO, 8), anchor="w").grid(row=2, column=0, sticky="ew", padx=28, pady=(0, 6))
 
@@ -269,6 +280,8 @@ class TrabajoMixin(AccionesMixin):
                 fg=c["accent"] if selected else c["muted"],
                 highlightbackground=c["accent"] if selected else c["border"],
             )
+        # Los recuentos cambian el ancho de cada pestaña sin que la fila reciba <Configure>.
+        self._reflow_buttons(list(self.filter_buttons.values()), self.filter_row.winfo_width())
         query = self.search_var.get().strip().casefold()
         visible = [
             item for item in items

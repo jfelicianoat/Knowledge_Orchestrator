@@ -99,6 +99,13 @@ class LabelsTests(unittest.TestCase):
         quarantined = item(incident_id=3, title="rota.md", filename="rota.md", path=r"C:\failed\rota.md",
                            retryable=False)
         self.assertEqual(DashboardBase._work_row_text(quarantined), "rota.md\nEn cuarentena")
+        # Un nombre de archivo que solo repite el título (con fecha o id delante) deja paso al modelo.
+        echoed = item(title="La cartera 80/20 a prueba", filename="2026-10-30 - La cartera 80 20 a prueba.md",
+                      path=r"I:\datos\completed\yt_x-r1-2026-10-30 - La cartera 80 20 a prueba.md",
+                      model="lfm2:24b")
+        self.assertEqual(DashboardBase._work_row_text(echoed), "La cartera 80/20 a prueba\nModelo: lfm2:24b")
+        self.assertEqual(DashboardBase._work_row_text(replace(echoed, model="auto")),
+                         "La cartera 80/20 a prueba")
 
     def test_tone_never_travels_alone(self) -> None:
         self.assertEqual(DashboardBase._work_tone(item(incident_id=1, category="attention")), "warning")

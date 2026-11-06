@@ -572,9 +572,14 @@ class UiSnapshotService:
         progress = _safe_json(row["progress_json"])
         task_status = str(row["task_status"] or "")
         capture_status = str(row["capture_status"])
+        reopened = capture_status == "PENDING"
+        if reopened:
+            # Reabierta («Volver a procesar»): su última tarea, cancelada o fallida, ya es historia.
+            # Antes un cancelado reabierto seguía en «Finalizados» como «En cola local» (5-nov-2026).
+            task_status = ""
         status = task_status if task_status in ACTIVE_TASK_STATUSES or task_status == "ERROR" else capture_status
-        error_code = row["task_error_code"] or row["last_error_code"]
-        error_message = str(row["task_error_message"] or row["last_error_message"] or "")
+        error_code = row["last_error_code"] if reopened else row["task_error_code"] or row["last_error_code"]
+        error_message = str(("" if reopened else row["task_error_message"]) or row["last_error_message"] or "")
         category = _work_category(capture_status, task_status, error_code)
         review_status = str(row["review_status"] or "")
         # Cancelar desde el Broker deja la captura FAILED con código CANCELLED: es una cancelación, no un error.
@@ -749,9 +754,9 @@ def _clock_label(value: str | None) -> str:
     return parsed.astimezone().strftime("%H:%M:%S")
 
 
-def _date_time_label(value: str | None) -> str:
+def _date_time_label(value: str | None, empty: str = "—") -> str:
     if not value:
-        return "—"
+        return empty
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:

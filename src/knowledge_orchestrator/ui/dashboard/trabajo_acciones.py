@@ -65,6 +65,7 @@ class AccionesMixin(DetalleMixin):
             self, "Importar desde rutas",
             "Pega la ruta de uno o varios documentos .md o .txt, una por línea o cada una entre comillas. "
             "Sirven tanto «/» como «\\». El original no se modifica.",
+            multiline=True,
         )
         paths = parse_typed_paths(raw or "")
         if paths:

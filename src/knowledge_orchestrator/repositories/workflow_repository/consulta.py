@@ -50,6 +50,13 @@ class ConsultaMixin(PlanificacionMixin):
             ).fetchall()
             return [_task(row) for row in rows]
 
+    def count_in_flight(self) -> int:
+        """Tareas que ya están (o están entrando) en el Broker."""
+        with closing(self.database.connect()) as connection:
+            return int(connection.execute(
+                "SELECT COUNT(*) FROM tasks WHERE status IN ('SUBMITTING', 'QUEUED', 'PROCESSING', 'CANCEL_REQUESTED')"
+            ).fetchone()[0])
+
     def list_active_tasks(self) -> list[BrokerTaskRecord]:
         with closing(self.database.connect()) as connection:
             rows = connection.execute(

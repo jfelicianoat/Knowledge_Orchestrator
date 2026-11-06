@@ -6,10 +6,12 @@ texto monoespaciado donde el cambio quedaba enterrado entre metadatos.
 """
 from __future__ import annotations
 
+import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 from knowledge_orchestrator.services.proposal_audit import ProposalAuditReader
+from knowledge_orchestrator.services.provenance import source_provenance
 from knowledge_orchestrator.ui.dashboard.estilo import FONT, FONT_SEMIBOLD, MONO
 from knowledge_orchestrator.ui.dashboard.trabajo import TrabajoMixin
 from knowledge_orchestrator.ui.proposal_audit_dialog import ProposalAuditDialog
@@ -104,8 +106,10 @@ class RevisionMixin(TrabajoMixin):
         left = tk.Frame(panes, bg=c['surface'])
         right = tk.Frame(panes, bg=c['surface'])
         # 380 px no daban para las cuatro columnas: «Impacto» salía como «Alt», «Me».
-        panes.add(left, minsize=300, width=430, stretch='never')
-        panes.add(right, minsize=520, stretch='always')
+        # Con 430 la nota afectada se cortaba a unas 20 letras (5-nov-2026).
+        panes.add(left, minsize=300, width=540, stretch='never')
+        panes.add(right, minsize=440, stretch='always')
+        self._proportional_sash(panes, 0.46, 300, 460)
         left.columnconfigure(0, weight=1)
         left.rowconfigure(0, weight=1)
         columns = ("nota", "cambio", "confianza", "impacto")
@@ -115,6 +119,7 @@ class RevisionMixin(TrabajoMixin):
             self.review_tree.heading(column, text=text)
             self.review_tree.column(column, width=width, minwidth=60, stretch=column == "nota")
         self.review_tree.grid(row=0, column=0, sticky="nsew")
+        self._fit_column(self.review_tree, "nota", 80)
         self.review_tree.tag_configure('HIGH', foreground='#ff9aa0')
         self.review_tree.tag_configure('CONFLICT', foreground='#f5c56b')
         self.review_tree.bind("<<TreeviewSelect>>", lambda _event: self._select_review())
@@ -129,8 +134,10 @@ class RevisionMixin(TrabajoMixin):
         right.columnconfigure(0, weight=1)
         right.rowconfigure(4, weight=1)
         self.review_title_var = tk.StringVar(value='Selecciona una propuesta')
-        self._text(right, textvariable=self.review_title_var, size=15, bold=True, wraplength=640).grid(
-            row=0, column=0, sticky='ew', padx=(22, 10), pady=(4, 6))
+        title = self._text(right, textvariable=self.review_title_var, size=15, bold=True, wraplength=640)
+        title.grid(row=0, column=0, sticky='ew', padx=(22, 10), pady=(4, 6))
+        # Ajuste al ancho real del panel: con 640 fijos se cortaba por la derecha.
+        title.bind('<Configure>', lambda event: title.configure(wraplength=max(200, event.width)))
         pills = tk.Frame(right, bg=c['surface'])
         pills.grid(row=1, column=0, sticky='w', padx=22, pady=(0, 10))
         self.review_relation_pill = self._pill(pills)
@@ -181,8 +188,10 @@ class RevisionMixin(TrabajoMixin):
         # Por qué no se puede aplicar, junto al botón: antes solo lo decía el
         # texto de «Restricción», abajo del todo (auditoría 14-oct I-01c).
         self.review_block_var = tk.StringVar(value='')
-        tk.Label(buttons, textvariable=self.review_block_var, bg=c['surface'], fg=c['warning'], font=(FONT, 9),
-                 anchor='w', justify='left', wraplength=620).pack(fill='x', pady=(6, 0))
+        block = tk.Label(buttons, textvariable=self.review_block_var, bg=c['surface'], fg=c['warning'],
+                         font=(FONT, 9), anchor='w', justify='left', wraplength=620)
+        block.pack(fill='x', pady=(6, 0))
+        block.bind('<Configure>', lambda event: block.configure(wraplength=max(200, event.width)))
         for button in (self.review_approve_button, self.review_reject_button, self.review_edit_button,
                        self.review_policy_button, self.review_audit_button):
             button.state(['disabled'])
@@ -242,6 +251,13 @@ class RevisionMixin(TrabajoMixin):
         )
         self._review_tabs.tab(0, text=f"Propuestas pendientes  {count}" if count else "Propuestas pendientes")
         preserved = [identifier for identifier in previous if identifier in self._review_items]
+        if not preserved and items and not self._review_selection_initialized:
+            # La primera vez se abre la primera propuesta en vez de un panel de botones apagados;
+            # después nunca se elige otra sola (DESIGN.md: no reasignar acciones).
+            preserved = [str(items[0].candidate_id)]
+            focus = preserved[0]
+        if items:
+            self._review_selection_initialized = True
         if preserved:
             self._keep_selection(self.review_tree, preserved)
             selected_id = focus if focus in preserved else preserved[0]
@@ -280,9 +296,11 @@ class RevisionMixin(TrabajoMixin):
         self._fill_text(self.review_before, assessment.get('before') or 'Sin evaluación guardada.')
         self._fill_text(self.review_after, assessment.get('proposed') or 'Sin reemplazo documental.')
 
+        # La confianza solo existe en fuentes vigiladas: «sin dato» en cada vídeo era ruido.
         sources = '\n'.join(
-            f"{e['source']['title']} · {e['source'].get('source_url', 'Documento local')} · "
-            'Confianza configurada: ' + str(e['source'].get('monitoring', {}).get('trust_level', 'sin dato'))
+            f"{e['source']['title']} · {self._source_link(e['source'])}"
+            + (f" · Confianza configurada: {e['source']['monitoring'].get('trust_level', 'sin dato')}"
+               if e['source'].get('monitoring') else '')
             for e in assessment.get('evidence', []))
         risks = [RISK_LABELS.get(risk, risk) for risk in assessment.get('risks', [])]
         text = self.review_detail
@@ -338,6 +356,18 @@ class RevisionMixin(TrabajoMixin):
             reason = (restriction.splitlines()[0] if item.blocked_reason or not editor_ready or conflict
                       else 'La evaluación no dejó un cambio aplicable: edítala o descártala.')
         self.review_block_var.set(f'No se puede aplicar. {reason}' if reason else '')
+
+    def _source_link(self, source: dict) -> str:
+        """Enlace de la fuente según su procedencia actual.
+
+        La evaluación guardada es una instantánea de auditoría: las anteriores al
+        5-nov-2026 traen los vídeos de YouTube sin `?v=`. Solo se corrige lo que se muestra.
+        """
+        try:
+            current = source_provenance(self.runtime.database, str(source['capture_id']))
+        except (KeyError, LookupError, sqlite3.Error):
+            current = source
+        return current.get('source_url') or source.get('source_url') or 'Documento local'
 
     def _clear_review(self, *, empty: bool = False) -> None:
         self._selected_review = None

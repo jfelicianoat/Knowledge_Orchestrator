@@ -192,7 +192,7 @@
   <h2>3. Instalación y arranque</h2>
   <h3>Con el ejecutable (lo habitual)</h3>
   <ol class="steps">
-    <li>Copia la carpeta <code>dist\Knowledge-Orchestrator</code> (o instala con <code>Knowledge-Orchestrator-Setup.exe</code> si se generó el instalador).</li>
+    <li>Copia la carpeta <code>dist\Knowledge-Orchestrator</code> (o instala con <code>dist\installer\Knowledge-Orchestrator-Setup.exe</code>, que se instala para tu usuario sin pedir permisos de administrador).</li>
     <li>Abre <code>Knowledge-Orchestrator.exe</code>. Se abre directamente la ventana.</li>
     <li>Comprueba la versión bajo el logotipo <b>KO</b>, arriba a la izquierda (debe decir <b>v0.4.5</b>).</li>
   </ol>
@@ -258,7 +258,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td><span class="btn">Abrir carpeta vigilada</span></td><td>Abre la bandeja en el Explorador.</td></tr>
     <tr><td><span class="btn">Pausar actualización</span> (pie)</td><td>Detiene el refresco automático de cada 2 s (útil para leer con calma); vuelve a pulsar para reanudar.</td></tr>
   </table>
-  <p>En el pie de la barra lateral ves el estado del servicio (<i>Orquestador activo</i>) y del Broker (<i>Broker disponible</i> / <i>Broker con incidencia</i>), y en la barra inferior el último mensaje de la aplicación.</p>
+  <p>En el pie de la barra lateral ves el estado del servicio (<i>Orquestador activo</i>) y del Broker (<i>Broker disponible</i> / <i>Broker con incidencia</i> / <i>Broker: credencial rechazada</i>), y en la barra inferior el último mensaje de la aplicación.</p>
 </section>
 
 <!-- ============================================================ 6 -->
@@ -269,7 +269,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <li><b>Indicadores</b>: <i>En proceso</i>, <i>Necesitan atención</i>, <i>Decisiones pendientes</i> y <i>En la biblioteca</i>. Pulsa uno para ir directamente a esa lista.</li>
     <li><b>Avisos</b>: si el Broker no responde o la carpeta de datos está en un sitio poco fiable, aparece una franja amarilla con la explicación y la acción (<span class="btn">Revisar carpetas</span> lleva a Ajustes).</li>
     <li><b>Recorrido del conocimiento</b>: Fuentes → Cambios → Análisis → Propuestas → Revisión → Publicación, con cuántos elementos hay en cada etapa. Pulsa una etapa para ver sus elementos en Actividad. Debajo, un resumen: afirmaciones vigentes, históricas, en revisión, contradicciones y fuentes con errores.</li>
-    <li><b>Necesita tu atención</b>: los documentos con problemas o esperando una decisión; <span class="btn">Ver todos</span> abre Documentos filtrado.</li>
+    <li><b>Necesita tu atención</b>: los documentos con problemas o esperando una decisión. Un clic en uno lo abre en Documentos; <span class="btn">Ver todos</span> abre Documentos filtrado.</li>
     <li><b>Actividad reciente</b>: los últimos sucesos importantes, con hora y color (el color siempre va acompañado de texto).</li>
   </ul>
 </section>
@@ -290,6 +290,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
       </ul></li>
     <li>Los añadidos aparecen en <b>Documentos → En proceso</b>.</li>
   </ol>
+  <p>Si prefieres pegar rutas, usa <span class="btn">Importar desde rutas…</span> en Documentos: escribe o pega una ruta por línea (sirven «/» y «\») y pulsa <span class="btn">Aceptar</span> o <code>Ctrl+Intro</code>.</p>
   <figure class="half"><img src="img/s1_08_dialogo_convertir.png" alt=""><figcaption>Conversión de un Markdown normal: el original no se modifica. La casilla publica apuntes ya hechos sin resumirlos.</figcaption></figure>
   <h3>Apuntes o resúmenes que ya traes hechos</h3>
   <p>Si el documento ya es un apunte tuyo, marca la casilla <b>«Ya son apuntes míos…»</b> antes de pulsar <span class="btn">Convertir y añadir</span>. La casilla vale para todos los documentos de ese diálogo.</p>
@@ -409,6 +410,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
   <p>Cada nota publicada se analiza en segundo plano: el modelo que extrae afirmaciones elige frases de la nota y tramos del documento original, y la aplicación <b>comprueba</b> que la evidencia existe en el texto. Así una afirmación inventada no puede colarse con una cita válida.</p>
   <ul>
     <li><b>Estado</b>: <i>Vigente</i>, <i>Histórica</i>, etc. Busca por entidad o texto y pulsa <span class="btn">Buscar</span>.</li>
+    <li>La lista aparece al momento con lo que ya está registrado. Si alguna nota se editó fuera de la aplicación, la comprobación de la bóveda (como mucho una vez por minuto) lo detecta en segundo plano y la lista se actualiza sola; mientras tanto el pie dice «Comprobando cambios en la bóveda…».</li>
     <li><b>Vigencia · respaldo</b>: si sigue en vigor y si la fuente original la respalda. <i>Apunte propio</i> indica que viene de un apunte tuyo publicado tal cual (capítulo 7.1): no tiene otra fuente y pesa menos.</li>
     <li>El detalle muestra la afirmación, su evidencia literal, su origen, sus entidades y su evolución (qué la sustituyó o amplió).</li>
   </ul>
@@ -419,7 +421,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
 <section class="chapter" id="revision">
   <h2>12. Revisión de propuestas y reversión</h2>
   <p>Cuando un documento nuevo trae afirmaciones respaldadas por su fuente que tocan algo que ya sabías, la aplicación las compara y crea <b>propuestas</b>: <i>confirma</i>, <i>amplía</i>, <i>sustituye</i> o <i>contradice</i>. Ninguna se aplica sola (salvo políticas que tú autorices). Las notas con <code>manual_lock</code> nunca se modifican automáticamente.</p>
-  <figure><img src="img/m03_revision.png" alt=""><figcaption>Una propuesta real: el documento nuevo da otra fecha de publicación. Arriba, propuestas «En conflicto» (su nota cambió y ya no pueden aplicarse).</figcaption></figure>
+  <figure><img src="img/m03_revision.png" alt=""><figcaption>Una propuesta real: el documento nuevo amplía lo que decía la nota. Debajo, el porqué y la evidencia con el enlace a su vídeo; el aviso naranja explica por qué aún no se puede aplicar.</figcaption></figure>
   <div class="warn"><b>Para aplicar cambios hace falta el puente de Obsidian</b>Modificar una nota ya publicada (y revertir ese cambio) se hace a través del complemento <i>Knowledge Orchestrator Bridge</i> con Obsidian abierto, para no pisar ediciones en curso. Si no está configurado (Ajustes → «Edición segura en Obsidian»), <span class="btn">✓ Aplicar cambio</span> aparece desactivado y la restricción explica el motivo; puedes seguir revisando, editando y descartando.</div>
   <h3>Decidir una propuesta</h3>
   <ol class="steps">
@@ -469,7 +471,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
 <section class="chapter" id="actividad">
   <h2>14. Actividad</h2>
   <figure><img src="img/m07_actividad.png" alt=""></figure>
-  <p>Sigue cada novedad a lo largo de su recorrido. Elige la <b>Etapa</b> (<i>Cambios</i>, <i>Análisis</i>, <i>Propuestas</i>, <i>Histórico de decisiones</i>, <i>Actividad</i>) y qué <b>Mostrar</b> (<i>Pendientes</i>, <i>Con incidencias</i>, <i>Todos</i>). Al seleccionar un elemento ves su detalle y se habilitan las acciones que correspondan:</p>
+  <p>Sigue cada novedad a lo largo de su recorrido. Elige la <b>Etapa</b> (<i>Cambios</i>, <i>Análisis</i>, <i>Propuestas</i>, <i>Histórico de decisiones</i>, <i>Actividad</i>) y qué <b>Mostrar</b> (<i>Pendientes</i>, <i>Con incidencias</i>, <i>Todos</i>). Al abrirla muestra <i>Actividad · Todos</i>: el registro de lo último que ha pasado. Al seleccionar un elemento ves su detalle y se habilitan las acciones que correspondan:</p>
   <table>
     <tr><th style="width:30%">Botón</th><th>Qué hace</th></tr>
     <tr><td><span class="btn">Abrir detalle</span> / documento / fuente / revisión</td><td>Lleva al elemento en su pantalla.</td></tr>
@@ -477,6 +479,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td><span class="btn">Ver versión anterior</span> / <span class="btn">Volver al detalle</span></td><td>Compara una nota con su revisión previa.</td></tr>
     <tr><td><span class="btn">Ver trazabilidad</span></td><td>Historial completo de una propuesta.</td></tr>
     <tr><td><span class="btn">Reintentar análisis</span></td><td>Repite la extracción o comparación que falló, indicando con qué modelo se hará.</td></tr>
+    <tr><td><span class="btn">Reintentar todos los fallidos</span></td><td>En la etapa <i>Análisis</i>: vuelve a poner en cola, de una vez, cada nota y cada comparación cuyo último intento falló, con el modelo elegido en Ajustes. Pide confirmación y dice cuántos son.</td></tr>
   </table>
   <p>Los resultados se paginan con <span class="btn">Anterior</span> / <span class="btn">Siguiente</span>.</p>
   <h3>Repetir un análisis que falló</h3>
@@ -567,7 +570,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td>Uso del contexto</td><td>Compresión del prompt (lo decide el Broker por defecto).</td></tr>
     <tr><td>Longitud máxima de la respuesta</td><td>Tokens de salida (por defecto 8000). Los modelos que razonan necesitan más; si eliges uno con poco margen, se te avisa.</td></tr>
     <tr><td>Coste máximo por petición (USD)</td><td>Tope de gasto que se envía con cada petición; lo hace cumplir el Broker. Si solo marcas proveedores locales no se gasta nada.</td></tr>
-    <tr><td>Proveedores permitidos</td><td>Una casilla por cada proveedor que anuncia el Broker, con «(local)» o «(nube)». Solo se usan los marcados: la privacidad dice dónde <i>puede</i> ir el contenido, y esto, qué modelos se usan de verdad. Marcar uno de nube permite modelos remotos, que pueden cobrar; las privacidades «Solo procesamiento local» y «Confidencial» no admiten ninguno de nube.</td></tr>
+    <tr><td>Proveedores permitidos</td><td>Una casilla por cada proveedor que anuncia el Broker, con «(local)» o «(nube)». Solo se usan los marcados: la privacidad dice dónde <i>puede</i> ir el contenido, y esto, qué modelos se usan de verdad. Marcar uno de nube permite modelos remotos, que pueden cobrar; las privacidades «Solo procesamiento local» y «Confidencial» no admiten ninguno de nube: con ellas, las casillas de nube se desmarcan y se bloquean solas (la barra inferior dice cuáles) y, si no quedara ninguno, se marcan los locales.</td></tr>
     <tr><td>Usar solo el modelo elegido</td><td>Prohíbe al Broker sustituir el modelo por otro.</td></tr>
     <tr><td>Exigir revisión humana</td><td>Cada apunte queda como borrador hasta aprobarlo.</td></tr>
   </table>
@@ -582,7 +585,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
   <p>Los cambios afectan a documentos nuevos; <span class="btn">Reintentar</span> reenvía con la configuración vigente.</p>
   <figure><img src="img/m10_ajustes_2.png" alt=""><figcaption>Más abajo: conexión al Broker y carpetas del proceso.</figcaption></figure>
   <h3>Conexión a AI Broker</h3>
-  <p>Dirección y token. El campo del token se vacía al guardar (se guarda cifrado para tu usuario); déjalo vacío para conservar el guardado. <span class="btn">Eliminar token</span> lo borra. Si el Broker exige token y no está, la barra lateral mostrará «Broker con incidencia».</p>
+  <p>Dirección y token. El campo del token se vacía al guardar (se guarda cifrado para tu usuario); déjalo vacío para conservar el guardado. <span class="btn">Eliminar token</span> lo borra. Si el Broker exige token y no está o ha cambiado, la barra lateral mostrará «Broker: credencial rechazada» y el aviso de Inicio, con su botón <span class="btn">Revisar conexión</span>, explica qué hacer.</p>
   <h3>Carpetas del proceso</h3>
   <p>Datos internos, carpeta vigilada y bóveda, con <span class="btn">Elegir…</span>. Se validan al guardar: la bandeja y la bóveda no pueden coincidir ni estar una dentro de otra; la bandeja no puede estar dentro de los datos; la bóveda no puede ser la carpeta de datos. Se aplican al reabrir la aplicación.</p>
   <div class="warn"><b>Cambiar «Datos internos» no traslada los datos</b>Si eliges otra carpeta de datos, la aplicación arrancará con una base nueva y vacía en ese sitio: «Documentos» y «Biblioteca» aparecerán vacíos, aunque los datos antiguos sigan intactos donde estaban. Para mover tus datos a otro disco usa el procedimiento del capítulo 18.2. Guardar las carpetas desde aquí conserva la copia periódica configurada (<code>backup_dir</code>).</div>
@@ -651,7 +654,8 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
   <h2>19. Solución de problemas</h2>
   <table>
     <tr><th style="width:30%">Qué ves</th><th>Causa probable y qué hacer</th></tr>
-    <tr><td>«Broker con incidencia» / «El procesamiento no está confirmado»</td><td>El Broker no responde o rechaza la credencial. Comprueba que está encendido y la dirección en Ajustes. Si responde pero rechaza (403/401), el token ha cambiado (suele rotar al reiniciar el Broker): pega el nuevo y guarda. Los documentos esperan y continúan solos.</td></tr>
+    <tr><td>«Broker con incidencia» / «El procesamiento no está confirmado»</td><td>El Broker no responde. Comprueba que está encendido y la dirección en Ajustes. Los documentos esperan y continúan solos.</td></tr>
+    <tr><td>«Broker: credencial rechazada»</td><td>El Broker responde pero no acepta el token (suele rotar al reiniciar el Broker). Pega el nuevo en Ajustes y pulsa «Guardar conexión al Broker»; si el token lo reparte AI OS Core, comprueba que Core está abierto.</td></tr>
     <tr><td>Solo aparece «Automático (Broker)» en los modelos</td><td>El catálogo aún no ha llegado (tarda unos segundos tras conectar; si el Broker está ocupado se reintenta cada 30 s). Vuelve a seleccionar el perfil al poco.</td></tr>
     <tr><td>Error «El Broker cortó la tarea porque el modelo no terminó a tiempo» (<code>TASK_TIMEOUT</code>)</td><td>Un modelo local grande tardó demasiado (a menudo, cargando). Pulsa Reintentar. Si se repite, en Ajustes elige un modelo concreto más pequeño o el método «Respuesta directa». El plazo actual es de 30 minutos.</td></tr>
     <tr><td>«El modelo agotó su presupuesto de respuesta razonando»</td><td>El modelo pensó tanto que no llegó a escribir. Se reintenta solo una vez con el doble de margen; si vuelve a fallar, elige un modelo sin razonamiento o sube la longitud máxima.</td></tr>

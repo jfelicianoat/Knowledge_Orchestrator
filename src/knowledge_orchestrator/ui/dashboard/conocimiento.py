@@ -18,6 +18,7 @@ from tkinter import ttk
 from knowledge_orchestrator.ui.dashboard.fuentes import FuentesMixin
 from knowledge_orchestrator.ui.operations_snapshots import OperationsSnapshots
 from knowledge_orchestrator.ui.proposal_audit_presenter import actor_label
+from knowledge_orchestrator.ui.snapshots import _date_time_label
 
 STATE_LABELS = {'CURRENT': 'Vigente', 'HISTORICAL': 'Histórico', 'SUPERSEDED': 'Sustituido',
                 'DISPUTED': 'Disputado', 'UNCERTAIN': 'Incierto', 'REVIEW_REQUIRED': 'Necesita revisión'}
@@ -74,7 +75,7 @@ class ConocimientoMixin(FuentesMixin):
         self._knowledge_applied_query = ''
         self._knowledge_applied_state = 'current'
         self._knowledge_refreshing = False
-        self._knowledge_results: queue.SimpleQueue[tuple[tuple, dict | Exception]] = queue.SimpleQueue()
+        self._knowledge_results: queue.SimpleQueue[tuple[tuple, dict | Exception, bool]] = queue.SimpleQueue()
         self._knowledge_items: dict[str, dict] = {}
         self._knowledge_detail_id: int | None = None
         page = self._new_page('knowledge')
@@ -158,28 +159,38 @@ class ConocimientoMixin(FuentesMixin):
             return
         criteria = (self._knowledge_applied_state, self._knowledge_applied_query, self._knowledge_offset)
         self._knowledge_refreshing = True
-        self.knowledge_summary.set('Comprobando notas y vigencia…')
+        if not self._knowledge_items:
+            self.knowledge_summary.set('Cargando afirmaciones…')
         operations, results = self.operations, self._knowledge_results
 
         def load() -> None:
+            filters = {'state': criteria[0], 'query': criteria[1], 'offset': criteria[2]}
             try:
-                result = operations.refresh_knowledge(state=criteria[0], query=criteria[1], offset=criteria[2])
-                results.put((criteria, result))
+                # Primero lo guardado, que se pinta enseguida; contrastar la bóveda
+                # (lento con notas en la nube) solo cuando toca y después.
+                due = operations.vault_check_due()
+                results.put((criteria, operations.knowledge_with_coverage(**filters), not due))
+                if due:
+                    results.put((criteria, operations.refresh_knowledge(**filters), True))
             except Exception as error:
-                results.put((criteria, error))
+                results.put((criteria, error, True))
 
         threading.Thread(target=load, name='knowledge-explorer-read', daemon=True).start()
         self.after(50, self._poll_knowledge)
 
     def _poll_knowledge(self) -> None:
         try:
-            criteria, result = self._knowledge_results.get_nowait()
+            criteria, result, final = self._knowledge_results.get_nowait()
         except queue.Empty:
             self.after(50, self._poll_knowledge)
             return
-        self._knowledge_refreshing = False
+        if final:
+            self._knowledge_refreshing = False
+        else:
+            self.after(50, self._poll_knowledge)
         if criteria != (self._knowledge_applied_state, self._knowledge_applied_query, self._knowledge_offset):
-            self._refresh_knowledge()
+            if final:
+                self._refresh_knowledge()
             return
         if isinstance(result, Exception):
             self.knowledge_summary.set('No se pudo consultar el conocimiento. Vuelve a buscar.')
@@ -204,7 +215,8 @@ class ConocimientoMixin(FuentesMixin):
         self.knowledge_summary.set(self._empty_knowledge_message(snapshot.get('coverage') or {})
                                    if not total else
                                    f"{self._knowledge_offset + 1}–{self._knowledge_offset + len(snapshot['items'])} "
-                                   f'de {total} afirmaciones · La vigencia no equivale a verificación factual.')
+                                   f'de {total} afirmaciones · La vigencia no equivale a verificación factual.'
+                                   + ('' if final else ' · Comprobando cambios en la bóveda…'))
         self.knowledge_previous.state(['!disabled'] if self._knowledge_offset else ['disabled'])
         self.knowledge_next.state(['!disabled'] if self._knowledge_offset + 100 < total else ['disabled'])
         self._select_knowledge()
@@ -249,11 +261,12 @@ class ConocimientoMixin(FuentesMixin):
                                     for entry in claim.get('source_evidence') or []) or 'Ningún fragmento.'
             sources = '\n'.join(source['title'] + ' · ' + source.get('source_url', 'Documento local')
                                 for source in claim['sources'])
-            evolution = '\n'.join(f"{entry['created_at']} · {STATE_LABELS[str(entry['to_state'])]} · "
-                                   f"{actor_label(str(entry['actor']))}\n{entry['reason']}" for entry in history)
-            succession = '\n'.join(f'{STATE_LABELS[c.knowledge_state]} · {c.statement}' for c in chain)
+            evolution = '\n'.join(f"{_date_time_label(str(entry['created_at']))} · "
+                                  f"{STATE_LABELS[str(entry['to_state'])]} · "
+                                  f"{actor_label(str(entry['actor']))}\n{entry['reason']}" for entry in history)
+            succession = '\n'.join(f'{STATE_LABELS[c.knowledge_state]} · {plain_statement(c.statement)}' for c in chain)
             self._knowledge_text(
-                claim['statement'] + '\n\n' + STATE_LABELS[claim['knowledge_state']]
+                plain_statement(claim['statement']) + '\n\n' + STATE_LABELS[claim['knowledge_state']]
                 + (' · Bloqueo manual' if claim['manual_lock'] else '')
                 + ('\nRetenida: no cuenta como vigente hasta que se resuelva lo pendiente en su nota '
                    '(una contradicción por revisar, un cambio aplicándose o la nota sin sincronizar).'

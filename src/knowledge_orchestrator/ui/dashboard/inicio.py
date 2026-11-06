@@ -2,7 +2,7 @@
 
 STORY: el usuario ve qué documentos avanzan y detecta qué requiere atención.
 Las tarjetas son un resumen, no el producto: cada una lleva a la lista donde se
-actúa, y la lista de atención abre el documento concreto con doble clic.
+actúa, y la lista de atención abre el documento concreto con un clic.
 """
 from __future__ import annotations
 
@@ -21,6 +21,15 @@ KPI_CARDS = (
     ("review", "Decisiones pendientes", "question", "warning"),
     ("published", "En la biblioteca", "library", "success"),
 )
+
+
+def broker_credential_rejected(message: str) -> bool:
+    """El Broker contestó 401/403: está vivo, pero no acepta la credencial.
+
+    Antes se decía «No hay respuesta del Broker» y se mandaba a mirar la red (5-nov-2026).
+    """
+
+    return any(mark in message for mark in ("HTTP 401", "HTTP 403", "ADMIN_AUTH", "UNAUTHORIZED"))
 
 
 def event_tone(event_type: str) -> str:
@@ -84,7 +93,9 @@ class InicioMixin(DashboardBase):
         self._text(self.system_banner, "El procesamiento no está confirmado", bold=True, color=warning_fg,
                    bg=warning_bg).grid(row=0, column=1, sticky="ew", pady=(12, 2))
         self._text(self.system_banner, textvariable=self.system_message_var, size=9, color="text", bg=warning_bg,
-                   wraplength=980).grid(row=1, column=1, sticky="ew", pady=(0, 12), padx=(0, 16))
+                   wraplength=820).grid(row=1, column=1, sticky="ew", pady=(0, 12), padx=(0, 16))
+        ttk.Button(self.system_banner, text="Revisar conexión", command=lambda: self._show_page("config")).grid(
+            row=0, column=2, rowspan=2, padx=(0, 16))
         self.system_banner.grid_remove()
 
         # Dónde vive la base operativa: en la instalación real estaba en Google
@@ -141,7 +152,9 @@ class InicioMixin(DashboardBase):
         self.home_attention.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 12))
         self.home_attention.tag_configure("error", foreground="#ff9aa0")
         self.home_attention.tag_configure("warning", foreground="#f5c56b")
-        self.home_attention.bind("<Double-1>", self._open_home_attention)
+        # Un clic basta: con solo doble clic la fila se marcaba y no pasaba nada (5-nov-2026).
+        self.home_attention.bind("<ButtonRelease-1>", lambda event: self._open_home_attention(event)
+                                 if self.home_attention.identify_row(event.y) else None)
         self.home_attention.bind("<Return>", self._open_home_attention)
         self.home_attention_empty = self._text(
             attention, "Todo en orden: ningún documento necesita tu atención.", color="muted", bg="raised",
@@ -226,13 +239,19 @@ class InicioMixin(DashboardBase):
         unknown = broker_status == "sin datos"
         self.service_var.set("Orquestador activo")
         self.service_dot.configure(fg=self.colors["success"])
+        rejected = broker_credential_rejected(broker_message) and not broker_online
         self.broker_var.set("Broker disponible" if broker_online else "Broker sin comprobar" if unknown
-                            else "Broker con incidencia")
+                            else "Broker: credencial rechazada" if rejected else "Broker con incidencia")
         self.broker_dot.configure(fg=self.colors["success"] if broker_online else self.colors["faint"] if unknown
                                   else self.colors["warning"])
         self.system_message_var.set(
             "El procesamiento está disponible. Los documentos nuevos pueden continuar su flujo."
             if broker_online
+            else f"El Broker de {self.runtime.broker_worker.settings.base_url} responde, pero rechaza la credencial "
+                 "de Knowledge Orchestrator (suele pasar cuando su token rota al reiniciarse). Pega el token actual "
+                 "en Ajustes y pulsa «Guardar conexión al Broker»; si lo reparte AI OS Core, comprueba que está "
+                 "abierto. Tus documentos se conservan y seguirán en cuanto se acepte."
+            if rejected
             else f"No hay respuesta del Broker en {self.runtime.broker_worker.settings.base_url}. "
                  "Los documentos se conservan y continuarán cuando vuelva a estar disponible. "
                  f"Puedes revisar la dirección y el token en Ajustes. Detalle técnico: {broker_message}"
@@ -310,5 +329,10 @@ class InicioMixin(DashboardBase):
                          f"necesita{'n' if failed != 1 else ''} tu atención")
         if review:
             parts.append(f"{review} decisi{'ones' if review != 1 else 'ón'} pendiente{'s' if review != 1 else ''}")
-        self.home_subtitle_var.set(" · ".join(parts) if parts
+        broker = self.dashboard_vars["broker"].get()
+        if broker not in {"online", "sin datos"}:
+            # Con el Broker caído o rechazando la credencial no está «todo en orden» (5-nov-2026).
+            parts.append("el procesamiento espera al Broker")
+        summary = " · ".join(parts)
+        self.home_subtitle_var.set(summary[:1].upper() + summary[1:] if parts
                                    else "Todo en orden. Los documentos nuevos se procesarán automáticamente.")

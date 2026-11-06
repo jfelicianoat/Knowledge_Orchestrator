@@ -18,14 +18,17 @@ _SPANISH_WORDS = {"el", "la", "los", "las", "que", "de", "para", "con", "una", "
 _ENGLISH_WORDS = {"the", "and", "that", "for", "with", "this", "from", "are", "to", "of", "in", "you"}
 
 
-def study_notes_quality_error(text: str, *, final: bool, closing_heading: str | None = None) -> str | None:
+def study_notes_quality_error(text: str | None, *, final: bool, closing_heading: str | None = None) -> str | None:
     """Devuelve un código solo para defectos inequívocos, evitando falsos positivos.
 
     `closing_heading` es la última sección que exige el formato pedido: si no
     aparece, la respuesta se cortó (el Broker la da por `completed` igual).
     """
 
-    normalized = text.strip()
+    # El Broker da `completed` con assistant_content null cuando el modelo no escribe nada.
+    normalized = (text or "").strip()
+    if final and not normalized:
+        return "EMPTY_OUTPUT"
     lowered = normalized.casefold()
     if any(marker in lowered for marker in _MISSING_EXECUTION):
         return "MISSING_EXECUTION"
@@ -54,5 +57,6 @@ def study_notes_quality_message(code: str) -> str:
         "MISSING_EXECUTION": "El modelo pidió instrucciones en vez de crear los apuntes.",
         "WRONG_LANGUAGE": "El modelo respondió principalmente en inglés; los apuntes deben estar en español.",
         "TRUNCATED_OUTPUT": "La respuesta parece haberse cortado antes de terminar.",
+        "EMPTY_OUTPUT": "El modelo terminó sin escribir ningún texto.",
     }
     return messages.get(code, "La respuesta no cumple la calidad mínima para publicarse.")

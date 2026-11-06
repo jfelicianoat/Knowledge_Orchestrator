@@ -21,7 +21,10 @@ class KnowledgeReaderLifetimeTests(unittest.TestCase):
         view._knowledge_applied_query = ''
         view._knowledge_offset = 0
         view.knowledge_summary = SimpleNamespace(set=lambda value: None)
-        view.operations = SimpleNamespace(refresh_knowledge=lambda **kwargs: {'items': []})
+        view._knowledge_items = {}
+        view.operations = SimpleNamespace(refresh_knowledge=lambda **kwargs: {'items': [], 'checked': True},
+                                          knowledge_with_coverage=lambda **kwargs: {'items': []},
+                                          vault_check_due=lambda: True)
         results = view._knowledge_results = queue.SimpleQueue()
         view._poll_knowledge = lambda: None
         view.after = lambda *args: None
@@ -33,4 +36,6 @@ class KnowledgeReaderLifetimeTests(unittest.TestCase):
         gc.collect()
         self.assertIsNone(reference(), 'background reader retains the window and its Tcl variables')
         work()
-        self.assertEqual(results.get_nowait(), (('current', '', 0), {'items': []}))
+        # Primero lo guardado (provisional) y después lo contrastado con la bóveda.
+        self.assertEqual(results.get_nowait(), (('current', '', 0), {'items': []}, False))
+        self.assertEqual(results.get_nowait(), (('current', '', 0), {'items': [], 'checked': True}, True))

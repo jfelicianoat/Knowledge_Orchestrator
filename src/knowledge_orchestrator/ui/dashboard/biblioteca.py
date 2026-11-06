@@ -61,7 +61,9 @@ class BibliotecaMixin(RevisionMixin):
         topics_row.grid(row=2, column=0, sticky="ew", padx=28, pady=(0, 12))
         topics_row.columnconfigure(0, weight=1)
         self.library_topics_host = tk.Frame(topics_row, bg=c["surface"])
-        self.library_topics_host.grid(row=0, column=0, sticky="w")
+        self.library_topics_host.grid(row=0, column=0, sticky="ew")
+        self.library_topics_host.bind("<Configure>", lambda event: self._reflow_buttons(
+            list(self._library_topic_buttons.values()), event.width))
         # Notas editadas o movidas en Obsidian: se resuelven aquí (auditoría H14).
         self.library_reconcile_button = ttk.Button(
             topics_row, text="Notas cambiadas fuera de la app", command=self._open_note_reconciliation,
@@ -76,8 +78,10 @@ class BibliotecaMixin(RevisionMixin):
         content.grid(row=3, column=0, sticky="nsew", padx=28, pady=(0, 20))
         list_frame = tk.Frame(content, bg=c["surface"])
         detail = tk.Frame(content, bg=c["surface"])
-        content.add(list_frame, minsize=460, width=600, stretch="never")
-        content.add(detail, minsize=420, stretch="always")
+        # 600 px cortaban los títulos a unas 35 letras con la vista previa medio vacía (5-nov-2026).
+        content.add(list_frame, minsize=340, width=700, stretch="never")
+        content.add(detail, minsize=380, stretch="always")
+        self._proportional_sash(content, 0.6, 340, 420)
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(0, weight=1)
         detail.columnconfigure(0, weight=1)
@@ -89,11 +93,12 @@ class BibliotecaMixin(RevisionMixin):
         self.library_tree.heading("tema", text="Tema")
         self.library_tree.heading("revision", text="Rev.")
         self.library_tree.heading("publicada", text="Publicada")
-        self.library_tree.column("#0", width=250, minwidth=180, stretch=True)
-        self.library_tree.column("tema", width=110, minwidth=80, stretch=False)
+        self.library_tree.column("#0", width=380, minwidth=180, stretch=True)
+        self.library_tree.column("tema", width=90, minwidth=70, stretch=False)
         self.library_tree.column("revision", width=46, minwidth=42, anchor="center", stretch=False)
-        self.library_tree.column("publicada", width=150, minwidth=140, stretch=False)
+        self.library_tree.column("publicada", width=140, minwidth=130, stretch=False)
         self.library_tree.grid(row=0, column=0, sticky="nsew")
+        self._fit_column(self.library_tree, "#0")
         self.library_tree.bind("<<TreeviewSelect>>", lambda _event: self._select_library_item())
         self.library_tree.bind("<Double-1>", lambda _event: self._open_in_obsidian())
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.library_tree.yview)
@@ -117,8 +122,10 @@ class BibliotecaMixin(RevisionMixin):
         self.library_title_var = tk.StringVar(value="Selecciona un documento")
         self.library_meta_var = tk.StringVar(value="Aquí verás su contexto documental.")
         self.library_path_var = tk.StringVar(value="")
-        self._text(detail, textvariable=self.library_title_var, size=17, bold=True, wraplength=560).grid(
-            row=0, column=0, sticky="ew", padx=(22, 8), pady=(2, 8))
+        title = self._text(detail, textvariable=self.library_title_var, size=17, bold=True, wraplength=560)
+        title.grid(row=0, column=0, sticky="ew", padx=(22, 8), pady=(2, 8))
+        # Ajuste al ancho real: con 560 fijos el título se cortaba por la derecha (5-nov-2026).
+        title.bind("<Configure>", lambda event: title.configure(wraplength=max(200, event.width)))
         chips = tk.Frame(detail, bg=c["surface"])
         chips.grid(row=1, column=0, sticky="w", padx=22, pady=(0, 12))
         self.library_chips = [self._pill(chips) for _ in range(3)]
@@ -135,19 +142,26 @@ class BibliotecaMixin(RevisionMixin):
         self.library_preview.tag_configure("note", foreground=c["faint"], font=(FONT, 9))
         location = tk.Frame(detail, bg=c["surface"])
         location.grid(row=4, column=0, sticky="ew", padx=22, pady=(10, 0))
-        self._text(location, "Ruta en la bóveda:", size=9, color="faint").pack(side="left")
-        tk.Label(location, textvariable=self.library_path_var, bg=c["surface"], fg=c["muted"], font=(MONO, 9),
-                 anchor="w").pack(side="left", padx=(6, 0))
+        location.columnconfigure(1, weight=1)
+        self._text(location, "Ruta en la bóveda:", size=9, color="faint").grid(row=0, column=0, sticky="nw")
+        path = tk.Label(location, textvariable=self.library_path_var, bg=c["surface"], fg=c["muted"],
+                        font=(MONO, 9), anchor="w", justify="left")
+        path.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        # La ruta completa en varias líneas: en una sola se salía del panel.
+        path.bind("<Configure>", lambda event: path.configure(wraplength=max(120, event.width)))
         buttons = tk.Frame(detail, bg=c["surface"])
         buttons.grid(row=5, column=0, sticky="ew", padx=22, pady=(14, 4))
         self.library_obsidian_button = ttk.Button(buttons, text="Abrir en Obsidian", style="Accent.TButton",
                                                   command=self._open_in_obsidian)
-        self.library_obsidian_button.pack(side="left", padx=(0, 8))
+        self.library_obsidian_button.grid(row=0, column=0, padx=(0, 8), pady=(0, 6))
         self.library_open_button = ttk.Button(buttons, text="Abrir carpeta", command=self._open_library_location)
-        self.library_open_button.pack(side="left", padx=(0, 8))
+        self.library_open_button.grid(row=0, column=1, padx=(0, 8), pady=(0, 6))
         self.library_source_button = ttk.Button(buttons, text="Ver documento de origen",
                                                 command=self._open_library_source)
-        self.library_source_button.pack(side="left")
+        self.library_source_button.grid(row=0, column=2, pady=(0, 6))
+        # En dos filas si no caben: «Ver documento de origen» se cortaba por la derecha.
+        buttons.bind("<Configure>", lambda event: self._reflow_buttons(
+            [self.library_obsidian_button, self.library_open_button, self.library_source_button], event.width, 8))
         for button in (self.library_obsidian_button, self.library_open_button, self.library_source_button):
             button.state(["disabled"])
 
@@ -207,7 +221,7 @@ class BibliotecaMixin(RevisionMixin):
                     relief="flat", bd=0, highlightthickness=1, highlightbackground=c["border"], padx=12, pady=5,
                     font=(FONT_SEMIBOLD, 9), cursor="hand2",
                 )
-                button.pack(side="left", padx=(0, 6))
+                button.grid(row=0, column=len(self._library_topic_buttons), padx=(0, 6), pady=(0, 6))
                 self._library_topic_buttons[topic] = button
         if self._library_topic not in self._library_topic_buttons:
             self._library_topic = ALL_TOPICS
@@ -217,6 +231,7 @@ class BibliotecaMixin(RevisionMixin):
                              bg=self.colors["accent_dark"] if selected else self.colors["surface"],
                              fg=self.colors["accent"] if selected else self.colors["muted"],
                              highlightbackground=self.colors["accent"] if selected else self.colors["border"])
+        self._reflow_buttons(list(self._library_topic_buttons.values()), self.library_topics_host.winfo_width())
 
     def _set_library_topic(self, topic: str) -> None:
         self._library_topic = topic
@@ -371,7 +386,8 @@ class BibliotecaMixin(RevisionMixin):
                 elif stripped.startswith("#"):
                     text.insert("end", stripped.lstrip("#").strip() + "\n", "h2")
                 else:
-                    text.insert("end", line + "\n", "body")
+                    # Las marcas de negrita se verían tal cual en un Text de Tk: se quitan solo al mostrar.
+                    text.insert("end", line.replace("**", "") + "\n", "body")
             if len(content) > PREVIEW_LIMIT:
                 text.insert("end", "\nVista parcial. Abre la nota en Obsidian para leerla completa.", "note")
         text.configure(state="disabled")
