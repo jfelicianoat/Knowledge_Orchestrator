@@ -59,6 +59,8 @@ class InboxWatcher:
         self._observer: ObserverLike | None = None
         self._scanner: threading.Thread | None = None
         self._stop = threading.Event()
+        #: Ingesta congelada: los .md se quedan en la bandeja para revisarlos antes (no se guarda entre arranques).
+        self.paused = threading.Event()
 
     def start(self) -> None:
         if self._observer is not None:
@@ -66,7 +68,7 @@ class InboxWatcher:
         self.paths.ensure_directories()
         self._stop.clear()
         self.worker.start()
-        handler = _InboxEventHandler(self.worker.submit)
+        handler = _InboxEventHandler(self._submit)
         observer = self.observer_factory()
         self._observer = observer
         try:
@@ -97,10 +99,21 @@ class InboxWatcher:
             self._scanner = None
         self.worker.stop(timeout)
 
+    def _submit(self, path: Path) -> bool:
+        return not self.paused.is_set() and self.worker.submit(path)
+
+    def set_paused(self, paused: bool) -> None:
+        if paused:
+            self.paused.set()
+        else:
+            self.paused.clear()
+
     def scan_once(self) -> int:
+        if self.paused.is_set():
+            return 0
         submitted = 0
         for path in sorted(self.paths.inbox.glob("*.md")):
-            submitted += int(self.worker.submit(path))
+            submitted += int(self._submit(path))
         return submitted
 
     def _scan_loop(self) -> None:

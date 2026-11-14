@@ -147,6 +147,10 @@ class TrabajoMixin(AccionesMixin):
         self.work_summary_var = tk.StringVar(value="Sin documentos")
         self._text(left, textvariable=self.work_summary_var, size=9, color="faint").grid(
             row=4, column=0, sticky="ew", padx=24, pady=10)
+        self.send_all_button = ttk.Button(left, text="Enviar todos", style="Accent.TButton",
+                                          command=self._send_all_attention)
+        self.send_all_button.grid(row=4, column=0, sticky="e", padx=12, pady=6)
+        self.send_all_button.grid_remove()
 
         detail_header = tk.Frame(right, bg=c["surface"])
         detail_header.grid(row=0, column=0, sticky="ew", padx=28, pady=(24, 4))
@@ -304,18 +308,28 @@ class TrabajoMixin(AccionesMixin):
         else:
             summary = f"Mostrando {len(visible)} de {len(items)} documentos"
         self.work_summary_var.set(summary)
+        if self._work_filter == "attention":
+            sendable = sum(self._can_send_item(item) for item in visible)
+            self.send_all_button.configure(text=f"Enviar todos ({sendable})")
+            self.send_all_button.state(["!disabled"] if sendable else ["disabled"])
+            self.send_all_button.grid()
+        else:
+            self.send_all_button.grid_remove()
         visible_ids = [item.capture_id for item in visible]
         resolved = resolve_work_selections(
             self._selected_work_ids,
             visible_ids,
             select_first=select_first,
         )
+        previous = self._selected_work_id
         self._selected_work_ids = resolved
         if resolved:
             if self._selected_work_id not in resolved:
                 self._selected_work_id = resolved[0]
             self._keep_selection(self.work_tree, resolved)
-            self.work_tree.see(self._selected_work_id)
+            # Solo al cambiar de documento: en cada refresco devolvía la lista al seleccionado (8-nov-2026).
+            if self._selected_work_id != previous:
+                self.work_tree.see(self._selected_work_id)
             self._render_work_selection([self._work_items[item_id] for item_id in resolved])
         else:
             self._selected_work_id = None

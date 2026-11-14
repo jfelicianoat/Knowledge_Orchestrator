@@ -158,6 +158,7 @@ class DashboardBase(EstiloMixin):
     nav_buttons: dict[str, tk.Frame]
     status_var: tk.StringVar
     refresh_button: tk.Button
+    inbox_pause_button: tk.Button
     service_var: tk.StringVar
     broker_var: tk.StringVar
     clock_var: tk.StringVar
@@ -398,7 +399,7 @@ class DashboardBase(EstiloMixin):
         incoming = {row_id for row_id, _ in rows}
         for row_id in current - incoming:
             tree.delete(row_id)
-        for row_id, values in rows:
+        for index, (row_id, values) in enumerate(rows):
             options: dict[str, Any] = {"values": values}
             if texts is not None:
                 options["text"] = texts.get(row_id, "")
@@ -406,8 +407,11 @@ class DashboardBase(EstiloMixin):
                 options["tags"] = tags.get(row_id, ())
             if row_id in current:
                 tree.item(row_id, **options)
+                # Recoloca en el orden recibido: antes lo nuevo quedaba al final hasta cambiar de pestaña (8-nov-2026).
+                if tree.index(row_id) != index:
+                    tree.move(row_id, "", index)
             else:
-                tree.insert("", "end", iid=row_id, **options)
+                tree.insert("", index, iid=row_id, **options)
         keep = tuple(row_id for row_id in selected if row_id in incoming)
         if keep:
             DashboardBase._keep_selection(tree, keep)

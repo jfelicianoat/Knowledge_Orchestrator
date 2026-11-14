@@ -188,6 +188,12 @@ class OrchestratorDashboard(ServiciosMixin):
             activebackground=c["sidebar"], activeforeground=c["accent"], relief="flat", bd=0,
             font=(FONT, 9), cursor="hand2", anchor="w",
         ).pack(fill="x", padx=18, pady=(8, 4))
+        self.inbox_pause_button = tk.Button(
+            bar, text="❄  Congelar ingesta", command=self._toggle_inbox_pause, bg=c["sidebar"], fg=c["muted"],
+            activebackground=c["sidebar"], activeforeground=c["accent"], relief="flat", bd=0,
+            font=(FONT, 9), cursor="hand2", anchor="w",
+        )
+        self.inbox_pause_button.pack(fill="x", padx=18, pady=(0, 4))
 
         self.nav_buttons = {}
         self._nav_parts: dict[str, NavParts] = {}

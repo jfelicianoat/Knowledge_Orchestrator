@@ -252,6 +252,36 @@ class AccionesMixin(DetalleMixin):
         self.runtime.paths.inbox.mkdir(parents=True, exist_ok=True)
         self._open_path(self.runtime.paths.inbox)
 
+    def _toggle_inbox_pause(self) -> None:
+        """Congela la carpeta vigilada para revisar un .md antes de que KO se lo lleve."""
+
+        watcher = self.runtime.watcher
+        frozen = not watcher.paused.is_set()
+        watcher.set_paused(frozen)
+        self.inbox_pause_button.configure(
+            text="▶  Descongelar ingesta" if frozen else "❄  Congelar ingesta",
+            fg=self.colors["warning"] if frozen else self.colors["muted"],
+        )
+        self.status_var.set(
+            "Ingesta congelada: los documentos se quedan en la carpeta vigilada hasta que la descongeles."
+            if frozen else "Ingesta reanudada: KO recogerá los documentos de la carpeta vigilada."
+        )
+
+    def _send_all_attention(self) -> None:
+        """Reenvía de una vez todo lo de «Necesitan atención» que se pueda reenviar."""
+
+        ids = tuple(item.capture_id for item in self._work_items.values()
+                    if item.category == "attention" and self._can_send_item(item))
+        if not ids:
+            self.status_var.set("No hay documentos en «Necesitan atención» que se puedan reenviar.")
+            return
+        if not messagebox.askyesno("Enviar todos", f"¿Volver a poner en proceso {len(ids)} documentos?",
+                                   parent=self):
+            return
+        self._selected_work_ids = ids
+        self._selected_work_id = ids[0]
+        self._retry_selected()
+
     def _open_selected_location(self) -> None:
         item = self._selected_item()
         if not item or not item.path:
