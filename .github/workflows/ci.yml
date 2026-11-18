@@ -11,7 +11,7 @@ jobs:
     # Sólo Windows: la interfaz es de escritorio y en Linux haría falta pantalla virtual.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with: { python-version: "3.13", cache: pip }
       - run: python -m pip install -e ".[dev]"
