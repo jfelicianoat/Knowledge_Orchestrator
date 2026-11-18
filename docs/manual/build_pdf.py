@@ -236,10 +236,12 @@ def main() -> None:
         marks = headings(doc)
         stamp(doc, marks)
         doc.set_toc([[1, "Portada", 1]] + [[level, text, page] for level, page, text, _ in marks])
-        doc.set_metadata({"title": f"Knowledge Orchestrator — Manual de uso {VERSION}", "author": "Knowledge Orchestrator",
-                          "subject": "Manual de uso", "keywords": "Knowledge Orchestrator, Obsidian, AI Broker"})
+        doc.set_metadata({"title": f"Knowledge Orchestrator — Manual de uso {VERSION}",
+                          "author": "Knowledge Orchestrator", "subject": "Manual de uso",
+                          "keywords": "Knowledge Orchestrator, Obsidian, AI Broker"})
         doc.save(OUTPUT, garbage=4, deflate=True)
-        print(f"{OUTPUT} · {doc.page_count} páginas · {len(overrides)} capturas ajustadas · {len(breaks)} capítulos a página nueva")
+        print(f"{OUTPUT} · {doc.page_count} páginas · {len(overrides)} capturas ajustadas"
+              f" · {len(breaks)} capítulos a página nueva")
         doc.close()
 
 

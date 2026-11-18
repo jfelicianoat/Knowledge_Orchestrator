@@ -176,10 +176,14 @@ class ApiServerController:
     def stop(self) -> None:
         with self._lock:
             server, thread = self._server, self._thread
-            if server is None or self._state == 'STOPPING':
+            if server is None:
                 return
+            # Un cierre que tardó más de 3 s se termina con otro stop(): se vuelve a esperar al
+            # hilo sin repetir shutdown(), que bloquearía. Antes se quedaba en STOPPING para siempre.
+            pendiente = self._state == 'STOPPING'
             self._state = 'STOPPING'
-        server.shutdown()
+        if not pendiente:
+            server.shutdown()
         if thread:
             thread.join(timeout=3)
         with self._lock:

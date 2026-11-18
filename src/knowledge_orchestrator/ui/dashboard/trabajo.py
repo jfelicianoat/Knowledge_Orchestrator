@@ -147,9 +147,19 @@ class TrabajoMixin(AccionesMixin):
         self.work_summary_var = tk.StringVar(value="Sin documentos")
         self._text(left, textvariable=self.work_summary_var, size=9, color="faint").grid(
             row=4, column=0, sticky="ew", padx=24, pady=10)
-        self.send_all_button = ttk.Button(left, text="Enviar todos", style="Accent.TButton",
+        attention_actions = tk.Frame(left, bg=c["surface"])
+        attention_actions.grid(row=5, column=0, sticky="e", padx=12, pady=(0, 8))
+        self.import_notes_button = ttk.Button(attention_actions, text="Importar como apuntes",
+                                              style="Secondary.TButton", command=self._import_all_as_notes)
+        self.import_notes_button.grid(row=0, column=0, padx=(0, 8))
+        self.import_notes_button.grid_remove()
+        self.close_duplicates_button = ttk.Button(attention_actions, text="Cerrar ya importados",
+                                                  style="Secondary.TButton", command=self._close_all_duplicates)
+        self.close_duplicates_button.grid(row=0, column=2, padx=(8, 0))
+        self.close_duplicates_button.grid_remove()
+        self.send_all_button = ttk.Button(attention_actions, text="Enviar todos", style="Accent.TButton",
                                           command=self._send_all_attention)
-        self.send_all_button.grid(row=4, column=0, sticky="e", padx=12, pady=6)
+        self.send_all_button.grid(row=0, column=1)
         self.send_all_button.grid_remove()
 
         detail_header = tk.Frame(right, bg=c["surface"])
@@ -311,10 +321,26 @@ class TrabajoMixin(AccionesMixin):
         if self._work_filter == "attention":
             sendable = sum(self._can_send_item(item) for item in visible)
             self.send_all_button.configure(text=f"Enviar todos ({sendable})")
-            self.send_all_button.state(["!disabled"] if sendable else ["disabled"])
-            self.send_all_button.grid()
+            if sendable:
+                self.send_all_button.grid()
+            else:
+                self.send_all_button.grid_remove()
+            as_notes = sum(self._can_import_as_notes(item) for item in visible)
+            self.import_notes_button.configure(text=f"Importar como apuntes ({as_notes})")
+            if as_notes:
+                self.import_notes_button.grid()
+            else:
+                self.import_notes_button.grid_remove()
+            duplicates = sum(item.error_code == "DUPLICATE_CAPTURE" for item in visible)
+            self.close_duplicates_button.configure(text=f"Cerrar ya importados ({duplicates})")
+            if duplicates:
+                self.close_duplicates_button.grid()
+            else:
+                self.close_duplicates_button.grid_remove()
         else:
             self.send_all_button.grid_remove()
+            self.import_notes_button.grid_remove()
+            self.close_duplicates_button.grid_remove()
         visible_ids = [item.capture_id for item in visible]
         resolved = resolve_work_selections(
             self._selected_work_ids,

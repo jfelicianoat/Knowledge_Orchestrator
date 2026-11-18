@@ -36,6 +36,20 @@ _PATTERN = re.compile(
 )
 
 
+#: Etiquetas que estructuran el prompt que KO envía al Broker. Un dato externo
+#: que las contenga podría cerrar un bloque o abrir otro.
+_HOST_TAGS = re.compile(r"(?i)<(/?\s*(?:system_instructions|user_request|titulo|untrusted_\w*))")
+
+
+def neutralize_host_tags(text: str) -> str:
+    """Impide que un dato externo abra o cierre los bloques del prompt anfitrión.
+
+    Inserta un WORD JOINER tras el «<»: el modelo lee lo mismo y la etiqueta deja
+    de serlo. `unshield` lo retira de la respuesta.
+    """
+    return _HOST_TAGS.sub(lambda m: "<" + WORD_JOINER + m.group(1), text)
+
+
 def shield_prompt(text: str) -> str:
     """Rompe el patrón «generar imágenes» sin cambiar lo que se lee."""
 

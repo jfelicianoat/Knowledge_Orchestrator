@@ -24,3 +24,7 @@ logs/
 
 # Local planning and private workspace files
 /.local/
+
+# Generados (plan 13-nov, COM-03)
+*.out
+/graphify-out/

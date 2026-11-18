@@ -39,6 +39,9 @@ TITLE_LINE_MAX = 120
 _CONTRACT_MARKERS = ("contract_version", "capture_id")
 _HEADING = re.compile(r"(?m)^#{1,6}[ \t]+(.+?)[ \t#]*$")
 _TITLE_LABELS = {"título", "titulo", "title"}
+#: Primeras secciones de las plantillas de apuntes que no dicen de qué va el documento.
+_SECTION_LABELS = {"idea principal", "tema principal", "resumen", "resumen ejecutivo", "introducción",
+                   "introduccion", "summary"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,9 +109,9 @@ def inspect_import(path: Path) -> ImportCandidate:
     if size > MAX_CAPTURE_BYTES:
         return ImportCandidate(source, "unreadable", fallback_title, size, "El fichero supera 20 MiB")
     try:
-        text = raw.decode("utf-8-sig")
+        text = decode_text(raw)
     except UnicodeDecodeError:
-        return ImportCandidate(source, "unreadable", fallback_title, size, "El fichero no está en UTF-8")
+        return ImportCandidate(source, "unreadable", fallback_title, size, "El fichero no es texto (ni UTF-8 ni ANSI)")
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     metadata, body = _split_frontmatter(normalized)
     if metadata is not None and any(marker in metadata for marker in _CONTRACT_MARKERS):
@@ -124,6 +127,15 @@ def inspect_import(path: Path) -> ImportCandidate:
                            capture_id=manual_capture_id(body.strip("\n")))
 
 
+def decode_text(raw: bytes) -> str:
+    """UTF-8 y, si no lo es, ANSI de Windows: así guardan muchos apuntes el Bloc de notas antiguo y Word."""
+
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("cp1252")  # falla con los 5 bytes que cp1252 no define: entonces no es texto
+
+
 def manual_capture_id(content: str) -> str:
     """La identidad de un documento convertido sale de su contenido."""
 
@@ -137,11 +149,13 @@ def detect_title(body: str, metadata: dict | None, fallback: str) -> str:
     heading = _HEADING.search(body)
     if heading and heading.group(1).strip().rstrip(":").casefold() in _TITLE_LABELS:
         # Plantillas de apuntes con «## Título» y el título real en la línea siguiente.
-        following = next((line.strip().lstrip("#").strip() for line in body[heading.end():].splitlines()
-                          if line.strip()), "")
+        following = next((line.strip().lstrip("#").strip().strip("*_").strip()
+                          for line in body[heading.end():].splitlines() if line.strip()), "")
         if 3 <= len(following) <= TITLE_LINE_MAX * 2:
             return following[:500]
         return fallback[:500]
+    if heading and heading.group(1).strip().rstrip(":").casefold() in _SECTION_LABELS:
+        return fallback[:500]  # «## Idea principal» es una sección, no el título: mejor el nombre del fichero
     if heading and heading.group(1).strip():
         return heading.group(1).strip()[:500]
     # Un .txt no suele tener encabezados, pero su primera línea casi siempre es
@@ -165,7 +179,7 @@ def build_capture(path: Path, *, now: datetime | None = None, own_notes: bool = 
 
     source = Path(path)
     raw = source.read_bytes()
-    text = raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+    text = decode_text(raw).replace("\r\n", "\n").replace("\r", "\n")
     metadata, body = _split_frontmatter(text)
     title = detect_title(body, metadata, source.stem.strip() or "Documento importado")
     content = body.strip("\n")

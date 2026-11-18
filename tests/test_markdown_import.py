@@ -123,11 +123,25 @@ class MarkdownImportTests(unittest.TestCase):
     def test_empty_and_non_utf8_files_are_reported(self) -> None:
         empty = self._write("vacio.md", "   \n")
         self.assertEqual(inspect_import(empty).kind, "unreadable")
-        latin = self.outside / "latin.txt"
-        latin.write_bytes("canción".encode("latin-1"))
-        candidate = inspect_import(latin)
+        binary = self.outside / "binario.txt"
+        binary.write_bytes(b"\x81\x8d\x00\xff")  # bytes que ni UTF-8 ni cp1252 definen
+        candidate = inspect_import(binary)
         self.assertEqual(candidate.kind, "unreadable")
         self.assertIn("UTF-8", candidate.reason)
+
+    def test_note_templates_give_a_clean_title(self) -> None:
+        bold = self._write("bold.md", "# Título\n\n**Sistema de inversión**\n\n## Resumen ejecutivo\n\nTexto.\n")
+        self.assertEqual(inspect_import(bold).title, "Sistema de inversión")
+        section = self._write("AI Engineering, de Chip Huyen.md", "## Idea principal\n\nEl libro explica…\n")
+        self.assertEqual(inspect_import(section).title, "AI Engineering, de Chip Huyen")
+
+    def test_windows_ansi_notes_are_imported_with_their_accents(self) -> None:
+        ansi = self.outside / "ansi.md"
+        ansi.write_bytes("# Canción\r\n\r\nInversión en índices.\r\n".encode("cp1252"))
+        candidate = inspect_import(ansi)
+        self.assertEqual((candidate.kind, candidate.title), ("ordinary", "Canción"))
+        _capture_id, markdown = build_capture(ansi)
+        self.assertIn("Inversión en índices.", parse_capture_bytes(markdown.encode("utf-8")).transcript_content)
 
 
 if __name__ == "__main__":

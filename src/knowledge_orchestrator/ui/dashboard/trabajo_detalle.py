@@ -103,6 +103,12 @@ class DetalleMixin(InicioMixin):
         )
 
     @staticmethod
+    def _can_import_as_notes(item: WorkItem) -> bool:
+        """Texto apartado por no ser una captura: se puede importar como apunte propio."""
+
+        return item.incident_id is not None and item.error_code == "CONTRACT_VALIDATION_FAILED"
+
+    @staticmethod
     def _can_cancel_item(item: WorkItem) -> bool:
         """Se puede cancelar el documento mientras siga vivo, esté donde esté."""
 
@@ -240,7 +246,15 @@ class DetalleMixin(InicioMixin):
             self.issue_message_var.set(
                 f"{item.error_message}. La copia se apartó a cuarentena sin procesarla para no duplicar el "
                 "conocimiento («Abrir ubicación» lleva a ella). Si es una versión nueva, dale otro capture_id "
-                "o impórtala con «Importar documentos»; si no, cierra esta incidencia."
+                "o impórtala con «Importar documentos»; si no, cierra esta incidencia (o todas a la vez con «Cerrar ya importados» bajo la lista)."
+            )
+        elif self._can_import_as_notes(item):
+            self.issue_title_var.set("El archivo no tiene el formato de una captura.")
+            self.issue_message_var.set(
+                f"Motivo: {item.error_message}\n\nSi es un apunte o resumen que ya hiciste, «Importar como "
+                "apuntes» lo publica tal cual, sin resumirlo con el Broker, y cierra esta incidencia. Si "
+                "prefieres que se resuma, impórtalo con «Importar documentos». El fichero de la cuarentena "
+                "no se modifica."
             )
         elif item.incident_id is not None and not item.retryable:
             self.issue_title_var.set("El archivo no tiene el formato de una captura.")
@@ -310,8 +324,9 @@ class DetalleMixin(InicioMixin):
             self.ignore_button.configure(text="Ignorar este archivo")
             self.ignore_button.state(["disabled"])
             return
-        can_retry = self._can_send_item(item)
-        self.retry_button.configure(text="Enviar ahora" if item.status == "READY" else
+        can_retry = self._can_send_item(item) or self._can_import_as_notes(item)
+        self.retry_button.configure(text="Importar como apuntes" if self._can_import_as_notes(item) else
+                                    "Enviar ahora" if item.status == "READY" else
                                     "Volver a procesar" if item.status == "CANCELLED" else "Reintentar")
         self.retry_button.state(["!disabled"] if can_retry else ["disabled"])
         if self._can_cancel_item(item):

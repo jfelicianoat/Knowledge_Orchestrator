@@ -280,7 +280,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
   <p>Hay cuatro puertas de entrada. Todas acaban en el mismo proceso.</p>
   <h3>7.1 Importar desde el escritorio</h3>
   <ol class="steps">
-    <li>Pulsa <span class="btn">+ Importar documentos</span> (o <code>Ctrl+O</code>) y elige uno o varios archivos <code>.md</code>, <code>.markdown</code> o <code>.txt</code> (máximo 20 MiB, en UTF-8).</li>
+    <li>Pulsa <span class="btn">+ Importar documentos</span> (o <code>Ctrl+O</code>) y elige uno o varios archivos <code>.md</code>, <code>.markdown</code> o <code>.txt</code> (máximo 20 MiB, en UTF-8 o ANSI de Windows).</li>
     <li>La aplicación los examina sin bloquear la ventana y los clasifica:
       <ul>
         <li><b>Captura válida</b> (del plugin): se copia a la carpeta vigilada tal cual.</li>
@@ -342,7 +342,7 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
     <tr><td><span class="pill n">En cola del Broker</span> · <span class="pill n">Procesando</span></td><td>El Broker lo tiene; puede tardar minutos con modelos locales grandes.</td><td><span class="btn">Cancelar procesamiento</span></td></tr>
     <tr><td><span class="pill warn">Pendiente de revisión</span></td><td>Borrador listo; el perfil exige tu aprobación.</td><td><span class="btn">Revisar borrador…</span> <span class="btn">Descartar borrador</span></td></tr>
     <tr><td><span class="pill bad">Error</span></td><td>El Broker o la validación fallaron. El texto explica la causa y qué hacer.</td><td><span class="btn">Reintentar</span> <span class="btn">Ignorar este archivo</span></td></tr>
-    <tr><td><span class="pill warn">Formato no válido</span> · <span class="pill warn">Sin transcripción</span></td><td>El archivo de la bandeja no era una captura válida; está en cuarentena.</td><td><span class="btn">Abrir ubicación</span> <span class="btn">Cerrar incidencia</span></td></tr>
+    <tr><td><span class="pill warn">Formato no válido</span> · <span class="pill warn">Sin transcripción</span></td><td>El archivo de la bandeja no era una captura válida; está en cuarentena.</td><td><span class="btn">Importar como apuntes</span> (si es texto normal) <span class="btn">Abrir ubicación</span> <span class="btn">Cerrar incidencia</span></td></tr>
     <tr><td><span class="pill warn">Archivo bloqueado</span> · <span class="pill warn">Archivo inestable</span></td><td>Otro programa lo tenía abierto o seguía cambiando; sigue en la bandeja.</td><td><span class="btn">Reintentar</span> <span class="btn">Ignorar este archivo</span></td></tr>
     <tr><td><span class="pill ok">Completado</span></td><td>Publicado en la biblioteca.</td><td><span class="btn">Abrir ubicación</span></td></tr>
     <tr><td><span class="pill n">Cancelado</span> · <span class="pill n">Borrador descartado</span></td><td>No se publicó; el archivo y el historial se conservan.</td><td><span class="btn">Volver a procesar</span> (borrador descartado)</td></tr>
@@ -361,6 +361,8 @@ python -m knowledge_orchestrator.app --ui   (con PYTHONPATH=src y el entorno .ve
 
   <h3>Archivos rechazados (cuarentena)</h3>
   <figure><img src="img/s2_01_incidencia_cuarentena.png" alt=""><figcaption>Un archivo sin el formato de captura: está en cuarentena, con su motivo, y no se puede reintentar tal cual.</figcaption></figure>
+  <p>Si el archivo es un texto normal —unos apuntes o un resumen que ya hiciste— pulsa <span class="btn">Importar como apuntes</span>: se publica tal cual, sin resumirlo con el Broker, y la incidencia se cierra sola. Con varios a la vez, <span class="btn">Importar como apuntes (N)</span> bajo la lista hace lo mismo con todos. Acepta archivos en UTF-8 y en ANSI de Windows.</p>
+  <p>Las incidencias <span class="pill warn">Ya importado</span> son copias de documentos que ya se procesaron: <span class="btn">Cerrar ya importados (N)</span> bajo la lista las cierra todas de una vez (las copias siguen en la cuarentena).</p>
   <p>Pulsa <span class="btn">Abrir ubicación</span> para ir a la carpeta de cuarentena (<code>failed\contracts</code> dentro de los datos internos), corrige el archivo y vuelve a importarlo. Después, <span class="btn">Cerrar incidencia</span> la quita de la lista (el archivo sigue en cuarentena por si lo necesitas).</p>
 </section>
 

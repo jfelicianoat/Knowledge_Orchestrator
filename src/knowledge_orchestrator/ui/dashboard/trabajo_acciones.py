@@ -282,6 +282,71 @@ class AccionesMixin(DetalleMixin):
         self._selected_work_id = ids[0]
         self._retry_selected()
 
+    def _close_all_duplicates(self) -> None:
+        """Cierra de una vez las incidencias de copias de documentos que ya estaban importados."""
+
+        ids = [item.incident_id for item in self._work_items.values()
+               if item.category == "attention" and item.incident_id is not None
+               and item.error_code == "DUPLICATE_CAPTURE"]
+        if not ids or not messagebox.askyesno(
+            "Cerrar ya importados",
+            f"¿Cerrar {len(ids)} incidencias de documentos que ya estaban importados? El original ya está "
+            "procesado y las copias siguen en la cuarentena por si las necesitas.", parent=self,
+        ):
+            return
+        closed = sum(self.runtime.repository.ignore_ingestion_incident(incident_id) for incident_id in ids)
+        self.status_var.set(f"{closed} incidencia(s) de documentos ya importados cerradas.")
+        self._selected_work_id = None
+        self._selected_work_ids = ()
+        self._refresh(force=True)
+
+    def _import_all_as_notes(self) -> None:
+        items = [item for item in self._work_items.values()
+                 if item.category == "attention" and self._can_import_as_notes(item)]
+        if items and messagebox.askyesno(
+            "Importar como apuntes",
+            f"¿Publicar tal cual {len(items)} archivos apartados como apuntes propios, sin resumirlos con el "
+            "Broker? Los ficheros de la cuarentena no se modifican.", parent=self,
+        ):
+            self._import_incidents_as_notes(items)
+
+    def _import_incidents_as_notes(self, items: list[Any]) -> None:
+        """Convierte lo apartado por no ser captura en apuntes propios y cierra sus incidencias."""
+
+        def work() -> tuple[list[tuple[int, Path | None]], list[str]]:
+            done: list[tuple[int, Path | None]] = []  # (incidencia, captura nueva o None si ya estaba)
+            failures: list[str] = []
+            for item in items:
+                candidate = inspect_import(Path(item.path))
+                if candidate.kind != "ordinary":
+                    failures.append(f"{item.title}: {candidate.reason or 'parece una captura rota; corrígela'}")
+                elif self.runtime.repository.get(candidate.capture_id) is not None:
+                    done.append((item.incident_id, None))
+                else:
+                    try:
+                        done.append((item.incident_id,
+                                     write_converted(candidate.path, self.runtime.paths.inbox, own_notes=True)))
+                    except (OSError, ValueError, CaptureContractError) as error:
+                        failures.append(f"{item.title}: {error}")
+            return done, failures
+
+        def finish(outcome: tuple[list[tuple[int, Path | None]], list[str]]) -> None:
+            done, failures = outcome
+            imported = sum(1 for _incident, target in done if target and self.runtime.worker.submit(target))
+            for incident_id, _target in done:
+                self.runtime.repository.ignore_ingestion_incident(incident_id)
+            if failures:
+                messagebox.showwarning("Algunos archivos no se importaron", "\n".join(failures[:6]), parent=self)
+            already = sum(1 for _incident, target in done if target is None)
+            self.status_var.set(f"{imported} apunte(s) en proceso" + (f"; {already} ya estaban importados"
+                                                                     if already else "") + ".")
+            self._selected_work_id = None
+            self._selected_work_ids = ()
+            self._refresh(force=True)
+
+        self.status_var.set(f"Importando {len(items)} archivo(s) como apuntes…")
+        self._run_import_step(work, finish)
+
     def _open_selected_location(self) -> None:
         item = self._selected_item()
         if not item or not item.path:
@@ -308,6 +373,9 @@ class AccionesMixin(DetalleMixin):
             if single.status == "DRAFT_REJECTED":
                 self._reprocess_rejected_draft(single.capture_id)
                 return
+        notes = [item for item in self._selected_items() if self._can_import_as_notes(item)]
+        if notes:
+            self._import_incidents_as_notes(notes)
         items = tuple(item for item in self._selected_items() if self._can_send_item(item))
         if not items:
             return
