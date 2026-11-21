@@ -14,6 +14,7 @@ import asyncio
 import os
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import httpx
@@ -42,6 +43,12 @@ def step(name: str, cond: bool, detail: str = "") -> None:
     ok += 1
 
 
+#: Sufijo de esta ejecución. El id de captura forma la clave de idempotencia que llega al Broker
+#: (`<captura>:1:single`); fija, el Broker la recordaba de una pasada anterior con otro contenido y
+#: respondía 409 (auditoría de AI OS Core, 19-nov-2026).
+RUN = uuid.uuid4().hex[:8]
+
+
 def new_task(runtime, capture: str):
     source = runtime.paths.inbox / f"{capture}.md"
     document = generic_markdown(capture_id=capture).decode("utf-8").replace(
@@ -66,7 +73,7 @@ async def main() -> None:
             "conditions": [{"field": "operation_type", "operator": "equals", "value": "study_notes"}]}
     try:
         step("director pone DENY", director.post("/api/v1/policies", json=deny).status_code in (200, 201))
-        task = new_task(runtime, "verify_core_deny")
+        task = new_task(runtime, f"verify_core_deny_{RUN}")
         accepted = await BrokerDispatcher(repository, client).dispatch_once({task.task_id})
         saved = repository.get_task(task.task_id)
         step("con DENY no se envía y queda CORE_DENIED", accepted == 0 and saved.error_code == "CORE_DENIED",
@@ -75,14 +82,14 @@ async def main() -> None:
              in (200, 201))
 
         down = BrokerClient(BrokerSettings(**settings, core_url="http://127.0.0.1:9"))
-        task = new_task(runtime, "verify_core_down")
+        task = new_task(runtime, f"verify_core_down_{RUN}")
         accepted = await BrokerDispatcher(repository, down).dispatch_once({task.task_id})
         saved = repository.get_task(task.task_id)
         step("con Core caído no se envía y se reintentará", accepted == 0 and saved.status.value == "READY"
              and saved.next_retry_at is not None, saved.error_message[:140])
         await down.close()
 
-        task = new_task(runtime, "verify_core_allow")
+        task = new_task(runtime, f"verify_core_allow_{RUN}")
         accepted = await BrokerDispatcher(repository, client).dispatch_once({task.task_id})
         step("con ALLOW la tarea entra en el Broker real", accepted == 1)
         poller = BrokerPoller(repository, client, runtime.workflow_planner)
